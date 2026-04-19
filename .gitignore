@@ -1,0 +1,41 @@
+# --- Node ---
+
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Runtime data
+*.pid
+*.pid.lock
+*.seed
+
+# Coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# npm pack output
+*.tgz
+
+# --- OS ---
+
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Editor ---
+
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
