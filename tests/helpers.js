@@ -77,3 +77,36 @@ export async function commitFile(dir, filename, content, message) {
   await git.add("-A");
   await git.commit(message);
 }
+
+/**
+ * Create a progress collector that validates every onProgress call has the
+ * standard shape: { step: string, message: string, ...optional }.
+ *
+ * Use `collector.fn` as the onProgress callback, then call
+ * `collector.steps()` to get the list of step names and
+ * `collector.assertValid()` to verify all calls matched the contract.
+ *
+ * @returns {{ fn: function, calls: Array, steps: function, assertValid: function }}
+ */
+export function createProgressCollector() {
+  const calls = [];
+  return {
+    fn(info) {
+      calls.push(info);
+    },
+    calls,
+    steps() {
+      return calls.map((c) => c.step);
+    },
+    assertValid() {
+      for (const call of calls) {
+        if (typeof call.step !== "string" || !call.step) {
+          throw new Error(`onProgress call missing 'step': ${JSON.stringify(call)}`);
+        }
+        if (typeof call.message !== "string" || !call.message) {
+          throw new Error(`onProgress call missing 'message': ${JSON.stringify(call)}`);
+        }
+      }
+    },
+  };
+}

@@ -6,6 +6,17 @@ import simpleGit from "simple-git";
 import { GitError, NotARepoError, MergeConflictError, NothingToCommitError } from "./errors.js";
 
 /**
+ * Build a human-readable message from a simple-git progress event.
+ * @param {string} method - Git method name (e.g. "clone", "fetch").
+ * @param {string} stage - Progress stage (e.g. "receiving", "resolving").
+ * @param {number} percent - Completion percentage (0-100).
+ * @returns {string}
+ */
+function progressMessage(method, stage, percent) {
+  return `${method}: ${stage} ${percent}%`;
+}
+
+/**
  * Create a simple-git instance for a directory.
  * @param {string} dir
  */
@@ -13,7 +24,7 @@ function git(dir, { onProgress } = {}) {
   const options = { baseDir: dir };
   if (onProgress) {
     options.progress = ({ method, stage, progress }) => {
-      onProgress({ step: method, stage, percent: progress });
+      onProgress({ step: method, message: progressMessage(method, stage, progress), stage, percent: progress });
     };
   }
   return simpleGit(options);
@@ -56,7 +67,7 @@ export async function isRepo(dir) {
 export async function cloneRepo(url, dir, { onProgress } = {}) {
   try {
     await simpleGit({ progress: onProgress ? ({ method, stage, progress }) => {
-      onProgress({ step: method, stage, percent: progress });
+      onProgress({ step: method, message: progressMessage(method, stage, progress), stage, percent: progress });
     } : undefined }).clone(url, dir);
   } catch (err) {
     throw wrapError("clone", err);
@@ -305,7 +316,7 @@ export async function getCurrentBranch(dir) {
  */
 export async function merge(dir, ref, { onProgress } = {}) {
   try {
-    onProgress?.({ step: "merge", stage: `Merging ${ref}` });
+    onProgress?.({ step: "merge", message: `Merging ${ref}...` });
     await git(dir).merge([ref]);
   } catch (err) {
     // Check if the failure is due to merge conflicts

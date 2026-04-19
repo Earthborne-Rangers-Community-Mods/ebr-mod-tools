@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { input, select, checkbox, confirm } from "@inquirer/prompts";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
+import { resolve, basename } from "node:path";
 import { scaffoldMod, scaffoldModIntoClone } from "../core/workflows.js";
 import { isRepo, getRemotes } from "../core/git.js";
 import { buildManifest, toId } from "../core/manifest.js";
@@ -8,7 +9,7 @@ import { readManifest, writeManifest, validateNonEmpty, validateName, validateLa
 import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../core/catalogs.js";
 import { getGithubToken, getForkUrls, getAuthorDefaults } from "../core/config.js";
 import { getAuthenticatedUser } from "../core/github.js";
-import { AuthenticationError, ManifestNotFoundError, GitError } from "../core/errors.js";
+import { AuthenticationError, ManifestNotFoundError, GitError, ValidationError } from "../core/errors.js";
 
 const MOD_TYPE_CHOICES = MOD_TYPES.map(t => ({
   name: `${t.name} - ${t.description.toLowerCase()}`,
@@ -30,11 +31,10 @@ const EDITABLE_FIELDS = [
 
 export const newCommand = new Command("new")
   .description("Scaffold a new mod as a branch in your fork of ebr-mod-base-content")
-  .argument("[dir]", "Directory to scaffold into (default: current directory)")
   .option("--manifest-only", "Write the manifest file without git setup")
-  .action(async (dir, opts) => {
+  .action(async (opts) => {
     try {
-      const targetDir = dir || process.cwd();
+      const cwd = process.cwd();
 
       let forkUrl = null;
 
@@ -70,7 +70,7 @@ export const newCommand = new Command("new")
       // Detect existing repo
       let existingRepo = false;
       try {
-        existingRepo = await isRepo(targetDir);
+        existingRepo = await isRepo(cwd);
       } catch (err) {
         if (!(err instanceof GitError)) throw err;
         // Directory doesn't exist yet - not a repo
@@ -78,7 +78,7 @@ export const newCommand = new Command("new")
 
       if (existingRepo && !opts.manifestOnly) {
         // Verify it's actually a clone of ebr-mod-base-content
-        const remotes = await getRemotes(targetDir);
+        const remotes = await getRemotes(cwd);
         const isBaseContent = remotes.some(r =>
           r.refs?.fetch?.includes("ebr-mod-base-content") ||
           r.refs?.push?.includes("ebr-mod-base-content"),
@@ -106,7 +106,7 @@ export const newCommand = new Command("new")
       // Read existing manifest if present
       let existing = {};
       try {
-        existing = await readManifest(targetDir);
+        existing = await readManifest(cwd);
         console.log("Found existing ebr-mod.json.\n");
       } catch (err) {
         if (!(err instanceof ManifestNotFoundError)) throw err;
@@ -126,12 +126,45 @@ export const newCommand = new Command("new")
       // Build manifest
       const manifest = buildManifest(values);
 
+      // Resolve target directory
+      let targetDir;
+      if (existingRepo) {
+        // Existing repo - use current directory for branch creation
+        targetDir = cwd;
+      } else if (basename(cwd) === manifest.id) {
+        // Current folder already matches the mod ID - use it if empty
+        const entries = await readdir(cwd);
+        if (entries.length === 0) {
+          targetDir = cwd;
+        } else {
+          throw new ValidationError(
+            `Current directory matches mod ID "${manifest.id}" but is not empty.`,
+          );
+        }
+      } else {
+        // Create a subfolder named after the mod ID
+        targetDir = resolve(cwd, manifest.id);
+        try {
+          const entries = await readdir(targetDir);
+          if (entries.length > 0) {
+            throw new ValidationError(
+              `Directory "${targetDir}" already exists and is not empty.`,
+            );
+          }
+        } catch (err) {
+          if (err instanceof ValidationError) throw err;
+          // Directory doesn't exist yet - that's fine, scaffoldMod will create it
+        }
+      }
+
       // Confirm / edit loop
-      const confirmed = await confirmLoop(manifest);
+      const context = { manifest, targetDir, existingRepo };
+      const confirmed = await confirmLoop(context);
       if (!confirmed) {
         console.log("Cancelled.");
         return;
       }
+      targetDir = context.targetDir;
 
       if (opts.manifestOnly) {
         await mkdir(targetDir, { recursive: true });
@@ -224,7 +257,8 @@ async function promptMissing(values) {
 
 // --- Summary display ---
 
-function displaySummary(manifest) {
+function displaySummary(context) {
+  const { manifest, targetDir } = context;
   console.log("\n  Mod Summary:");
   console.log(`    Name:               ${manifest.name}`);
   console.log(`    ID:                 ${manifest.id}`);
@@ -237,6 +271,7 @@ function displaySummary(manifest) {
   console.log(`    Safe mid-campaign:  ${manifest.safeToAddMidCampaign ? "Yes" : "No"}`);
   console.log(`    Language:           ${manifest.language}`);
   console.log(`    Icon:               ${manifest.icon}`);
+  console.log(`    Directory:          ${targetDir}`);
   console.log();
 }
 
@@ -250,9 +285,10 @@ function formatFieldValue(manifest, key) {
 
 // --- Confirm / edit loop ---
 
-async function confirmLoop(manifest) {
+async function confirmLoop(context) {
+  const { manifest, existingRepo } = context;
   while (true) {
-    displaySummary(manifest);
+    displaySummary(context);
 
     const action = await select({
       message: "Does this look right?",
@@ -279,8 +315,25 @@ async function confirmLoop(manifest) {
         value: f.key,
       }));
 
+    // Add directory field (not editable for existing repos - branch goes into the clone)
+    if (!existingRepo) {
+      fieldChoices.push({
+        name: `Directory: ${context.targetDir}`,
+        value: "targetDir",
+      });
+    }
+
     const field = await select({ message: "Which field?", choices: fieldChoices });
-    await editField(manifest, field);
+    if (field === "targetDir") {
+      context.targetDir = await input({
+        message: "Target directory:",
+        default: context.targetDir,
+        validate: validateNonEmpty,
+      });
+      context.targetDir = resolve(context.targetDir);
+    } else {
+      await editField(manifest, field);
+    }
   }
 }
 

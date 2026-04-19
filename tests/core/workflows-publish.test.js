@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createTempDir, validManifest, writeManifestFile } from "../helpers.js";
+import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "../helpers.js";
 
 // --- Mock github.js and git.js at the module level ---
 
@@ -307,20 +307,20 @@ describe("publishMod", () => {
     const dir = await createTempDir();
     await writeManifestFile(dir, validManifest());
     setupGithubMocks();
-    const progress = vi.fn();
+    const progress = createProgressCollector();
 
-    await publishMod({ dir, token: TOKEN }, { onProgress: progress });
+    await publishMod({ dir, token: TOKEN }, { onProgress: progress.fn });
 
-    const steps = progress.mock.calls.map((c) => c[0].step);
-    expect(steps).toContain("validate");
-    expect(steps).toContain("check");
-    expect(steps).toContain("commit");
-    expect(steps).toContain("auth");
-    expect(steps).toContain("sync");
-    expect(steps).toContain("build");
-    expect(steps).toContain("branch");
-    expect(steps).toContain("write");
-    expect(steps).toContain("pr");
+    expect(progress.steps()).toContain("validate");
+    expect(progress.steps()).toContain("check");
+    expect(progress.steps()).toContain("commit");
+    expect(progress.steps()).toContain("auth");
+    expect(progress.steps()).toContain("sync");
+    expect(progress.steps()).toContain("build");
+    expect(progress.steps()).toContain("branch");
+    expect(progress.steps()).toContain("write");
+    expect(progress.steps()).toContain("pr");
+    progress.assertValid();
   });
 
   it("includes commit link in PR body", async () => {
@@ -391,11 +391,11 @@ describe("publishMod", () => {
     const dir = await createTempDir();
     await writeManifestFile(dir, validManifest());
     setupGithubMocks();
-    const progress = vi.fn();
+    const progress = createProgressCollector();
 
-    await publishMod({ dir, token: TOKEN }, { onProgress: progress });
+    await publishMod({ dir, token: TOKEN }, { onProgress: progress.fn });
 
-    const steps = progress.mock.calls.map((c) => c[0].step);
-    expect(steps).toContain("check");
+    expect(progress.steps()).toContain("check");
+    progress.assertValid();
   });
 });

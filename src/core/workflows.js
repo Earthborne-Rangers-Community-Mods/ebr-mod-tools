@@ -62,7 +62,7 @@ export async function scaffoldModIntoClone({ dir, manifest }, { onProgress } = {
   const modBranch = getModBranchName(manifest.id);
 
   onProgress?.({ step: "fetch", message: "Fetching latest from origin..." });
-  await fetchRemote(dir, "origin", { onProgress });
+  await fetchRemote(dir, "origin");
 
   onProgress?.({ step: "branch", message: `Creating branch ${modBranch}...` });
   await createLocalBranch(dir, modBranch, "origin/main");
@@ -105,7 +105,7 @@ export async function scaffoldMod({ dir, manifest, forkUrl }, { onProgress } = {
 
   // Clone the fork
   onProgress?.({ step: "clone", message: "Cloning fork..." });
-  await cloneRepo(forkUrl, dir, { onProgress });
+  await cloneRepo(forkUrl, dir);
 
   // Add base remote pointing to upstream
   onProgress?.({ step: "remote", message: "Adding base content remote..." });

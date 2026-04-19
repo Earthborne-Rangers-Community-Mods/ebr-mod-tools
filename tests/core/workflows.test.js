@@ -6,7 +6,7 @@ import { scaffoldMod, scaffoldModIntoClone, saveMod, getModBranchName } from "..
 import { readManifest, buildManifest, toId } from "../../src/core/manifest.js";
 import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push } from "../../src/core/git.js";
 import { ManifestError, NothingToCommitError, GitError, ValidationError } from "../../src/core/errors.js";
-import { createTempDir, validManifest, writeManifestFile } from "../helpers.js";
+import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "../helpers.js";
 
 // --- Helpers ---
 
@@ -227,14 +227,15 @@ describe("scaffoldMod", () => {
 
   it("calls onProgress with step names", async () => {
     const subDir = join(tmpDir, "my-mod");
-    const steps = [];
+    const progress = createProgressCollector();
     const manifest = buildManifest(BASE_OPTIONS);
     await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir }, {
-      onProgress: ({ step }) => steps.push(step),
+      onProgress: progress.fn,
     });
-    expect(steps).toContain("clone");
-    expect(steps).toContain("branch");
-    expect(steps).toContain("manifest");
+    expect(progress.steps()).toContain("clone");
+    expect(progress.steps()).toContain("branch");
+    expect(progress.steps()).toContain("manifest");
+    progress.assertValid();
   });
 
   it("throws GitError when forkUrl is not provided (missing config)", async () => {
@@ -283,16 +284,17 @@ describe("scaffoldModIntoClone", () => {
     await g.addConfig("user.name", "Test User");
     await g.addConfig("user.email", "test@example.com");
 
-    const steps = [];
+    const progress = createProgressCollector();
     const manifest = buildManifest(BASE_OPTIONS);
     const result = await scaffoldModIntoClone({ dir: existingDir, manifest }, {
-      onProgress: ({ step }) => steps.push(step),
+      onProgress: progress.fn,
     });
 
-    expect(steps).toContain("fetch");
-    expect(steps).toContain("branch");
-    expect(steps).toContain("manifest");
-    expect(steps).not.toContain("clone");
+    expect(progress.steps()).toContain("fetch");
+    expect(progress.steps()).toContain("branch");
+    expect(progress.steps()).toContain("manifest");
+    expect(progress.steps()).not.toContain("clone");
+    progress.assertValid();
 
     expect(result.branch).toBe("mod/expanded-boulder-field");
     const branch = await g.branchLocal();
@@ -427,16 +429,17 @@ describe("saveMod", () => {
 
   it("calls onProgress at each step", async () => {
     await writeFile(join(tmpDir, "file.md"), "content");
-    const steps = [];
+    const progress = createProgressCollector();
 
     await saveMod(
       { dir: tmpDir, commitMessage: "progress test" },
-      { onProgress: (p) => steps.push(p.step) },
+      { onProgress: progress.fn },
     );
 
-    expect(steps).toContain("stage");
-    expect(steps).toContain("commit");
-    expect(steps).toContain("push");
+    expect(progress.steps()).toContain("stage");
+    expect(progress.steps()).toContain("commit");
+    expect(progress.steps()).toContain("push");
+    progress.assertValid();
   });
 
   it("only stages files with allowed extensions", async () => {

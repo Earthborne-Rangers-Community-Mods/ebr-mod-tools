@@ -4,7 +4,7 @@ import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../../src/core/catalogs.j
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../../src/core/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createTempDir, validManifest, writeManifestFile } from "../helpers.js";
+import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "../helpers.js";
 
 // --- Helpers ---
 
@@ -653,15 +653,16 @@ describe("updateManifest", () => {
   it("calls onProgress with expected steps", async () => {
     await writeManifestFile(tmpDir, validManifest());
 
-    const steps = [];
+    const progress = createProgressCollector();
     await updateManifest(
       { dir: tmpDir, version: "1.0.1" },
-      { onProgress: (p) => steps.push(p.step) },
+      { onProgress: progress.fn },
     );
 
-    expect(steps).toContain("read");
-    expect(steps).toContain("version");
-    expect(steps).toContain("write");
+    expect(progress.steps()).toContain("read");
+    expect(progress.steps()).toContain("version");
+    expect(progress.steps()).toContain("write");
+    progress.assertValid();
   });
 
   it("preserves all other manifest fields", async () => {
