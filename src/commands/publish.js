@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
+import open from "open";
 import { getGithubToken } from "../core/config.js";
 import { publishMod } from "../core/workflows.js";
 import { ManifestError, ManifestNotFoundError, GithubError, AuthenticationError, GitError, UnpushedChangesError, ModIdConflictError } from "../core/errors.js";
@@ -35,10 +36,14 @@ async function publishAction(opts) {
       }
 
       // Report result
-      if (result.pr) {
-        console.log(`\n${result.isUpdate ? "Update" : "New mod"} PR opened: ${result.pr.url}`);
-      } else if (result.existingPr) {
+      if (result.existingPr) {
         console.log(`\nExisting PR updated: ${result.existingPr.url}`);
+        console.log("The branch has been refreshed with your latest changes.");
+      } else {
+        console.log("\nOpening GitHub to create your pull request...");
+        await open(result.compareUrl, { wait: true });
+        console.log("If the browser didn't open, visit:");
+        console.log(`  ${result.compareUrl}`);
       }
 
       console.log(`\nCommit: ${result.commitHash.slice(0, 7)}`);

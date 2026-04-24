@@ -83,7 +83,6 @@ describe("buildRegistryEntry", () => {
     expect(entry.type).toBe("enhancement");
     expect(entry.campaigns).toEqual(["lure-of-the-valley"]);
     expect(entry.requiredProducts).toEqual(["core-set"]);
-    expect(entry.baseVersion).toBe("1.0.0");
     expect(entry.safeToAddMidCampaign).toBe(true);
     expect(entry.language).toBe("en");
   });

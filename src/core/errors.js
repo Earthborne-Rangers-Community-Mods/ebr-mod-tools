@@ -87,23 +87,24 @@ export class ConfigError extends Error {
 }
 
 export class GithubError extends Error {
-  constructor(operation, message) {
+  constructor(operation, message, httpStatus) {
     super(message);
     this.name = "GithubError";
     this.operation = operation;
+    this.httpStatus = httpStatus ?? null;
   }
 }
 
 export class AuthenticationError extends GithubError {
   constructor() {
-    super("auth", "GitHub authentication failed. Check your token.");
+    super("auth", "GitHub authentication failed. Check your token.", 401);
     this.name = "AuthenticationError";
   }
 }
 
 export class GithubFileNotFoundError extends GithubError {
   constructor(operation, path) {
-    super(operation, `File not found: ${path}`);
+    super(operation, `File not found: ${path}`, 404);
     this.name = "GithubFileNotFoundError";
     this.path = path;
   }

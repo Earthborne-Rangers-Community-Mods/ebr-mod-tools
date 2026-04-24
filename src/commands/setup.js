@@ -338,7 +338,7 @@ async function checkTokenPermissions(token, login) {
     try {
       await getFileContent(token, { owner, repo, path: "README.md" });
     } catch (err) {
-      if (err instanceof GithubError && err.message.includes("403")) {
+      if (err instanceof GithubError && err.httpStatus === 403) {
         issues.push(`Contents permission missing for ${label}`);
       }
       // 404 is fine (README might not exist) - only 403 means no permission
@@ -353,7 +353,7 @@ async function checkTokenPermissions(token, login) {
     try {
       await listPullRequests(token, { owner, repo, state: "closed" });
     } catch (err) {
-      if (err instanceof GithubError && err.message.includes("403")) {
+      if (err instanceof GithubError && err.httpStatus === 403) {
         issues.push(`Pull requests permission missing for ${label}`);
       }
     }

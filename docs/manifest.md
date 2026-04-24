@@ -6,6 +6,7 @@ Every mod repo has an `ebr-mod.json` file at its root. This file describes the m
 
 ```json
 {
+  "schemaVersion": 1,
   "name": "Expanded Boulder Field",
   "id": "expanded-boulder-field",
   "version": "1.2.0",
@@ -17,7 +18,6 @@ Every mod repo has an `ebr-mod.json` file at its root. This file describes the m
   "campaigns": ["lure-of-the-valley"],
   "requiredProducts": ["core-set"],
   "optionalProducts": [],
-  "baseVersion": "1.0.0",
   "safeToAddMidCampaign": true,
   "midCampaignNotes": "Safe before day 15. After day 15, you'll miss conent.",
   "coverImage": "cover.png",
@@ -28,6 +28,10 @@ Every mod repo has an `ebr-mod.json` file at its root. This file describes the m
 ```
 
 ## Required Fields
+
+### `schemaVersion`
+
+Integer identifying the manifest schema version. Used by tools to handle forward-compatible parsing.
 
 ### `name`
 
@@ -97,10 +101,6 @@ Array of product identifiers the player **must own** to play this mod. This can'
 - `"incandescent-sky"`
 
 The canonical list lives in [`src/core/catalogs.js`](../src/core/catalogs.js).
-
-### `baseVersion`
-
-Semver version of the `ebr-mod-base-content` repo this mod was built and tested against (e.g., `"1.0.0"`). Updated automatically when you include base content via `ebr include base` or `ebr update`.
 
 ### `safeToAddMidCampaign`
 
@@ -178,6 +178,7 @@ Collections combine multiple mods into a single pre-merged experience. The `incl
 
 ```json
 {
+  "schemaVersion": 1,
   "name": "Ultimate Valley Experience",
   "id": "ultimate-valley-experience",
   "version": "1.0.0",
@@ -189,7 +190,6 @@ Collections combine multiple mods into a single pre-merged experience. The `incl
   "campaigns": ["lure-of-the-valley"],
   "requiredProducts": ["core-set", "spire-in-bloom"],
   "optionalProducts": ["shadow-of-the-storm"],
-  "baseVersion": "1.0.0",
   "includedMods": [
     { "id": "expanded-boulder-field", "name": "Expanded Boulder Field", "author": "ModCreatorName", "version": "1.2.0", "repoUrl": "https://github.com/creator/ebr-mod-base-content" },
     { "id": "deeper-spire", "name": "Deeper Spire", "author": "SpireEnjoyer", "version": "2.0.1", "repoUrl": "https://github.com/spire-enjoyer/ebr-mod-base-content" },
@@ -211,7 +211,7 @@ Run `ebr validate` or `ebr publish` to check your manifest. The validator checks
 - All required fields are present
 - `type` is one of the recognized values
 - `id` is valid kebab-case
-- `version` and `baseVersion` are semver strings
+- `version` is a semver string
 - `campaigns`, `requiredProducts`, `tags`, and `optionalProducts` are arrays (when present)
 - `safeToAddMidCampaign` is a boolean
 - `language` is a valid BCP 47 tag

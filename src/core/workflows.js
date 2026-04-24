@@ -15,9 +15,9 @@ import {
   createBranch,
   updateBranchRef,
   getRefSha,
-  createPullRequest,
   listPullRequests,
   getAuthenticatedUser,
+  syncFork,
   normalizeGithubUrl,
 } from "./github.js";
 import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError } from "./errors.js";
@@ -202,6 +202,22 @@ function buildPrBody(manifest, commitHash, isUpdate) {
 }
 
 /**
+ * Build a GitHub compare URL that pre-fills a PR form.
+ * @param {object} options
+ * @param {string} options.registryOwner
+ * @param {string} options.registryRepo
+ * @param {string} options.base - Target branch (e.g., "main").
+ * @param {string} options.head - Source ref (e.g., "user:publish/mod-id").
+ * @param {string} options.title - Pre-filled PR title.
+ * @param {string} options.body - Pre-filled PR body.
+ * @returns {string}
+ */
+function buildCompareUrl({ registryOwner, registryRepo, base, head, title, body }) {
+  const params = new URLSearchParams({ expand: "1", title, body });
+  return `https://github.com/${registryOwner}/${registryRepo}/compare/${base}...${head}?${params}`;
+}
+
+/**
  * Publish or update a mod in the registry.
  *
  * 1. Read and validate ebr-mod.json.
@@ -214,9 +230,10 @@ function buildPrBody(manifest, commitHash, isUpdate) {
  * 8. **Mod ID ownership check:** If the mod file exists and belongs to a
  *    different author/repoUrl, abort with ModIdConflictError.
  * 9. Build the registry entry.
- * 10. Create a branch in the fork from upstream's latest main.
- * 11. Write the mod file (`mods/<mod-id>.json`) to the branch.
- * 12. Open a PR (or report an existing one).
+ * 10. Sync fork with upstream.
+ * 11. Create a branch in the fork from upstream's latest main.
+ * 12. Write the mod file (`mods/<mod-id>.json`) to the branch.
+ * 13. Check for existing PR or build a compare URL for the user to open.
  *
  * The registry fork is assumed to already exist (set up during `ebr setup`).
  *
@@ -227,7 +244,7 @@ function buildPrBody(manifest, commitHash, isUpdate) {
  * @param {string} [options.registryRepo] - Upstream registry repo name.
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress] - Progress callback ({ step, message }).
- * @returns {Promise<{pr: {number, url}|null, existingPr: {number, url}|null, entry: object, commitHash: string, isUpdate: boolean, includedModWarnings: Array}>}
+ * @returns {Promise<{existingPr: {number, url}|null, compareUrl: string, entry: object, commitHash: string, isUpdate: boolean, includedModWarnings: Array}>}
  */
 export async function publishMod(
   { dir, token, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO },
@@ -334,7 +351,25 @@ export async function publishMod(
   const entry = buildRegistryEntry(manifest, commitHash);
   const entryJson = JSON.stringify(entry, null, 2) + "\n";
 
-  // 10. Create branch in fork from upstream's main
+  // 10. Sync fork with upstream so the SHA exists in the fork
+  onProgress?.({ step: "sync-fork", message: "Syncing fork with upstream..." });
+  try {
+    await syncFork(token, { owner: forkOwner, repo: registryRepo, branch: REGISTRY_BASE_BRANCH });
+  } catch (err) {
+    // 409 = merge conflict, 422 = other sync failure (e.g. fork diverged).
+    // In both cases, force-reset the fork's default branch to upstream.
+    // This should be safe because the fork's main should never have independent work.
+    if (err instanceof GithubError && (err.httpStatus === 409 || err.httpStatus === 422)) {
+      await updateBranchRef(token, {
+        owner: forkOwner, repo: registryRepo,
+        branch: REGISTRY_BASE_BRANCH, sha: upstreamSha,
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  // 11. Create branch in fork from upstream's main
   onProgress?.({ step: "branch", message: "Creating publish branch..." });
   const branchName = `publish/${manifest.id}`;
 
@@ -355,7 +390,7 @@ export async function publishMod(
     }
   }
 
-  // 11. Write mod file to the branch
+  // 12. Write mod file to the branch
   onProgress?.({ step: "write", message: "Writing mod entry..." });
   await createOrUpdateFileContent(token, {
     owner: forkOwner, repo: registryRepo, path: modFilePath,
@@ -367,30 +402,31 @@ export async function publishMod(
     branch: branchName,
   });
 
-  // 12. Open PR (or find existing one)
-  onProgress?.({ step: "pr", message: "Opening pull request..." });
+  // 13. Check for existing PR or build compare URL for the user to open
+  onProgress?.({ step: "pr", message: "Checking for existing pull request..." });
   const head = `${forkOwner}:${branchName}`;
 
-  const existingPRs = await listPullRequests(token, {
-    owner: registryOwner, repo: registryRepo, head, state: "open",
-  });
-
-  let pr = null;
   let existingPr = null;
-
-  if (existingPRs.length > 0) {
-    existingPr = existingPRs[0];
-  } else {
-    const prTitle = isUpdate
-      ? `Update: ${manifest.name} v${manifest.version}`
-      : `New mod: ${manifest.name} v${manifest.version}`;
-
-    pr = await createPullRequest(token, {
-      owner: registryOwner, repo: registryRepo,
-      title: prTitle, body: buildPrBody(manifest, commitHash, isUpdate),
-      head, base: REGISTRY_BASE_BRANCH,
+  try {
+    const existingPRs = await listPullRequests(token, {
+      owner: registryOwner, repo: registryRepo, head, state: "open",
     });
+    if (existingPRs.length > 0) {
+      existingPr = existingPRs[0];
+    }
+  } catch {
+    // Listing PRs on upstream may fail with fine-grained PATs - not critical
   }
 
-  return { pr, existingPr, entry, commitHash, isUpdate, includedModWarnings };
+  const prTitle = isUpdate
+    ? `Update: ${manifest.name} v${manifest.version}`
+    : `New mod: ${manifest.name} v${manifest.version}`;
+
+  const compareUrl = buildCompareUrl({
+    registryOwner, registryRepo, base: REGISTRY_BASE_BRANCH,
+    head: `${forkOwner}:${branchName}`,
+    title: prTitle, body: buildPrBody(manifest, commitHash, isUpdate),
+  });
+
+  return { existingPr, compareUrl, entry, commitHash, isUpdate, includedModWarnings };
 }

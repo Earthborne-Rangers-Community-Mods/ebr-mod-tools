@@ -73,7 +73,7 @@ describe("buildManifest", () => {
     expect(manifest.safeToAddMidCampaign).toBe(true);
     expect(manifest.language).toBe("en");
     expect(manifest.tags).toEqual([]);
-    expect(manifest.baseVersion).toBe("1.0.0");
+    expect(manifest.schemaVersion).toBe(1);
     expect(manifest.repoUrl).toBe("");
   });
 
@@ -115,10 +115,9 @@ describe("buildManifest", () => {
     expect(manifest.includedMods).toEqual([]);
   });
 
-  it("preserves existing version and baseVersion", () => {
-    const manifest = buildManifest({ ...BASE_OPTIONS, version: "1.2.3", baseVersion: "2.0.0" });
+  it("preserves existing version", () => {
+    const manifest = buildManifest({ ...BASE_OPTIONS, version: "1.2.3" });
     expect(manifest.version).toBe("1.2.3");
-    expect(manifest.baseVersion).toBe("2.0.0");
   });
 });
 

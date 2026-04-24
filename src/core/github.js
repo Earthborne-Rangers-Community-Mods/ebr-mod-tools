@@ -26,12 +26,14 @@ export function normalizeGithubUrl(url) {
   return null;
 }
 
+const noopLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+
 /**
  * Create an authenticated Octokit instance.
  * @param {string} token - GitHub personal access token.
  */
 function octokit(token) {
-  return new Octokit({ auth: token });
+  return new Octokit({ auth: token, log: noopLog });
 }
 
 /**
@@ -39,13 +41,14 @@ function octokit(token) {
  * Checks HTTP status for known failure modes.
  */
 function wrapError(operation, err, context) {
+  if (err instanceof GithubError) return err;
   if (err.status === 401) {
     return new AuthenticationError();
   }
   if (err.status === 404 && context?.path) {
     return new GithubFileNotFoundError(operation, context.path);
   }
-  return new GithubError(operation, err.message || String(err));
+  return new GithubError(operation, err.message || String(err), err.status);
 }
 
 /**
@@ -108,6 +111,27 @@ export async function forkRepo(token, { owner, repo, name }) {
     };
   } catch (err) {
     throw wrapError("forkRepo", err);
+  }
+}
+
+/**
+ * Sync a fork's branch with its upstream parent.
+ * Uses GitHub's merge-upstream API endpoint.
+ * @param {string} token
+ * @param {object} options
+ * @param {string} options.owner - Fork owner.
+ * @param {string} options.repo - Fork repo name.
+ * @param {string} options.branch - Branch to sync (e.g., "main").
+ */
+export async function syncFork(token, { owner, repo, branch }) {
+  try {
+    await octokit(token).request("POST /repos/{owner}/{repo}/merge-upstream", {
+      owner,
+      repo,
+      branch,
+    });
+  } catch (err) {
+    throw wrapError("syncFork", err);
   }
 }
 
@@ -199,11 +223,13 @@ export async function createBranch(token, { owner, repo, branch, sha }) {
  */
 export async function getRefSha(token, { owner, repo, ref }) {
   try {
-    const { data } = await octokit(token).rest.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${ref}`,
-    });
+    // Embed "heads/" in the URL template so only the branch name is a
+    // parameter. Octokit encodes all {param} values with encodeURIComponent,
+    // which turns "heads/main" into "heads%2Fmain" and causes a 404.
+    const { data } = await octokit(token).request(
+      "GET /repos/{owner}/{repo}/git/ref/heads/{branch}",
+      { owner, repo, branch: ref },
+    );
     return data.object.sha;
   } catch (err) {
     throw wrapError("getRefSha", err);
@@ -248,10 +274,10 @@ export async function createPullRequest(token, { owner, repo, title, body, head,
  */
 export async function deleteBranch(token, { owner, repo, branch }) {
   try {
-    await octokit(token).rest.git.deleteRef({
+    await octokit(token).request("DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}", {
       owner,
       repo,
-      ref: `heads/${branch}`,
+      branch,
     });
   } catch (err) {
     throw wrapError("deleteBranch", err);
@@ -269,10 +295,10 @@ export async function deleteBranch(token, { owner, repo, branch }) {
  */
 export async function updateBranchRef(token, { owner, repo, branch, sha }) {
   try {
-    await octokit(token).rest.git.updateRef({
+    await octokit(token).request("PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}", {
       owner,
       repo,
-      ref: `heads/${branch}`,
+      branch,
       sha,
       force: true,
     });

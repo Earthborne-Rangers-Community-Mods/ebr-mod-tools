@@ -31,7 +31,7 @@ export function validManifest(overrides = {}) {
     author: "TestAuthor",
     campaigns: ["lure-of-the-valley"],
     requiredProducts: ["core-set"],
-    baseVersion: "1.0.0",
+    schemaVersion: 1,
     safeToAddMidCampaign: true,
     language: "en",
     repoUrl: "https://github.com/test/ebr-test-mod",

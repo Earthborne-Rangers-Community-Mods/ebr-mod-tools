@@ -11,6 +11,7 @@ import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "./catalogs.js"
 const MANIFEST_FILENAME = "ebr-mod.json";
 
 const REQUIRED_FIELDS = [
+  "schemaVersion",
   "name",
   "id",
   "version",
@@ -19,7 +20,6 @@ const REQUIRED_FIELDS = [
   "author",
   "campaigns",
   "requiredProducts",
-  "baseVersion",
   "safeToAddMidCampaign",
   "language",
   "repoUrl",
@@ -194,11 +194,6 @@ export function validateManifest(manifest) {
   // Version format: semver-like
   if (manifest.version !== undefined && validateVersion(manifest.version) !== true) {
     errors.push({ code: VALIDATION_CODES.INVALID_VERSION_FORMAT, field: "version", value: manifest.version });
-  }
-
-  // baseVersion format
-  if (manifest.baseVersion !== undefined && validateVersion(manifest.baseVersion) !== true) {
-    errors.push({ code: VALIDATION_CODES.INVALID_VERSION_FORMAT, field: "baseVersion", value: manifest.baseVersion });
   }
 
   // Array fields
@@ -431,6 +426,7 @@ export function toId(name) {
 export function buildManifest(options) {
   const id = options.id || toId(options.name);
   const manifest = {
+    schemaVersion: 1,
     name: options.name,
     id,
     version: options.version || "0.1.0",
@@ -439,7 +435,6 @@ export function buildManifest(options) {
     author: options.author,
     campaigns: options.campaigns,
     requiredProducts: options.requiredProducts,
-    baseVersion: options.baseVersion || "1.0.0",
     safeToAddMidCampaign: options.safeToAddMidCampaign,
     language: options.language,
     tags: options.tags || [],

@@ -165,7 +165,7 @@ describe("validateManifest", () => {
     expect(missingFields).toContain("author");
     expect(missingFields).toContain("campaigns");
     expect(missingFields).toContain("requiredProducts");
-    expect(missingFields).toContain("baseVersion");
+    expect(missingFields).toContain("schemaVersion");
     expect(missingFields).toContain("safeToAddMidCampaign");
     expect(missingFields).toContain("language");
     expect(missingFields).toContain("repoUrl");
@@ -244,13 +244,6 @@ describe("validateManifest", () => {
   it("accepts standard semver", () => {
     const errors = validateManifest(validManifest({ version: "2.10.3" }));
     expect(errors.filter((e) => e.code === VALIDATION_CODES.INVALID_VERSION_FORMAT)).toEqual([]);
-  });
-
-  // --- baseVersion format ---
-
-  it("rejects non-semver baseVersion", () => {
-    const errors = validateManifest(validManifest({ baseVersion: "latest" }));
-    expect(hasError(errors, { code: VALIDATION_CODES.INVALID_VERSION_FORMAT, field: "baseVersion" })).toBe(true);
   });
 
   // --- Array fields ---

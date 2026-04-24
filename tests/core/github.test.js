@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   createRef: vi.fn(),
   deleteRef: vi.fn(),
   updateRef: vi.fn(),
-  getRef: vi.fn(),
+  request: vi.fn(),
   pullsCreate: vi.fn(),
   pullsList: vi.fn(),
   reposGet: vi.fn(),
@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@octokit/rest", () => ({
   Octokit: vi.fn(function () {
+    this.request = mocks.request;
     this.rest = {
       users: { getAuthenticated: mocks.getAuthenticated },
       repos: {
@@ -26,7 +27,7 @@ vi.mock("@octokit/rest", () => ({
         createOrUpdateFileContents: mocks.createOrUpdateFileContents,
         get: mocks.reposGet,
       },
-      git: { createRef: mocks.createRef, deleteRef: mocks.deleteRef, updateRef: mocks.updateRef, getRef: mocks.getRef },
+      git: { createRef: mocks.createRef, deleteRef: mocks.deleteRef, updateRef: mocks.updateRef },
       pulls: { create: mocks.pullsCreate, list: mocks.pullsList },
     };
   }),
@@ -44,6 +45,7 @@ import {
   getRefSha,
   createPullRequest,
   listPullRequests,
+  syncFork,
   normalizeGithubUrl,
 } from "../../src/core/github.js";
 import {
@@ -258,6 +260,30 @@ describe("forkRepo", () => {
   });
 });
 
+// --- syncFork ---
+
+describe("syncFork", () => {
+  it("calls merge-upstream API", async () => {
+    mocks.request.mockResolvedValue({ data: { merge_type: "fast-forward" } });
+
+    await syncFork(TOKEN, { owner: "test-user", repo: "ebr-mod-registry", branch: "main" });
+
+    expect(mocks.request).toHaveBeenCalledWith("POST /repos/{owner}/{repo}/merge-upstream", {
+      owner: "test-user",
+      repo: "ebr-mod-registry",
+      branch: "main",
+    });
+  });
+
+  it("throws GithubError on failure", async () => {
+    mocks.request.mockRejectedValue(makeApiError("Conflict", 409));
+
+    const err = await syncFork(TOKEN, { owner: "x", repo: "y", branch: "main" }).catch((e) => e);
+    expect(err).toBeInstanceOf(GithubError);
+    expect(err.operation).toBe("syncFork");
+  });
+});
+
 // --- getFileContent ---
 
 describe("getFileContent", () => {
@@ -461,7 +487,7 @@ describe("createBranch", () => {
 
 describe("deleteBranch", () => {
   it("deletes a git ref", async () => {
-    mocks.deleteRef.mockResolvedValue({ data: {} });
+    mocks.request.mockResolvedValue({ data: {} });
 
     await deleteBranch(TOKEN, {
       owner: "test-user",
@@ -469,15 +495,15 @@ describe("deleteBranch", () => {
       branch: "publish/my-mod",
     });
 
-    expect(mocks.deleteRef).toHaveBeenCalledWith({
+    expect(mocks.request).toHaveBeenCalledWith("DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}", {
       owner: "test-user",
       repo: "ebr-mod-registry",
-      ref: "heads/publish/my-mod",
+      branch: "publish/my-mod",
     });
   });
 
   it("throws GithubError on failure", async () => {
-    mocks.deleteRef.mockRejectedValue(makeApiError("Not Found", 404));
+    mocks.request.mockRejectedValue(makeApiError("Not Found", 404));
 
     const err = await deleteBranch(TOKEN, {
       owner: "test-user",
@@ -493,7 +519,7 @@ describe("deleteBranch", () => {
 
 describe("updateBranchRef", () => {
   it("force-updates a git ref to a new SHA", async () => {
-    mocks.updateRef.mockResolvedValue({ data: {} });
+    mocks.request.mockResolvedValue({ data: {} });
 
     await updateBranchRef(TOKEN, {
       owner: "test-user",
@@ -502,17 +528,17 @@ describe("updateBranchRef", () => {
       sha: "abc123def456",
     });
 
-    expect(mocks.updateRef).toHaveBeenCalledWith({
+    expect(mocks.request).toHaveBeenCalledWith("PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}", {
       owner: "test-user",
       repo: "ebr-mod-registry",
-      ref: "heads/publish/my-mod",
+      branch: "publish/my-mod",
       sha: "abc123def456",
       force: true,
     });
   });
 
   it("throws GithubError on failure", async () => {
-    mocks.updateRef.mockRejectedValue(makeApiError("Not Found", 404));
+    mocks.request.mockRejectedValue(makeApiError("Not Found", 404));
 
     const err = await updateBranchRef(TOKEN, {
       owner: "test-user",
@@ -529,7 +555,7 @@ describe("updateBranchRef", () => {
 
 describe("getRefSha", () => {
   it("returns the sha for a branch", async () => {
-    mocks.getRef.mockResolvedValue({
+    mocks.request.mockResolvedValue({
       data: { object: { sha: "head-sha-123" } },
     });
 
@@ -540,15 +566,14 @@ describe("getRefSha", () => {
     });
 
     expect(sha).toBe("head-sha-123");
-    expect(mocks.getRef).toHaveBeenCalledWith({
-      owner: "test-user",
-      repo: "ebr-mod-registry",
-      ref: "heads/main",
-    });
+    expect(mocks.request).toHaveBeenCalledWith(
+      "GET /repos/{owner}/{repo}/git/ref/heads/{branch}",
+      { owner: "test-user", repo: "ebr-mod-registry", branch: "main" },
+    );
   });
 
   it("throws GithubError for unknown ref", async () => {
-    mocks.getRef.mockRejectedValue(makeApiError("Not Found", 404));
+    mocks.request.mockRejectedValue(makeApiError("Not Found", 404));
 
     await expect(
       getRefSha(TOKEN, { owner: "x", repo: "y", ref: "nonexistent" })
@@ -712,7 +737,7 @@ describe("Octokit token passing", () => {
 
     await getAuthenticatedUser("ghp_my_secret_token");
 
-    expect(Octokit).toHaveBeenCalledWith({ auth: "ghp_my_secret_token" });
+    expect(Octokit).toHaveBeenCalledWith(expect.objectContaining({ auth: "ghp_my_secret_token" }));
   });
 });
 
@@ -730,7 +755,7 @@ describe("error wrapping", () => {
   });
 
   it("preserves the operation name on GithubError", async () => {
-    mocks.getRef.mockRejectedValue(makeApiError("Server Error", 500));
+    mocks.request.mockRejectedValue(makeApiError("Server Error", 500));
 
     const err = await getRefSha(TOKEN, {
       owner: "x",

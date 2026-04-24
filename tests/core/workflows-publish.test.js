@@ -10,8 +10,8 @@ const githubMocks = vi.hoisted(() => ({
   createBranch: vi.fn(),
   updateBranchRef: vi.fn(),
   getRefSha: vi.fn(),
-  createPullRequest: vi.fn(),
   listPullRequests: vi.fn(),
+  syncFork: vi.fn(),
 }));
 
 const gitMocks = vi.hoisted(() => ({
@@ -76,10 +76,8 @@ function setupGithubMocks({ registry = emptyRegistry(), modFileExists = false, e
 
   githubMocks.createBranch.mockResolvedValue(undefined);
   githubMocks.updateBranchRef.mockResolvedValue(undefined);
+  githubMocks.syncFork.mockResolvedValue(undefined);
   githubMocks.createOrUpdateFileContent.mockResolvedValue({ commitSha: "new-commit-sha" });
-  githubMocks.createPullRequest.mockResolvedValue({
-    number: 42, url: "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pull/42",
-  });
   githubMocks.listPullRequests.mockResolvedValue([]);
   gitMocks.getHeadCommit.mockResolvedValue(COMMIT_SHA);
   gitMocks.getStatus.mockResolvedValue({ isClean: true, modified: [], staged: [], created: [], conflicted: [] });
@@ -105,10 +103,9 @@ describe("publishMod", () => {
 
     expect(result.isUpdate).toBe(false);
     expect(result.commitHash).toBe(COMMIT_SHA);
-    expect(result.pr).toEqual({
-      number: 42,
-      url: "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pull/42",
-    });
+    expect(result.compareUrl).toContain("https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/compare/main...test-user:publish/test-mod");
+    expect(result.compareUrl).toContain("expand=1");
+    expect(result.compareUrl).toContain("title=New+mod");
     expect(result.existingPr).toBeNull();
     expect(result.entry.id).toBe("test-mod");
     expect(result.entry.latestVersion).toBe("1.0.0");
@@ -202,36 +199,29 @@ describe("publishMod", () => {
     expect(call[1].sha).toBe("existing-mod-file-sha-456");
   });
 
-  it("opens a PR with standardized title for new mod", async () => {
+  it("compare URL contains new-mod title for new mod", async () => {
     const dir = await createTempDir();
     await writeManifestFile(dir, validManifest());
     setupGithubMocks();
 
-    await publishMod({ dir, token: TOKEN });
+    const result = await publishMod({ dir, token: TOKEN });
 
-    expect(githubMocks.createPullRequest).toHaveBeenCalledWith(TOKEN, {
-      owner: "Earthborne-Rangers-Community-Mods", repo: "ebr-mod-registry",
-      title: "New mod: Test Mod v1.0.0",
-      body: expect.stringContaining("New Mod Submission"),
-      head: "test-user:publish/test-mod",
-      base: "main",
-    });
+    expect(result.compareUrl).toContain("title=New+mod");
+    expect(result.compareUrl).toContain("New+Mod+Submission");
   });
 
-  it("opens a PR with update title for existing mod", async () => {
+  it("compare URL contains update title for existing mod", async () => {
     const dir = await createTempDir();
     const manifest = validManifest({ version: "2.0.0" });
     await writeManifestFile(dir, manifest);
     setupGithubMocks({ registry: registryWithMod(validManifest()), modFileExists: true });
 
-    await publishMod({ dir, token: TOKEN });
+    const result = await publishMod({ dir, token: TOKEN });
 
-    expect(githubMocks.createPullRequest).toHaveBeenCalledWith(TOKEN, expect.objectContaining({
-      title: "Update: Test Mod v2.0.0",
-    }));
+    expect(result.compareUrl).toContain("title=Update");
   });
 
-  it("does not open a new PR when one already exists", async () => {
+  it("returns existing PR when one already exists", async () => {
     const dir = await createTempDir();
     await writeManifestFile(dir, validManifest());
     setupGithubMocks();
@@ -241,12 +231,12 @@ describe("publishMod", () => {
 
     const result = await publishMod({ dir, token: TOKEN });
 
-    expect(result.pr).toBeNull();
     expect(result.existingPr).toEqual({
       number: 99, title: "Existing PR",
       url: "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pull/99", state: "open",
     });
-    expect(githubMocks.createPullRequest).not.toHaveBeenCalled();
+    // compareUrl is still generated even when a PR exists
+    expect(result.compareUrl).toBeTruthy();
   });
 
   it("force-updates branch ref if branch already exists", async () => {
@@ -266,7 +256,7 @@ describe("publishMod", () => {
       branch: "publish/test-mod", sha: "upstream-main-sha-1234567890",
     });
     expect(githubMocks.createBranch).toHaveBeenCalledTimes(1);
-    expect(result.pr).toBeTruthy();
+    expect(result.compareUrl).toBeTruthy();
   });
 
   it("throws ManifestError when manifest is invalid", async () => {
@@ -323,16 +313,18 @@ describe("publishMod", () => {
     progress.assertValid();
   });
 
-  it("includes commit link in PR body", async () => {
+  it("includes commit link in compare URL body", async () => {
     const dir = await createTempDir();
     await writeManifestFile(dir, validManifest());
     setupGithubMocks();
 
-    await publishMod({ dir, token: TOKEN });
+    const result = await publishMod({ dir, token: TOKEN });
 
-    const prBody = githubMocks.createPullRequest.mock.calls[0][1].body;
-    expect(prBody).toContain(`${COMMIT_SHA.slice(0, 7)}`);
-    expect(prBody).toContain("https://github.com/test/ebr-test-mod/commit/");
+    // The body is URL-encoded inside the compare URL
+    const url = new URL(result.compareUrl);
+    const body = url.searchParams.get("body");
+    expect(body).toContain(`${COMMIT_SHA.slice(0, 7)}`);
+    expect(body).toContain("https://github.com/test/ebr-test-mod/commit/");
   });
 
   it("throws UnpushedChangesError when working tree is dirty", async () => {
@@ -371,7 +363,7 @@ describe("publishMod", () => {
 
     const result = await publishMod({ dir, token: TOKEN, force: true });
 
-    expect(result.pr).toBeTruthy();
+    expect(result.compareUrl).toBeTruthy();
     expect(gitMocks.getStatus).not.toHaveBeenCalled();
     expect(gitMocks.getAheadBehind).not.toHaveBeenCalled();
   });
@@ -384,7 +376,7 @@ describe("publishMod", () => {
 
     const result = await publishMod({ dir, token: TOKEN });
 
-    expect(result.pr).toBeTruthy();
+    expect(result.compareUrl).toBeTruthy();
   });
 
   it("reports 'check' step in onProgress", async () => {

@@ -9,7 +9,7 @@
  */
 const REQUIRED_MIRROR_FIELDS = [
   "id", "name", "author", "description", "repoUrl", "type",
-  "campaigns", "requiredProducts", "baseVersion", "safeToAddMidCampaign", "language",
+  "campaigns", "requiredProducts", "safeToAddMidCampaign", "language",
 ];
 
 /**

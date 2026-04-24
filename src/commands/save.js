@@ -34,9 +34,9 @@ export const saveCommand = new Command("save")
         bumpType = await select({
           message: `Current version: ${manifest.version}. How would you like to bump it?`,
           choices: [
-            { name: "Patch (bug fixes)", value: "patch" },
-            { name: "Minor (new content)", value: "minor" },
-            { name: "Major (breaking changes)", value: "major" },
+            { name: "Patch (tweaks and fixes)", value: "patch" },
+            { name: "Minor (new stuff)", value: "minor" },
+            { name: "Major (big overhaul)", value: "major" },
             { name: "Skip version bump", value: null },
           ],
         });
@@ -48,8 +48,8 @@ export const saveCommand = new Command("save")
 
     // Prompt for commit message if not specified via flag
     const commitMessage = opts.message || await input({
-      message: "Commit message:",
-      default: "Update mod content",
+      message: "What changed?",
+      default: "Updated mod content",
     });
 
     try {
@@ -68,7 +68,7 @@ export const saveCommand = new Command("save")
       console.log(`\nSaved and pushed. Commit: ${result.commitHash.slice(0, 7)}`);
     } catch (err) {
       if (err instanceof NothingToCommitError) {
-        console.error("Nothing to save — working tree is clean.");
+        console.error("Nothing to save (working tree is clean).");
         process.exitCode = 1;
         return;
       }
