@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { password, confirm, input } from "@inquirer/prompts";
+import open from "open";
 import { getGithubToken, setGithubToken, clearGithubToken, getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults } from "../core/config.js";
 import { getAuthenticatedUser, getRepo, getFileContent, listPullRequests } from "../core/github.js";
 import { AuthenticationError, GithubError } from "../core/errors.js";
@@ -179,14 +180,16 @@ async function setupTokenAndForks() {
   console.log("--- Step 1: Fork ebr-mod-base-content ---");
   console.log("This becomes your mod workspace where all your mods live as branches.");
   console.log(`\n  ${FORK_BASE_URL}\n`);
-  console.log("Open the link above and click \"Create fork\" (keep the default name).");
+  console.log("Opening in your browser... Click \"Create fork\" (keep the default name).");
+  await open(FORK_BASE_URL);
   await confirm({ message: "Done forking ebr-mod-base-content?" });
 
   // Step 2: Fork registry
   console.log("\n--- Step 2: Fork ebr-mod-registry ---");
   console.log("This is where `ebr publish` pushes registry entries.");
   console.log(`\n  ${FORK_REGISTRY_URL}\n`);
-  console.log("Open the link above and click \"Create fork\" (keep the default name).");
+  console.log("Opening in your browser... Click \"Create fork\" (keep the default name).");
+  await open(FORK_REGISTRY_URL);
   await confirm({ message: "Done forking ebr-mod-registry?" });
 
   // Step 3: Create fine-grained PAT
@@ -208,7 +211,9 @@ async function setupTokenAndForks() {
 async function promptForToken() {
   console.log("\n--- Create a Personal Access Token ---");
   console.log(`\n  ${PAT_URL}\n`);
-  console.log("Settings:");
+  console.log("Opening in your browser...");
+  await open(PAT_URL);
+  console.log("\nSettings:");
   console.log("  - Token name: ebr-mod-tools (or anything you like)");
   console.log("  - Expiration: 90 days or longer");
   console.log("  - Repository access: \"Only select repositories\"");
