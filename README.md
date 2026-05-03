@@ -15,15 +15,15 @@ Requires: **Node.js** (LTS), **git**, **GitHub account** (for publishing).
 
 ## Commands
 
-| Command | Description | Phase |
-|---|---|---|
-| `ebr setup` | Set up GitHub forks and fine-grained PAT for publishing | 1 |
-| `ebr new` | Scaffold a new mod as a branch in your fork of `ebr-mod-base-content` | 1 |
-| `ebr save` | Bump version, stage allowed files, commit, and push | 1 |
-| `ebr publish` | Submit or update the mod in the registry via GitHub PR | 1 |
-| `ebr include <source>` | Merge base campaign updates or another mod into the current mod | 2 |
-| `ebr validate` | Check wikilink resolution, orphan files, manifest correctness | 3 |
-| `ebr update` | Check included mods for newer versions and merge updates | 3 |
+| Command | Description |
+|---|---|
+| `ebr setup` | Set up GitHub forks and fine-grained PAT for publishing |
+| `ebr new` | Scaffold a new mod as a branch in your fork of `ebr-mod-base-content` |
+| `ebr save` | Bump version, stage allowed files, commit, and push |
+| `ebr publish` | Submit or update the mod in the registry via GitHub PR |
+| `ebr include <source>` | Merge base campaign updates or another mod into the current mod |
+| `ebr validate` | Check wikilink resolution, orphan files, manifest correctness |
+| `ebr update` | Check included mods for newer versions and merge updates |
 
 ## Getting Started
 
@@ -39,7 +39,7 @@ Requires: **Node.js** (LTS), **git**, **GitHub account** (for publishing).
 
 ## Architecture
 
-The codebase is split into two layers so the same logic could power both a CLI and a GUI:
+The codebase is split into two layers: pure core logic and a CLI wrapper.
 
 ```
 src/

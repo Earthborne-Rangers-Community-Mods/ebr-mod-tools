@@ -8,7 +8,7 @@
 
 import { mkdir, readdir } from "node:fs/promises";
 import { readManifest, writeManifest, validateManifest, formatValidationErrors, updateManifest } from "./manifest.js";
-import { isRepo, initRepo, addRemote, cloneRepo, fetchRemote, createLocalBranch, checkout, setUpstreamBranch, stageAll, stageByExtensions, commit, push, getHeadCommit, getRemoteUrl, getCurrentBranch, getStatus, getAheadBehind } from "./git.js";
+import { isRepo, initRepo, addRemote, cloneRepo, fetchRemote, createLocalBranch, checkout, setUpstreamBranch, stageAll, stageByExtensions, commit, push, getHeadCommit, getRemoteUrl, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge } from "./git.js";
 import {
   getFileContent,
   createOrUpdateFileContent,
@@ -20,7 +20,7 @@ import {
   syncFork,
   normalizeGithubUrl,
 } from "./github.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError } from "./errors.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry } from "./registry.js";
 import { ALLOWED_EXTENSIONS } from "./catalogs.js";
 
@@ -402,7 +402,14 @@ export async function publishMod(
     branch: branchName,
   });
 
-  // 13. Check for existing PR or build compare URL for the user to open
+  // 13. Convenience tag on the local mod repo
+  try {
+    await createTag(dir, `v${manifest.version}`);
+  } catch {
+    onProgress?.({ step: "tag-warning", message: `Could not create tag v${manifest.version} (it may already exist).` });
+  }
+
+  // 14. Check for existing PR or build compare URL for the user to open
   onProgress?.({ step: "pr", message: "Checking for existing pull request..." });
   const head = `${forkOwner}:${branchName}`;
 
@@ -429,4 +436,70 @@ export async function publishMod(
   });
 
   return { existingPr, compareUrl, entry, commitHash, isUpdate, includedModWarnings };
+}
+
+// --- Base-content update workflows ---
+
+const BASE_REMOTE_NAME = "base";
+const BASE_REF = `${BASE_REMOTE_NAME}/main`;
+
+/**
+ * Check whether the `base` remote has commits on `main` that aren't yet
+ * merged into the current branch.
+ *
+ * Fetches the `base` remote, then reports whether `base/main` is an
+ * ancestor of HEAD. If it is, the branch is up to date; otherwise an
+ * update is available.
+ *
+ * @param {object} params
+ * @param {string} params.dir - Mod directory (must be a git repo with a `base` remote).
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress] - Progress callback ({ step, message, ... }).
+ * @returns {Promise<{ updateAvailable: boolean }>}
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {BaseRemoteMissingError} If no `base` remote is configured.
+ * @throws {GitError} For other git failures.
+ */
+export async function checkBaseUpdate({ dir }, { onProgress } = {}) {
+  await assertBaseRepo(dir);
+
+  onProgress?.({ step: "fetch", message: "Fetching base content..." });
+  await fetchRemote(dir, BASE_REMOTE_NAME, { onProgress });
+
+  const updateAvailable = !(await isAncestor(dir, BASE_REF, "HEAD"));
+  return { updateAvailable };
+}
+
+/**
+ * Merge `base/main` into the current branch.
+ *
+ * Thin wrapper around `git merge`.
+ *
+ * @param {object} params
+ * @param {string} params.dir - Mod directory.
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ * @returns {Promise<{ merged: true }>}
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {BaseRemoteMissingError} If no `base` remote is configured.
+ * @throws {MergeConflictError} If the merge produces conflicts.
+ * @throws {GitError} For other git failures.
+ */
+export async function applyBaseUpdate({ dir }, { onProgress } = {}) {
+  await assertBaseRepo(dir);
+
+  onProgress?.({ step: "merge", message: "Merging base content..." });
+  await merge(dir, BASE_REF, { onProgress });
+
+  return { merged: true };
+}
+
+/** Precondition guard: ensures {@link dir} is a git repo with the base-content remote configured. */
+async function assertBaseRepo(dir) {
+  if (!(await isRepo(dir))) {
+    throw new NotARepoError(dir);
+  }
+  if (!(await hasRemote(dir, BASE_REMOTE_NAME))) {
+    throw new BaseRemoteMissingError(dir);
+  }
 }

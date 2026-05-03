@@ -18,6 +18,7 @@ const gitMocks = vi.hoisted(() => ({
   getHeadCommit: vi.fn(),
   getStatus: vi.fn(),
   getAheadBehind: vi.fn(),
+  createTag: vi.fn(),
 }));
 
 vi.mock("../../src/core/github.js", () => githubMocks);
@@ -82,6 +83,7 @@ function setupGithubMocks({ registry = emptyRegistry(), modFileExists = false, e
   gitMocks.getHeadCommit.mockResolvedValue(COMMIT_SHA);
   gitMocks.getStatus.mockResolvedValue({ isClean: true, modified: [], staged: [], created: [], conflicted: [] });
   gitMocks.getAheadBehind.mockResolvedValue({ ahead: 0, behind: 0, trackingBranch: "origin/main" });
+  gitMocks.createTag.mockResolvedValue(undefined);
 }
 
 // --- Tests ---

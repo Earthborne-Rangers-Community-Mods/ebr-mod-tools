@@ -59,6 +59,21 @@ export class NothingToCommitError extends GitError {
   }
 }
 
+export class BaseRemoteMissingError extends GitError {
+  /**
+   * Thrown when a base-content operation runs in a repo that has no `base` remote.
+   * @param {string} dir - Repository directory.
+   */
+  constructor(dir) {
+    super(
+      "base-remote",
+      `No "base" remote configured in ${dir}. Add one pointing to ebr-mod-base-content (e.g. via "ebr new" or "git remote add base <url>").`,
+    );
+    this.name = "BaseRemoteMissingError";
+    this.dir = dir;
+  }
+}
+
 export class UnpushedChangesError extends GitError {
   /**
    * @param {object} details

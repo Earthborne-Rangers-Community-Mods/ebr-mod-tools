@@ -371,28 +371,6 @@ export function bumpVersion(version, type) {
 }
 
 /**
- * Pick the latest semver tag from a list of tag names.
- * Strips leading 'v' prefix for comparison but returns the original tag.
- * @param {string[]} tags - Array of tag names (e.g. ["v1.0.0", "v1.1.0"]).
- * @returns {string|null} The latest tag, or null if none are valid semver.
- */
-export function latestSemverTag(tags) {
-  const semverTags = tags.filter((t) => /^v?\d+\.\d+\.\d+/.test(t));
-  if (semverTags.length === 0) return null;
-
-  semverTags.sort((a, b) => {
-    const pa = a.replace(/^v/, "").split(".").map(Number);
-    const pb = b.replace(/^v/, "").split(".").map(Number);
-    for (let i = 0; i < 3; i++) {
-      if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0);
-    }
-    return 0;
-  });
-
-  return semverTags[0];
-}
-
-/**
  * Convert a mod name to a kebab-case identifier.
  * @param {string} name
  * @returns {string}

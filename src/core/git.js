@@ -177,7 +177,9 @@ export async function getRemotes(dir) {
  */
 export async function fetchRemote(dir, remoteName, { onProgress } = {}) {
   try {
-    await git(dir, { onProgress }).fetch(remoteName, { "--tags": null });
+    // Use .raw() because simple-git's .fetch(remote, options) silently drops
+    // the remote name when no branch is provided (v3.35.2 bug).
+    await git(dir, { onProgress }).raw(["fetch", remoteName, "--tags"]);
   } catch (err) {
     throw wrapError("fetch", err);
   }
@@ -382,18 +384,28 @@ export async function getAheadBehind(dir, remote = "origin") {
 }
 
 /**
- * Get the latest tag by version sort.
- * Returns null if no tags exist.
+ * Check whether `ancestor` is an ancestor commit of `descendant`.
+ * Uses `git merge-base --is-ancestor` semantics.
+ * Returns false if either ref does not resolve.
+ *
  * @param {string} dir
- * @returns {Promise<string|null>}
+ * @param {string} ancestor - Ref expected to be an ancestor (e.g. a tag).
+ * @param {string} descendant - Ref expected to be the descendant (e.g. "HEAD").
+ * @returns {Promise<boolean>}
  */
-export async function getLatestTag(dir) {
+export async function isAncestor(dir, ancestor, descendant) {
   try {
-    const result = await git(dir).tag(["--list", "--sort=-v:refname"]);
-    const tags = result.trim().split("\n").filter(Boolean);
-    return tags.length > 0 ? tags[0] : null;
-  } catch (err) {
-    throw wrapError("getLatestTag", err);
+    // simple-git .raw() doesn't throw on exit code 1, so we can't rely on
+    // --is-ancestor's exit code.  Instead, compute the merge-base and check
+    // whether it resolves to the same commit as `ancestor`.
+    const g = git(dir);
+    const [mergeBase, ancestorSha] = await Promise.all([
+      g.raw(["merge-base", ancestor, descendant]),
+      g.raw(["rev-parse", "--verify", ancestor]),
+    ]);
+    return mergeBase.trim() === ancestorSha.trim();
+  } catch {
+    return false;
   }
 }
 
@@ -411,24 +423,14 @@ export async function getRemoteUrl(dir, remoteName) {
 }
 
 /**
- * List tags from a specific remote via `git ls-remote --tags`.
- * Does not require a prior fetch - queries the remote directly.
- * @param {string} dir - Repository directory.
- * @param {string} remoteName - Remote name (e.g., "base").
- * @returns {Promise<string[]>} Array of tag names (without refs/tags/ prefix).
+ * Create a lightweight tag at the current HEAD.
+ * @param {string} dir
+ * @param {string} tagName - Tag name (e.g. "v1.2.3").
  */
-export async function getRemoteTags(dir, remoteName) {
+export async function createTag(dir, tagName) {
   try {
-    const output = await git(dir).listRemote(["--tags", remoteName]);
-    if (!output.trim()) return [];
-    return output
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => line.split("\t")[1])
-      .filter((ref) => ref && !ref.endsWith("^{}"))
-      .map((ref) => ref.replace("refs/tags/", ""));
+    await git(dir).tag([tagName]);
   } catch (err) {
-    throw wrapError("getRemoteTags", err);
+    throw wrapError("createTag", err);
   }
 }

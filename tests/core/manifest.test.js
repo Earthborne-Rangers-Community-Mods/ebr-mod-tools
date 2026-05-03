@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, latestSemverTag, updateManifest } from "../../src/core/manifest.js";
+import { readManifest, writeManifest, validateManifest, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, updateManifest } from "../../src/core/manifest.js";
 import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../../src/core/catalogs.js";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../../src/core/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
@@ -552,42 +552,6 @@ describe("bumpVersion", () => {
 
   it("error message mentions the invalid bump type", () => {
     expect(() => bumpVersion("1.0.0", "huge")).toThrow(/huge/);
-  });
-});
-
-// --- latestSemverTag ---
-
-describe("latestSemverTag", () => {
-  it("returns the latest from sorted tags", () => {
-    expect(latestSemverTag(["v1.0.0", "v1.1.0", "v0.9.0"])).toBe("v1.1.0");
-  });
-
-  it("handles tags without v prefix", () => {
-    expect(latestSemverTag(["1.0.0", "2.0.0", "1.5.0"])).toBe("2.0.0");
-  });
-
-  it("handles mixed v-prefix and non-prefix tags", () => {
-    expect(latestSemverTag(["v1.0.0", "2.0.0", "v1.5.0"])).toBe("2.0.0");
-  });
-
-  it("returns null for empty array", () => {
-    expect(latestSemverTag([])).toBeNull();
-  });
-
-  it("ignores non-semver tags", () => {
-    expect(latestSemverTag(["release", "beta", "rc1"])).toBeNull();
-  });
-
-  it("ignores non-semver tags but picks semver ones", () => {
-    expect(latestSemverTag(["release", "v1.2.3", "beta"])).toBe("v1.2.3");
-  });
-
-  it("correctly sorts by major > minor > patch", () => {
-    expect(latestSemverTag(["v1.9.9", "v2.0.0", "v1.10.0"])).toBe("v2.0.0");
-  });
-
-  it("correctly compares minor versions", () => {
-    expect(latestSemverTag(["v1.2.0", "v1.10.0", "v1.3.0"])).toBe("v1.10.0");
   });
 });
 
