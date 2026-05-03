@@ -3,7 +3,7 @@ import { confirm } from "@inquirer/prompts";
 import open from "open";
 import { getGithubToken } from "../core/config.js";
 import { publishMod } from "../core/workflows.js";
-import { ManifestError, ManifestNotFoundError, GithubError, AuthenticationError, GitError, UnpushedChangesError, ModIdConflictError } from "../core/errors.js";
+import { ManifestError, ManifestNotFoundError, GithubError, AuthenticationError, InsufficientScopeError, GitError, UnpushedChangesError, ModIdConflictError } from "../core/errors.js";
 
 export const publishCommand = new Command("publish")
   .description("Submit or update the mod in the registry via GitHub PR")
@@ -57,6 +57,16 @@ async function publishAction(opts) {
       }
       if (err instanceof AuthenticationError) {
         console.error("GitHub authentication failed. Run `ebr setup` to update your token.");
+        process.exitCode = 1;
+        return;
+      }
+      if (err instanceof InsufficientScopeError) {
+        console.error("Your GitHub token is missing one or more required permissions.");
+        console.error("Publishing requires all of the following (Read and write):");
+        console.error("  - Contents");
+        console.error("  - Pull requests");
+        console.error("  - Workflows  (because the registry contains a GitHub Actions workflow file)");
+        console.error("Run `ebr setup --token` to create a new token with the correct settings.");
         process.exitCode = 1;
         return;
       }

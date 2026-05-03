@@ -11,4 +11,4 @@ export { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "./catalogs.js"
 export { getConfig, setConfig, getGithubToken, setGithubToken, clearGithubToken, getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults, CONFIG_DIR } from "./config.js";
 export { checkIncludedMods, buildRegistryEntry } from "./registry.js";
 export { checkBaseUpdate, applyBaseUpdate } from "./workflows.js";
-export { ManifestError, ManifestNotFoundError, ManifestParseError, GitError, NotARepoError, MergeConflictError, NothingToCommitError, UnpushedChangesError, ConfigError, GithubError, AuthenticationError, GithubFileNotFoundError, ValidationError, ModIdConflictError, BaseRemoteMissingError } from "./errors.js";
+export { ManifestError, ManifestNotFoundError, ManifestParseError, GitError, NotARepoError, MergeConflictError, NothingToCommitError, UnpushedChangesError, ConfigError, GithubError, AuthenticationError, InsufficientScopeError, GithubFileNotFoundError, ValidationError, ModIdConflictError, BaseRemoteMissingError } from "./errors.js";

@@ -3,7 +3,7 @@
  */
 
 import { Octokit } from "@octokit/rest";
-import { GithubError, AuthenticationError, GithubFileNotFoundError } from "./errors.js";
+import { GithubError, AuthenticationError, GithubFileNotFoundError, InsufficientScopeError } from "./errors.js";
 
 /**
  * Normalize a git remote URL to a GitHub HTTPS URL.
@@ -45,6 +45,9 @@ function wrapError(operation, err, context) {
   if (err.status === 401) {
     return new AuthenticationError();
   }
+  if (err.status === 403 && /resource not accessible by personal access token/i.test(err.message)) {
+    return new InsufficientScopeError(operation);
+  }
   if (err.status === 404 && context?.path) {
     return new GithubFileNotFoundError(operation, context.path);
   }
@@ -57,7 +60,7 @@ function wrapError(operation, err, context) {
  * @param {object} options
  * @param {string} options.owner - Repo owner.
  * @param {string} options.repo - Repo name.
- * @returns {Promise<{owner: string, repo: string, cloneUrl: string, isFork: boolean, parentOwner: string|null, parentRepo: string|null}>}
+ * @returns {Promise<{owner: string, repo: string, cloneUrl: string, isFork: boolean, parentOwner: string|null, parentRepo: string|null, permissions: {admin: boolean, push: boolean, pull: boolean}}>}
  */
 export async function getRepo(token, { owner, repo }) {
   try {
@@ -69,6 +72,11 @@ export async function getRepo(token, { owner, repo }) {
       isFork: data.fork,
       parentOwner: data.parent?.owner?.login ?? null,
       parentRepo: data.parent?.name ?? null,
+      permissions: {
+        admin: data.permissions?.admin ?? false,
+        push: data.permissions?.push ?? false,
+        pull: data.permissions?.pull ?? false,
+      },
     };
   } catch (err) {
     throw wrapError("getRepo", err);

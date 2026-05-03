@@ -52,6 +52,7 @@ import {
   GithubError,
   GithubFileNotFoundError,
   AuthenticationError,
+  InsufficientScopeError,
 } from "../../src/core/errors.js";
 
 // --- Helpers ---
@@ -126,6 +127,7 @@ describe("getRepo", () => {
       isFork: false,
       parentOwner: null,
       parentRepo: null,
+      permissions: { admin: false, push: false, pull: false },
     });
   });
 
@@ -151,6 +153,7 @@ describe("getRepo", () => {
       isFork: true,
       parentOwner: "upstream-org",
       parentRepo: "ebr-mod-base-content",
+      permissions: { admin: false, push: false, pull: false },
     });
   });
 
@@ -281,6 +284,17 @@ describe("syncFork", () => {
     const err = await syncFork(TOKEN, { owner: "x", repo: "y", branch: "main" }).catch((e) => e);
     expect(err).toBeInstanceOf(GithubError);
     expect(err.operation).toBe("syncFork");
+  });
+
+  it("throws InsufficientScopeError on 403 with token message", async () => {
+    mocks.request.mockRejectedValue(
+      makeApiError("Resource not accessible by personal access token", 403),
+    );
+
+    const err = await syncFork(TOKEN, { owner: "x", repo: "y", branch: "main" }).catch((e) => e);
+    expect(err).toBeInstanceOf(InsufficientScopeError);
+    expect(err).toBeInstanceOf(GithubError);
+    expect(err.httpStatus).toBe(403);
   });
 });
 
@@ -548,6 +562,22 @@ describe("updateBranchRef", () => {
     }).catch((e) => e);
     expect(err).toBeInstanceOf(GithubError);
     expect(err.operation).toBe("updateBranchRef");
+  });
+
+  it("throws InsufficientScopeError on 403 with token message", async () => {
+    mocks.request.mockRejectedValue(
+      makeApiError("Resource not accessible by personal access token - https://docs.github.com/rest/git/refs#update-a-reference", 403),
+    );
+
+    const err = await updateBranchRef(TOKEN, {
+      owner: "test-user",
+      repo: "ebr-mod-registry",
+      branch: "main",
+      sha: "abc123",
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(InsufficientScopeError);
+    expect(err).toBeInstanceOf(GithubError);
+    expect(err.httpStatus).toBe(403);
   });
 });
 

@@ -20,7 +20,7 @@ import {
   syncFork,
   normalizeGithubUrl,
 } from "./github.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError } from "./errors.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry } from "./registry.js";
 import { ALLOWED_EXTENSIONS } from "./catalogs.js";
 
@@ -356,9 +356,14 @@ export async function publishMod(
   try {
     await syncFork(token, { owner: forkOwner, repo: registryRepo, branch: REGISTRY_BASE_BRANCH });
   } catch (err) {
-    // 409 = merge conflict, 422 = other sync failure (e.g. fork diverged).
-    // In both cases, force-reset the fork's default branch to upstream.
-    // This should be safe because the fork's main should never have independent work.
+    // 422 "without `workflow` scope" = PAT lacks Workflows permission (upstream
+    // has a .github/workflows/ file). The same permission block applies to all write paths.
+    if (err instanceof GithubError && err.httpStatus === 422 &&
+        /without `workflow` scope/i.test(err.message)) {
+      throw new InsufficientScopeError("syncFork");
+    }
+    // 409 = merge conflict, 422 = fork diverged (other reasons).
+    // Force-reset the fork's default branch to upstream.
     if (err instanceof GithubError && (err.httpStatus === 409 || err.httpStatus === 422)) {
       await updateBranchRef(token, {
         owner: forkOwner, repo: registryRepo,

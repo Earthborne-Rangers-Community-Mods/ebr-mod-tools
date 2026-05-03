@@ -2,8 +2,8 @@ import { Command } from "commander";
 import { password, confirm, input } from "@inquirer/prompts";
 import open from "open";
 import { getGithubToken, setGithubToken, clearGithubToken, getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults } from "../core/config.js";
-import { getAuthenticatedUser, getRepo, getFileContent, listPullRequests } from "../core/github.js";
-import { AuthenticationError, GithubError } from "../core/errors.js";
+import { getAuthenticatedUser, getRepo, listPullRequests, syncFork } from "../core/github.js";
+import { AuthenticationError, GithubError, InsufficientScopeError } from "../core/errors.js";
 
 const BASE_CONTENT_OWNER = "Earthborne-Rangers-Community-Mods";
 const BASE_CONTENT_REPO = "ebr-mod-base-content";
@@ -96,12 +96,15 @@ async function interactive() {
     }
   }
 
-  // --- Token + fork setup (skip if token is valid and forks are verified) ---
+  // --- Token + fork setup (always re-verify permissions) ---
   if (user) {
     const forks = await getForkUrls();
     if (forks.baseContent && forks.registry) {
-      console.log(`Already authenticated as ${user.login}. Forks verified.`);
-      console.log("Use --token to replace the token.\n");
+      console.log(`Authenticated as ${user.login}. Verifying permissions...`);
+      const forksOk = await verifyForks(token, user);
+      if (forksOk) {
+        console.log("Forks and permissions verified.\n");
+      }
     } else {
       // Token works but forks aren't recorded - verify them
       console.log(`Authenticated as ${user.login}, but fork URLs are incomplete.`);
@@ -215,12 +218,14 @@ async function promptForToken() {
   await open(PAT_URL);
   console.log("\nSettings:");
   console.log("  - Token name: ebr-mod-tools (or anything you like)");
+  console.log("  - Resource owner: Your personal account");
   console.log("  - Expiration: 90 days or longer");
   console.log("  - Repository access: \"Only select repositories\"");
-  console.log("    Select your forks of ebr-mod-base-content AND ebr-mod-registry");
+  console.log("    Select your fork of ebr-mod-registry");
   console.log("  - Permissions:");
   console.log("    - Contents: Read and write");
-  console.log("    - Pull requests: Read and write\n");
+  console.log("    - Pull requests: Read and write");
+  console.log("    - Workflows: Read and write\n");
 
   const token = await password({ message: "Paste your token:", mask: "*" });
   if (!token) {
@@ -285,14 +290,15 @@ async function verifyForks(token, user) {
     return false;
   }
 
-  // Probe token permissions on both forks
+  // Probe token permissions on the registry fork (the only one this tool
+  // accesses via the PAT; base-content is accessed via git only).
   const permissionIssues = await checkTokenPermissions(token, user.login);
   if (permissionIssues.length > 0) {
     console.error("\nToken is missing required permissions:");
     for (const issue of permissionIssues) {
       console.error(`  - ${issue}`);
     }
-    console.error("\nRecreate the token with Contents (read+write) and Pull requests (read+write).");
+    console.error("\nRecreate the token with Contents (read+write), Pull requests (read+write), and Workflows (read+write) for your ebr-mod-registry fork.");
     process.exitCode = 1;
     return false;
   }
@@ -326,41 +332,66 @@ async function promptAuthorDefaults(user) {
 }
 
 /**
- * Probe token permissions by attempting read operations on both forks.
- * Returns an array of human-readable issue strings (empty = all good).
+ * Check that the PAT has the permissions `ebr publish` needs on the
+ * registry fork.
+ *
+ * The base-content fork is intentionally not probed here: this tool only
+ * uses the PAT against the registry (via Octokit). All base-content
+ * operations (`ebr new`, `ebr save`, `ebr update`) go through `git`, which
+ * authenticates via the system credential helper, not this token.
+ *
+ * We use `syncFork` (POST merge-upstream) instead of relying on
+ * `permissions.push` from GET /repos, because syncFork also surfaces a
+ * missing Workflows permission via a distinct 422 response ("without
+ * `workflow` scope") that metadata cannot detect. It's idempotent on an
+ * already-synced fork, and exercises the same write path that `ebr publish`
+ * uses.
+ *
  * @param {string} token
  * @param {string} login
- * @returns {Promise<string[]>}
+ * @returns {Promise<string[]>} Human-readable issue strings (empty = all good).
  */
 async function checkTokenPermissions(token, login) {
   const issues = [];
 
-  // Contents permission: try reading README.md from each fork
-  for (const { owner, repo, label } of [
-    { owner: login, repo: BASE_CONTENT_REPO, label: "ebr-mod-base-content fork" },
-    { owner: login, repo: REGISTRY_REPO, label: "ebr-mod-registry fork" },
-  ]) {
-    try {
-      await getFileContent(token, { owner, repo, path: "README.md" });
-    } catch (err) {
-      if (err instanceof GithubError && err.httpStatus === 403) {
-        issues.push(`Contents permission missing for ${label}`);
-      }
-      // 404 is fine (README might not exist) - only 403 means no permission
+  // Write probe: syncFork is idempotent (merge-upstream on an already-synced
+  // fork is a no-op). A 403 means the PAT can't write to the fork.
+  // A 422 mentioning "workflow scope" means the upstream has a GitHub Actions
+  // workflow file and the PAT is missing the Workflows permission.
+  try {
+    await syncFork(token, { owner: login, repo: REGISTRY_REPO, branch: "main" });
+  } catch (err) {
+    if (err instanceof GithubError && err.httpStatus === 422 &&
+        /without `workflow` scope/i.test(err.message)) {
+      issues.push(
+        `Workflows permission missing for ebr-mod-registry fork. ` +
+        `The registry contains a GitHub Actions workflow file, so the token needs ` +
+        `Workflows permission set to "Read and write".`,
+      );
+    } else if (err instanceof InsufficientScopeError ||
+        (err instanceof GithubError && err.httpStatus === 403)) {
+      issues.push(
+        `Write access missing for ebr-mod-registry fork. ` +
+        `Make sure the token's "Resource owner" is your personal account ` +
+        `and its repository access includes ${login}/${REGISTRY_REPO} ` +
+        `with Contents permission set to "Read and write".`,
+      );
+    } else if (err instanceof GithubError && err.httpStatus === 404) {
+      issues.push(
+        `Cannot access ${login}/${REGISTRY_REPO}. The token may not include this repository. ` +
+        `Fine-grained tokens must use your personal account as "Resource owner" ` +
+        `and explicitly select your fork in the repository list.`,
+      );
     }
+    // Other 409/422 = fork diverged, which is fine — publish handles it.
   }
 
-  // Pull requests permission: try listing PRs on each fork
-  for (const { owner, repo, label } of [
-    { owner: login, repo: BASE_CONTENT_REPO, label: "ebr-mod-base-content fork" },
-    { owner: login, repo: REGISTRY_REPO, label: "ebr-mod-registry fork" },
-  ]) {
-    try {
-      await listPullRequests(token, { owner, repo, state: "closed" });
-    } catch (err) {
-      if (err instanceof GithubError && err.httpStatus === 403) {
-        issues.push(`Pull requests permission missing for ${label}`);
-      }
+  // Pull requests permission: try listing PRs on the registry fork.
+  try {
+    await listPullRequests(token, { owner: login, repo: REGISTRY_REPO, state: "closed" });
+  } catch (err) {
+    if (err instanceof GithubError && err.httpStatus === 403) {
+      issues.push(`Pull requests permission missing for ebr-mod-registry fork`);
     }
   }
 

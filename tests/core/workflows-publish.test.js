@@ -27,7 +27,7 @@ vi.mock("../../src/core/git.js", () => gitMocks);
 // Import AFTER mocks are set up
 import { publishMod } from "../../src/core/workflows.js";
 import { buildRegistryEntry } from "../../src/core/registry.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, UnpushedChangesError, ModIdConflictError } from "../../src/core/errors.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, UnpushedChangesError, ModIdConflictError, InsufficientScopeError } from "../../src/core/errors.js";
 
 // --- Helpers ---
 
@@ -391,5 +391,28 @@ describe("publishMod", () => {
 
     expect(progress.steps()).toContain("check");
     progress.assertValid();
+  });
+
+  it("throws InsufficientScopeError when syncFork returns 403", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    githubMocks.syncFork.mockRejectedValue(new InsufficientScopeError("syncFork"));
+
+    const err = await publishMod({ dir, token: TOKEN }).catch((e) => e);
+    expect(err).toBeInstanceOf(InsufficientScopeError);
+  });
+
+  it("throws InsufficientScopeError when syncFork fallback updateBranchRef returns 403", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    // syncFork fails with 409 (fork diverged), triggering the updateBranchRef fallback
+    githubMocks.syncFork.mockRejectedValue(new GithubError("syncFork", "Conflict", 409));
+    // updateBranchRef fails with 403 (no write access)
+    githubMocks.updateBranchRef.mockRejectedValue(new InsufficientScopeError("updateBranchRef"));
+
+    const err = await publishMod({ dir, token: TOKEN }).catch((e) => e);
+    expect(err).toBeInstanceOf(InsufficientScopeError);
   });
 });

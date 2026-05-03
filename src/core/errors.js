@@ -117,6 +117,17 @@ export class AuthenticationError extends GithubError {
   }
 }
 
+export class InsufficientScopeError extends GithubError {
+  constructor(operation) {
+    super(
+      operation,
+      "Your GitHub token does not have the required permissions for this operation.",
+      403,
+    );
+    this.name = "InsufficientScopeError";
+  }
+}
+
 export class GithubFileNotFoundError extends GithubError {
   constructor(operation, path) {
     super(operation, `File not found: ${path}`, 404);
