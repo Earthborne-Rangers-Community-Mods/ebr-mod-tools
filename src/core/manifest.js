@@ -56,6 +56,24 @@ export function validateName(val) {
 }
 
 /**
+ * Validate that a value is a single user-perceived character (one grapheme
+ * cluster). Accepts a single emoji, including ZWJ sequences and emoji that
+ * combine a base code point with a variation selector. Whitespace-only
+ * strings are rejected.
+ * @param {*} val
+ * @returns {true|string}
+ */
+export function validateIcon(val) {
+  if (typeof val !== "string" || !val.trim()) return "Cannot be empty.";
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  const count = [...segmenter.segment(val)].length;
+  if (count !== 1) {
+    return `Icon must be exactly one character (got ${count}).`;
+  }
+  return true;
+}
+
+/**
  * Validate a kebab-case identifier.
  * @param {string} val
  * @returns {true|string}
@@ -121,6 +139,7 @@ export const VALIDATION_CODES = Object.freeze({
   UNKNOWN_PRODUCT: "UNKNOWN_PRODUCT",
   CAMPAIGN_MISSING_PRODUCT: "CAMPAIGN_MISSING_PRODUCT",
   INVALID_REPO_URL: "INVALID_REPO_URL",
+  INVALID_ICON: "INVALID_ICON",
 });
 
 /**
@@ -279,6 +298,11 @@ export function validateManifest(manifest) {
     }
   }
 
+  // icon must be a single grapheme cluster
+  if (manifest.icon !== undefined && validateIcon(manifest.icon) !== true) {
+    errors.push({ code: VALIDATION_CODES.INVALID_ICON, field: "icon", value: manifest.icon });
+  }
+
   return errors;
 }
 
@@ -322,6 +346,8 @@ export function formatValidationError(err) {
     }
     case VALIDATION_CODES.INVALID_REPO_URL:
       return `"repoUrl" must be a GitHub URL (https://github.com/...). Got "${err.value}".`;
+    case VALIDATION_CODES.INVALID_ICON:
+      return `"icon" must be exactly one character. Got "${err.value}".`;
     default:
       return `Unknown validation error: ${err.code}`;
   }

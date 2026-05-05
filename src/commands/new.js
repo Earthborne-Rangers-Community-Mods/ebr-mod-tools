@@ -2,10 +2,10 @@ import { Command } from "commander";
 import { input, select, checkbox, confirm } from "@inquirer/prompts";
 import { mkdir, readdir } from "node:fs/promises";
 import { resolve, basename } from "node:path";
-import { scaffoldMod, scaffoldModIntoClone } from "../core/workflows.js";
+import { scaffoldMod, scaffoldModIntoClone, includeCampaign } from "../core/workflows.js";
 import { isRepo, getRemotes } from "../core/git.js";
 import { buildManifest, toId } from "../core/manifest.js";
-import { readManifest, writeManifest, validateNonEmpty, validateName, validateLanguage } from "../core/manifest.js";
+import { readManifest, writeManifest, validateNonEmpty, validateName, validateIcon, validateLanguage } from "../core/manifest.js";
 import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../core/catalogs.js";
 import { getGithubToken, getForkUrls, getAuthorDefaults } from "../core/config.js";
 import { getAuthenticatedUser } from "../core/github.js";
@@ -184,6 +184,15 @@ export const newCommand = new Command("new")
 
         if (manifest.type === "collection") {
           console.log("\nTo add mods to this collection, use: ebr include <repo-url>");
+        }
+
+        // Offer to include any selected official campaigns. Theme mods (which
+        // target "any") and any unrecognized ids are skipped here; the user
+        // can always run `ebr include` later.
+        const knownIds = new Set(OFFICIAL_CAMPAIGNS.map((c) => c.id));
+        const includable = (manifest.campaigns || []).filter((id) => knownIds.has(id));
+        if (includable.length > 0) {
+          await offerIncludeCampaigns(result.modDir, includable);
         }
       }
     } catch (err) {
@@ -407,7 +416,71 @@ async function editField(manifest, key) {
       manifest.language = await input({ message: "Language (BCP 47 code):", default: manifest.language, validate: validateLanguage });
       break;
     case "icon":
-      manifest.icon = await input({ message: "Icon (emoji):", default: manifest.icon, validate: validateNonEmpty });
+      manifest.icon = await input({ message: "Icon (emoji):", default: manifest.icon, validate: validateIcon });
       break;
+  }
+}
+
+/**
+ * Offer to run `ebr include` for each campaign the user selected during
+ * `ebr new`. The user gets a checkbox preselected with everything; they can
+ * deselect any they'd rather include manually later.
+ *
+ * Failures are reported but don't abort the overall workflow - the mod is
+ * already scaffolded, and the user can always re-run `ebr include` for any
+ * campaign that didn't make it through.
+ *
+ * @param {string} dir - Mod directory.
+ * @param {string[]} campaignIds - Official campaign ids to offer.
+ */
+async function offerIncludeCampaigns(dir, campaignIds) {
+  const labelFor = (id) => {
+    const c = OFFICIAL_CAMPAIGNS.find((c) => c.id === id);
+    if (!c) return id;
+    return c.oneDayMission ? `${c.name} (one-day mission)` : c.name;
+  };
+
+  console.log(`\nThis mod targets ${campaignIds.length} official campaign(s).`);
+  const proceed = await confirm({
+    message: "Include them now? (You can also do this later with `ebr include`.)",
+    default: true,
+  });
+  if (!proceed) return;
+
+  const selected = await checkbox({
+    message: "Select campaigns to include (space to toggle, enter to confirm):",
+    choices: campaignIds.map((id) => ({
+      name: labelFor(id),
+      value: id,
+      checked: true,
+    })),
+  });
+  if (selected.length === 0) {
+    console.log("No campaigns selected.");
+    return;
+  }
+
+  const onProgress = ({ message }) => console.log(message);
+  for (let i = 0; i < selected.length; i++) {
+    const id = selected[i];
+    if (selected.length > 1) {
+      console.log(`\n=== Including ${id} (${i + 1}/${selected.length}) ===`);
+    }
+    try {
+      const result = await includeCampaign({ dir, source: id }, { onProgress });
+      if (result.alreadyUpToDate) {
+        console.log(`\n${result.branch} is already up to date at ${result.commitHash.slice(0, 7)}.`);
+      } else {
+        console.log(`\nMerged ${result.branch} at ${result.commitHash.slice(0, 7)}.`);
+      }
+    } catch (err) {
+      console.error(`\nFailed to include ${id}: ${err.message}`);
+      const remaining = selected.slice(i + 1);
+      if (remaining.length > 0) {
+        console.error(`Skipped: ${remaining.join(", ")}`);
+        console.error("Re-run `ebr include` for the remaining campaigns once the failure is resolved.");
+      }
+      return;
+    }
   }
 }

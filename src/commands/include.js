@@ -16,16 +16,19 @@ import {
 
 export const includeCommand = new Command("include")
   .description("Include one or more official campaign branches into the current mod")
-  .argument("[source]", "Campaign id (e.g. 'lure-of-the-valley') or 'campaign/<id>'. Omit to pick from a checklist.")
+  .argument("[sources...]", "Campaign id(s) (e.g. 'lure-of-the-valley') or 'campaign/<id>' refs. Omit to pick from a checklist.")
   .action(includeAction);
 
-async function includeAction(source) {
+async function includeAction(sourcesArg) {
   const dir = process.cwd();
 
-  // Resolve sources: either the explicit positional arg, or a multi-select prompt.
+  // commander gives an empty array when no positional args were passed.
+  const passed = Array.isArray(sourcesArg) ? sourcesArg : (sourcesArg ? [sourcesArg] : []);
+
+  // Resolve sources: either explicit positional args, or a multi-select prompt.
   let sources;
-  if (source) {
-    sources = [source];
+  if (passed.length > 0) {
+    sources = passed;
   } else {
     const selected = await checkbox({
       message: "Select campaigns to include (space to toggle, enter to confirm):",

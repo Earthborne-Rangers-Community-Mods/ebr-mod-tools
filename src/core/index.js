@@ -4,7 +4,7 @@
  */
 
 export { scaffoldMod, scaffoldModIntoClone, saveMod, publishMod, getModBranchName } from "./workflows.js";
-export { readManifest, writeManifest, validateManifest, formatValidationError, formatValidationErrors, VALIDATION_CODES, validateNonEmpty, validateName, validateId, validateVersion, validateLanguage, validateRepoUrl, bumpVersion, updateManifest, toId, buildManifest } from "./manifest.js";
+export { readManifest, writeManifest, validateManifest, formatValidationError, formatValidationErrors, VALIDATION_CODES, validateNonEmpty, validateName, validateIcon, validateId, validateVersion, validateLanguage, validateRepoUrl, bumpVersion, updateManifest, toId, buildManifest } from "./manifest.js";
 export { isRepo, cloneRepo, createLocalBranch, checkout, setUpstreamBranch, initRepo, addRemote, hasRemote, getRemotes, stageAll, stageByExtensions, stageFile, unstageFile, commit, push, getHeadCommit, getCurrentBranch, merge, abortMerge, getStatus, getAheadBehind, fetchRemote, getRemoteUrl, isAncestor, createTag, revparseRef, mergeBase, undoLastCommit } from "./git.js";
 export { getAuthenticatedUser, getRepo, forkRepo, getFileContent, createOrUpdateFileContent, createBranch, deleteBranch, updateBranchRef, getRefSha, createPullRequest, listPullRequests, normalizeGithubUrl, compareCommits } from "./github.js";
 export { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "./catalogs.js";

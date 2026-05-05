@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, updateManifest } from "../../src/core/manifest.js";
+import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, updateManifest } from "../../src/core/manifest.js";
 import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../../src/core/catalogs.js";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../../src/core/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
@@ -459,6 +459,23 @@ describe("validateManifest", () => {
     const errors = validateManifest(validManifest({ repoUrl: "https://GitHub.com/test/mod" }));
     expect(errors.filter((e) => e.code === VALIDATION_CODES.INVALID_REPO_URL)).toEqual([]);
   });
+
+  // --- icon ---
+
+  it("rejects a multi-character icon", () => {
+    const errors = validateManifest(validManifest({ icon: "ab" }));
+    expect(hasError(errors, { code: VALIDATION_CODES.INVALID_ICON })).toBe(true);
+  });
+
+  it("rejects an empty icon", () => {
+    const errors = validateManifest(validManifest({ icon: "" }));
+    expect(hasError(errors, { code: VALIDATION_CODES.INVALID_ICON })).toBe(true);
+  });
+
+  it("accepts a single-grapheme emoji icon (with variation selector)", () => {
+    const errors = validateManifest(validManifest({ icon: "🏔️" }));
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.INVALID_ICON)).toEqual([]);
+  });
 });
 
 // --- formatValidationError ---
@@ -478,6 +495,7 @@ describe("formatValidationError", () => {
       { code: VALIDATION_CODES.INCLUDED_MOD_MISSING_FIELD, index: 0, field: "name" },
       { code: VALIDATION_CODES.INVALID_LANGUAGE_TAG, field: "language", value: "123" },
       { code: VALIDATION_CODES.INVALID_REPO_URL, field: "repoUrl", value: "https://gitlab.com/x" },
+      { code: VALIDATION_CODES.INVALID_ICON, field: "icon", value: "abc" },
       { code: VALIDATION_CODES.CAMPAIGN_MISSING_PRODUCT, field: "requiredProducts", value: "spire-in-bloom", campaign: "spire-in-bloom" },
     ];
     for (const err of testCases) {
@@ -668,5 +686,49 @@ describe("updateManifest", () => {
     const result = await updateManifest({ dir: tmpDir, version: "2.0.0" });
 
     expect(result.changes.find((c) => c.field === "version")).toBeUndefined();
+  });
+});
+
+
+describe("validateIcon", () => {
+  it("accepts a single ASCII character", () => {
+    expect(validateIcon("X")).toBe(true);
+  });
+
+  it("accepts a single emoji", () => {
+    expect(validateIcon("🦀")).toBe(true);
+  });
+
+  it("accepts an emoji with a variation selector (one grapheme cluster)", () => {
+    // mountain + variation selector-16 = one grapheme
+    expect(validateIcon("🏔️")).toBe(true);
+  });
+
+  it("accepts a ZWJ emoji sequence (one grapheme cluster)", () => {
+    // family emoji is multiple code points joined into a single grapheme
+    expect(validateIcon("👨‍👩‍👧")).toBe(true);
+  });
+
+  it("rejects an empty string", () => {
+    expect(validateIcon("")).not.toBe(true);
+  });
+
+  it("rejects whitespace-only input", () => {
+    expect(validateIcon(" ")).not.toBe(true);
+    expect(validateIcon("\t")).not.toBe(true);
+  });
+
+  it("rejects multiple ASCII characters", () => {
+    expect(validateIcon("ab")).not.toBe(true);
+  });
+
+  it("rejects multiple emoji", () => {
+    expect(validateIcon("🦀🦀")).not.toBe(true);
+  });
+
+  it("rejects non-string values", () => {
+    expect(validateIcon(undefined)).not.toBe(true);
+    expect(validateIcon(null)).not.toBe(true);
+    expect(validateIcon(42)).not.toBe(true);
   });
 });
