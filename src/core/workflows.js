@@ -8,7 +8,7 @@
 
 import { mkdir, readdir } from "node:fs/promises";
 import { readManifest, writeManifest, validateManifest, formatValidationErrors, updateManifest } from "./manifest.js";
-import { isRepo, initRepo, addRemote, cloneRepo, fetchRemote, createLocalBranch, checkout, setUpstreamBranch, stageAll, stageByExtensions, commit, push, getHeadCommit, getRemoteUrl, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge } from "./git.js";
+import { isRepo, initRepo, addRemote, cloneRepo, fetchRemote, createLocalBranch, checkout, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase } from "./git.js";
 import {
   getFileContent,
   createOrUpdateFileContent,
@@ -20,9 +20,9 @@ import {
   syncFork,
   normalizeGithubUrl,
 } from "./github.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError } from "./errors.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry } from "./registry.js";
-import { ALLOWED_EXTENSIONS } from "./catalogs.js";
+import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS } from "./catalogs.js";
 
 // --- Constants ---
 
@@ -64,11 +64,33 @@ export async function scaffoldModIntoClone({ dir, manifest }, { onProgress } = {
   onProgress?.({ step: "fetch", message: "Fetching latest from origin..." });
   await fetchRemote(dir, "origin");
 
+  // If the clone has a `base` remote, verify the fork still shares history
+  // with upstream. Mirrors the check in scaffoldMod for the cloned-fresh path.
+  if (await hasRemote(dir, "base")) {
+    onProgress?.({ step: "verify-fork", message: "Verifying fork shares history with upstream..." });
+    await fetchRemote(dir, "base", { onProgress });
+    const sharedBase = await mergeBase(dir, "origin/main", "base/main");
+    if (!sharedBase) {
+      throw new ForkOutOfSyncError({
+        forkBranch: "origin/main",
+        baseBranch: "base/main",
+      });
+    }
+  }
+
   onProgress?.({ step: "branch", message: `Creating branch ${modBranch}...` });
   await createLocalBranch(dir, modBranch, "origin/main");
 
   onProgress?.({ step: "manifest", message: "Writing ebr-mod.json..." });
   await writeManifest(dir, manifest);
+
+  // Commit the manifest so the working tree is clean and `ebr-mod.json` exists
+  // in HEAD. Without this, later `ebr include` runs that stage the manifest
+  // before merging hit a misleading "local changes would be overwritten"
+  // error from git's safety check on staged-but-not-in-HEAD files.
+  onProgress?.({ step: "commit", message: "Committing initial manifest..." });
+  await stageFile(dir, "ebr-mod.json");
+  await commit(dir, `Initialize ${manifest.id} mod`);
 
   return { modDir: dir, manifest, branch: modBranch };
 }
@@ -84,12 +106,13 @@ export async function scaffoldModIntoClone({ dir, manifest }, { onProgress } = {
  * @param {string} params.dir - Directory to scaffold into (must be empty or not exist).
  * @param {object} params.manifest - Complete manifest object to write.
  * @param {string} params.forkUrl - HTTPS URL of the user's fork (e.g. "https://github.com/user/ebr-mod-base-content").
+ * @param {string} [params.baseRepoUrl] - Override the upstream base-content URL (tests).
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress] - Progress callback ({ step, message }).
  * @returns {Promise<{ modDir: string, manifest: object, branch: string }>}
  * @throws {ManifestError} If directory contains unexpected files.
  */
-export async function scaffoldMod({ dir, manifest, forkUrl }, { onProgress } = {}) {
+export async function scaffoldMod({ dir, manifest, forkUrl, baseRepoUrl = BASE_REPO_URL }, { onProgress } = {}) {
   const modBranch = getModBranchName(manifest.id);
 
   // Ensure parent directory exists
@@ -109,7 +132,22 @@ export async function scaffoldMod({ dir, manifest, forkUrl }, { onProgress } = {
 
   // Add base remote pointing to upstream
   onProgress?.({ step: "remote", message: "Adding base content remote..." });
-  await addRemote(dir, "base", BASE_REPO_URL);
+  await addRemote(dir, "base", baseRepoUrl);
+
+  // Fetch base and verify the fork shares history with upstream. If the
+  // user's fork was made before an upstream history rewrite, every later
+  // `ebr include` would fail with "unrelated histories"; catch that here
+  // before we make a mod branch off a doomed root.
+  onProgress?.({ step: "verify-fork", message: "Verifying fork shares history with upstream..." });
+  await fetchRemote(dir, "base", { onProgress });
+  const sharedBase = await mergeBase(dir, "origin/main", "base/main");
+  if (!sharedBase) {
+    throw new ForkOutOfSyncError({
+      forkBranch: "origin/main",
+      baseBranch: "base/main",
+      forkUrl,
+    });
+  }
 
   // Create mod branch from main
   onProgress?.({ step: "branch", message: `Creating branch ${modBranch}...` });
@@ -118,6 +156,14 @@ export async function scaffoldMod({ dir, manifest, forkUrl }, { onProgress } = {
   // Write manifest
   onProgress?.({ step: "manifest", message: "Writing ebr-mod.json..." });
   await writeManifest(dir, manifest);
+
+  // Commit the manifest so the working tree is clean and `ebr-mod.json` exists
+  // in HEAD. Without this, later `ebr include` runs that stage the manifest
+  // before merging hit a misleading "local changes would be overwritten"
+  // error from git's safety check on staged-but-not-in-HEAD files.
+  onProgress?.({ step: "commit", message: "Committing initial manifest..." });
+  await stageFile(dir, "ebr-mod.json");
+  await commit(dir, `Initialize ${manifest.id} mod`);
 
   return { modDir: dir, manifest, branch: modBranch };
 }
@@ -506,5 +552,184 @@ async function assertBaseRepo(dir) {
   }
   if (!(await hasRemote(dir, BASE_REMOTE_NAME))) {
     throw new BaseRemoteMissingError(dir);
+  }
+}
+
+// --- includeCampaign ---
+
+const CAMPAIGN_BRANCH_PREFIX = "campaign/";
+
+/**
+ * Resolve an `ebr include` source string into a campaign branch name.
+ *
+ * Accepts either a full `campaign/<id>` ref or a bare campaign id.
+ *
+ * @param {string} source
+ * @returns {{ campaignId: string, branch: string }}
+ * @throws {ValidationError} If source is empty or not a recognizable campaign reference.
+ */
+export function resolveCampaignSource(source) {
+  if (typeof source !== "string" || !source.trim()) {
+    throw new ValidationError("Include source must be a non-empty string.");
+  }
+  const trimmed = source.trim();
+
+  let campaignId;
+  if (trimmed.startsWith(CAMPAIGN_BRANCH_PREFIX)) {
+    campaignId = trimmed.slice(CAMPAIGN_BRANCH_PREFIX.length);
+  } else if (!trimmed.includes("/") && !trimmed.includes(":")) {
+    campaignId = trimmed;
+  } else {
+    throw new ValidationError(
+      `Unrecognized include source "${source}". Expected a campaign id (e.g. "lure-of-the-valley") or a "campaign/<id>" branch ref.`,
+    );
+  }
+
+  // Validate against the canonical OFFICIAL_CAMPAIGNS catalog. `ebr include`
+  // only handles official campaign branches; custom-campaign mods don't get
+  // included via this path. A typo fails here with a clear ValidationError
+  // listing the known ids instead of a downstream "branch missing on remote".
+  const known = OFFICIAL_CAMPAIGNS.find((c) => c.id === campaignId);
+  if (!known) {
+    const knownIds = OFFICIAL_CAMPAIGNS.map((c) => c.id).join(", ");
+    throw new ValidationError(
+      `Unknown campaign "${campaignId}". Known campaigns: ${knownIds}.`,
+    );
+  }
+
+  return { campaignId, branch: `${CAMPAIGN_BRANCH_PREFIX}${campaignId}` };
+}
+
+/**
+ * Insert or replace an entry in `includedCampaigns` keyed by `id`.
+ * Pure helper - exported for tests.
+ *
+ * @param {Array<{id: string, branch: string, commitHash: string}>|undefined} existing
+ * @param {{id: string, branch: string, commitHash: string}} entry
+ * @returns {Array<{id: string, branch: string, commitHash: string}>}
+ */
+export function upsertIncludedCampaign(existing, entry) {
+  const list = Array.isArray(existing) ? [...existing] : [];
+  const idx = list.findIndex((e) => e && e.id === entry.id);
+  if (idx >= 0) {
+    list[idx] = entry;
+  } else {
+    list.push(entry);
+  }
+  return list;
+}
+
+/**
+ * Include an official campaign branch into the current mod.
+ *
+ * Order of operations is deliberate: we merge first, then write the
+ * manifest. That way an aborted merge or unrelated git failure leaves the
+ * manifest untouched.
+ *
+ * 1. Validate (clean index, manifest readable, base remote present).
+ * 2. Fetch base, resolve `base/campaign/<id>` to a commit hash.
+ * 3. `git merge --no-commit` the campaign ref.
+ *    - On {@link MergeConflictError}: write the manifest update and stage it
+ *      so the user's `git merge --continue` produces a merge commit that
+ *      includes both the campaign content and the includedCampaigns update.
+ *      Rethrow with `campaignId`/`branch`/`commitHash` attached.
+ *    - On any other error: rethrow unchanged. The manifest hasn't been
+ *      touched and `git merge --abort` (if needed) restores the tree.
+ * 4. Merge succeeded. Write+stage the manifest update and commit. If the
+ *    merge produced no changes AND the manifest was byte-identical (the
+ *    re-include case), the commit fails with NothingToCommitError; we
+ *    swallow it and return `alreadyUpToDate: true`.
+ *
+ * @param {object} params
+ * @param {string} params.dir - Mod directory.
+ * @param {string} params.source - Campaign id or `campaign/<id>` branch ref.
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ * @returns {Promise<{ campaignId: string, branch: string, commitHash: string, alreadyUpToDate: boolean }>}
+ * @throws {ValidationError} If `source` is malformed.
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {BaseRemoteMissingError} If no `base` remote is configured.
+ * @throws {IndexNotCleanError} If the index has staged changes when the workflow starts.
+ * @throws {IncludeRefNotFoundError} If the campaign branch cannot be resolved on `base`.
+ * @throws {MergeConflictError} If the merge produces conflicts.
+ * @throws {GitError} For other git failures.
+ * @throws {ManifestError} If the manifest is missing or invalid.
+ */
+export async function includeCampaign({ dir, source }, { onProgress } = {}) {
+  const { campaignId, branch } = resolveCampaignSource(source);
+  const remoteRef = `${BASE_REMOTE_NAME}/${branch}`;
+
+  await assertBaseRepo(dir);
+
+  // Refuse to proceed if the index already has staged changes. The merge's
+  // pre-flight check would catch most of these, but some surface as confusing
+  // "your local changes would be overwritten" errors; failing here gives a
+  // clearer message.
+  const status = await getStatus(dir);
+  if (status.staged.length > 0) {
+    throw new IndexNotCleanError(status.staged);
+  }
+
+  // Read manifest up front so a missing/invalid manifest fails before we touch git.
+  const manifest = await readManifest(dir);
+
+  onProgress?.({ step: "fetch", message: `Fetching ${BASE_REMOTE_NAME}...` });
+  await fetchRemote(dir, BASE_REMOTE_NAME, { onProgress });
+
+  onProgress?.({ step: "resolve", message: `Resolving ${remoteRef}...` });
+  let commitHash;
+  try {
+    commitHash = await revparseRef(dir, remoteRef);
+  } catch {
+    throw new IncludeRefNotFoundError(remoteRef);
+  }
+
+  const entry = { id: campaignId, branch, commitHash };
+  const shortSha = commitHash.slice(0, 7);
+
+  onProgress?.({ step: "merge", message: `Merging ${remoteRef}...` });
+  try {
+    await merge(dir, remoteRef, { onProgress, noCommit: true });
+  } catch (err) {
+    if (err instanceof MergeConflictError) {
+      // Conflict path: write+stage the manifest so `git merge --continue`
+      // includes it in the resulting merge commit. The user resolves
+      // conflicts on the campaign content, then runs `--continue`.
+      onProgress?.({ step: "manifest", message: "Updating includedCampaigns..." });
+      manifest.includedCampaigns = upsertIncludedCampaign(manifest.includedCampaigns, entry);
+      await writeManifest(dir, manifest);
+      await stageFile(dir, "ebr-mod.json");
+
+      err.campaignId = campaignId;
+      err.branch = branch;
+      err.commitHash = commitHash;
+      throw err;
+    }
+    // Any other failure: manifest is untouched, working tree is clean
+    // (or whatever git left it in). Bail cleanly without rollback.
+    throw err;
+  }
+
+  // Merge succeeded (real merge with MERGE_HEAD set, or a no-op when the
+  // campaign was already merged at this exact commit hash). Write+stage the
+  // manifest and finalize with a commit.
+  onProgress?.({ step: "manifest", message: "Updating includedCampaigns..." });
+  manifest.includedCampaigns = upsertIncludedCampaign(manifest.includedCampaigns, entry);
+  await writeManifest(dir, manifest);
+  await stageFile(dir, "ebr-mod.json");
+
+  onProgress?.({ step: "commit", message: "Committing include..." });
+  try {
+    // With MERGE_HEAD set, this produces the merge commit (combining merge
+    // changes + our staged manifest). Without it (re-include of an already-
+    // merged campaign with byte-identical manifest), this is a regular
+    // commit that throws NothingToCommitError.
+    await commit(dir, `Include ${branch} at ${shortSha}`);
+    return { campaignId, branch, commitHash, alreadyUpToDate: false };
+  } catch (err) {
+    if (err instanceof NothingToCommitError) {
+      return { campaignId, branch, commitHash, alreadyUpToDate: true };
+    }
+    throw err;
   }
 }

@@ -84,6 +84,34 @@ export async function getRepo(token, { owner, repo }) {
 }
 
 /**
+ * Compare two refs across forks via the GitHub compare API.
+ * Returns the merge-base SHA, or `null` if the refs share no common
+ * ancestor (GitHub returns 404 in that case).
+ *
+ * @param {string} token
+ * @param {object} options
+ * @param {string} options.owner - Repo whose API hosts the compare (the upstream).
+ * @param {string} options.repo
+ * @param {string} options.base - Base ref, optionally cross-fork (e.g. "main" or "owner:main").
+ * @param {string} options.head - Head ref, optionally cross-fork (e.g. "user:main").
+ * @returns {Promise<{mergeBase: string|null}>}
+ */
+export async function compareCommits(token, { owner, repo, base, head }) {
+  try {
+    const { data } = await octokit(token).rest.repos.compareCommitsWithBasehead({
+      owner, repo, basehead: `${base}...${head}`,
+    });
+    return { mergeBase: data.merge_base_commit?.sha ?? null };
+  } catch (err) {
+    if (err.status === 404) {
+      // GitHub returns 404 when the two histories don't share a common ancestor.
+      return { mergeBase: null };
+    }
+    throw wrapError("compareCommits", err);
+  }
+}
+
+/**
  * Verify the token and return the authenticated user's info.
  * @param {string} token
  * @returns {Promise<{login: string, name: string|null}>}

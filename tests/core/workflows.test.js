@@ -5,7 +5,7 @@ import simpleGit from "simple-git";
 import { scaffoldMod, scaffoldModIntoClone, saveMod, getModBranchName } from "../../src/core/workflows.js";
 import { readManifest, buildManifest, toId } from "../../src/core/manifest.js";
 import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push } from "../../src/core/git.js";
-import { ManifestError, NothingToCommitError, GitError, ValidationError } from "../../src/core/errors.js";
+import { ManifestError, NothingToCommitError, GitError, ValidationError, ForkOutOfSyncError } from "../../src/core/errors.js";
 import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "../helpers.js";
 
 // --- Helpers ---
@@ -138,12 +138,16 @@ describe("modBranchName", () => {
 describe("scaffoldMod", () => {
   let tmpDir;
   let forkDir;  // Bare repo simulating the user's fork
+  let baseDir;  // Bare repo simulating upstream base-content; shares root with forkDir
 
   beforeEach(async () => {
     tmpDir = await createTempDir();
 
-    // Create a bare repo with a main branch to simulate the user's fork
+    // Create a working repo with one commit; clone twice as bare so the
+    // fork and upstream share the same root commit (i.e. the fork is in
+    // sync with upstream).
     forkDir = await createTempDir("ebr-fork-");
+    baseDir = await createTempDir("ebr-base-");
     const workDir = await createTempDir("ebr-fork-work-");
     const g = simpleGit(workDir);
     await g.init();
@@ -154,21 +158,24 @@ describe("scaffoldMod", () => {
     await g.commit("Initial commit");
     // Rename default branch to main
     await g.branch(["-M", "main"]);
-    // Clone as bare into forkDir
+    // Clone as bare into both forkDir and baseDir
     await rm(forkDir, { recursive: true, force: true });
+    await rm(baseDir, { recursive: true, force: true });
     await simpleGit().clone(workDir, forkDir, ["--bare"]);
+    await simpleGit().clone(workDir, baseDir, ["--bare"]);
     await rm(workDir, { recursive: true, force: true });
   });
 
   afterEach(async () => {
     await rm(tmpDir, { recursive: true, force: true });
     await rm(forkDir, { recursive: true, force: true });
+    await rm(baseDir, { recursive: true, force: true });
   });
 
   it("clones the fork and writes manifest to disk", async () => {
     const subDir = join(tmpDir, "my-mod");
     const manifest = buildManifest(BASE_OPTIONS);
-    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir });
+    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir });
     const onDisk = await readManifest(subDir);
     expect(onDisk.name).toBe("Expanded Boulder Field");
     expect(onDisk.id).toBe("expanded-boulder-field");
@@ -177,7 +184,7 @@ describe("scaffoldMod", () => {
   it("creates a git repository with the fork as origin", async () => {
     const subDir = join(tmpDir, "my-mod");
     const manifest = buildManifest(BASE_OPTIONS);
-    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir });
+    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir });
     const git = simpleGit(subDir);
     expect(await git.checkIsRepo()).toBe(true);
     const remotes = await git.getRemotes(true);
@@ -188,18 +195,20 @@ describe("scaffoldMod", () => {
   it("adds the base content remote", async () => {
     const subDir = join(tmpDir, "my-mod");
     const manifest = buildManifest(BASE_OPTIONS);
-    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir });
+    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir });
     const git = simpleGit(subDir);
     const remotes = await git.getRemotes(true);
     const base = remotes.find((r) => r.name === "base");
     expect(base).toBeDefined();
-    expect(base.refs.fetch).toContain("ebr-mod-base-content");
+    // The base remote points to whatever we passed via baseRepoUrl (in the
+    // production path, that's the canonical base-content URL).
+    expect(base.refs.fetch).toBe(baseDir);
   });
 
   it("creates a mod/<mod-id> branch and checks it out", async () => {
     const subDir = join(tmpDir, "my-mod");
     const manifest = buildManifest(BASE_OPTIONS);
-    const result = await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir });
+    const result = await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir });
     expect(result.branch).toBe("mod/expanded-boulder-field");
 
     const git = simpleGit(subDir);
@@ -210,17 +219,33 @@ describe("scaffoldMod", () => {
   it("returns modDir, manifest, and branch", async () => {
     const subDir = join(tmpDir, "my-mod");
     const manifest = buildManifest(BASE_OPTIONS);
-    const result = await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir });
+    const result = await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir });
     expect(result.modDir).toBe(subDir);
     expect(result.manifest).toBe(manifest);
     expect(result.branch).toBe("mod/expanded-boulder-field");
+  });
+
+  it("commits the initial manifest so the working tree is clean", async () => {
+    // Without this commit, a subsequent `ebr include` would fail with
+    // git's "local changes would be overwritten" error when staging the
+    // not-yet-in-HEAD manifest before merging.
+    const subDir = join(tmpDir, "my-mod");
+    const manifest = buildManifest(BASE_OPTIONS);
+    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir });
+
+    const g = simpleGit(subDir);
+    const status = await g.status();
+    expect(status.isClean()).toBe(true);
+    // ebr-mod.json should be tracked at HEAD now.
+    const tracked = await g.raw(["ls-tree", "HEAD", "--name-only", "ebr-mod.json"]);
+    expect(tracked.trim()).toBe("ebr-mod.json");
   });
 
   it("throws ValidationError if directory is not empty", async () => {
     await writeFile(join(tmpDir, "some-file.txt"), "hello");
     const manifest = buildManifest(BASE_OPTIONS);
     await expect(
-      scaffoldMod({ dir: tmpDir, manifest, forkUrl: forkDir }),
+      scaffoldMod({ dir: tmpDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir }),
     ).rejects.toThrow(ValidationError);
   });
 
@@ -228,7 +253,7 @@ describe("scaffoldMod", () => {
     const subDir = join(tmpDir, "my-mod");
     const progress = createProgressCollector();
     const manifest = buildManifest(BASE_OPTIONS);
-    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir }, {
+    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir }, {
       onProgress: progress.fn,
     });
     expect(progress.steps()).toContain("clone");
@@ -243,6 +268,34 @@ describe("scaffoldMod", () => {
     await expect(
       scaffoldMod({ dir: subDir, manifest, forkUrl: undefined }),
     ).rejects.toThrow(GitError);
+  });
+
+  it("throws ForkOutOfSyncError when fork and base share no history", async () => {
+    // Build an unrelated upstream: fresh repo with its own root commit, no
+    // shared history with `forkDir`.
+    const unrelatedBase = await createTempDir("ebr-base-unrelated-");
+    const unrelatedWork = await createTempDir("ebr-base-unrelated-work-");
+    const ug = simpleGit(unrelatedWork);
+    await ug.init();
+    await ug.addConfig("user.name", "Test");
+    await ug.addConfig("user.email", "test@example.com");
+    await writeFile(join(unrelatedWork, "DIFFERENT.md"), "# unrelated\n");
+    await ug.add("-A");
+    await ug.commit("Different root commit");
+    await ug.branch(["-M", "main"]);
+    await rm(unrelatedBase, { recursive: true, force: true });
+    await simpleGit().clone(unrelatedWork, unrelatedBase, ["--bare"]);
+    await rm(unrelatedWork, { recursive: true, force: true });
+
+    try {
+      const subDir = join(tmpDir, "my-mod");
+      const manifest = buildManifest(BASE_OPTIONS);
+      await expect(
+        scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: unrelatedBase }),
+      ).rejects.toBeInstanceOf(ForkOutOfSyncError);
+    } finally {
+      await rm(unrelatedBase, { recursive: true, force: true });
+    }
   });
 });
 

@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { password, confirm, input } from "@inquirer/prompts";
 import open from "open";
 import { getGithubToken, setGithubToken, clearGithubToken, getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults } from "../core/config.js";
-import { getAuthenticatedUser, getRepo, listPullRequests, syncFork } from "../core/github.js";
+import { getAuthenticatedUser, getRepo, listPullRequests, syncFork, compareCommits } from "../core/github.js";
 import { AuthenticationError, GithubError, InsufficientScopeError } from "../core/errors.js";
 
 const BASE_CONTENT_OWNER = "Earthborne-Rangers-Community-Mods";
@@ -270,6 +270,28 @@ async function verifyForks(token, user) {
 
   if (!baseContentFork.isFork || baseContentFork.parentOwner !== BASE_CONTENT_OWNER) {
     console.error(`${baseContentUrl} exists but is not a fork of ${BASE_CONTENT_OWNER}/${BASE_CONTENT_REPO}.`);
+    process.exitCode = 1;
+    return false;
+  }
+
+  // Confirm the fork still shares history with upstream. If upstream rewrote
+  // its main branch after the user forked, every later `ebr include` would
+  // fail with "unrelated histories"; flag it now so they can reset the fork.
+  const { mergeBase: sharedBase } = await compareCommits(token, {
+    owner: BASE_CONTENT_OWNER,
+    repo: BASE_CONTENT_REPO,
+    base: "main",
+    head: `${user.login}:main`,
+  });
+  if (!sharedBase) {
+    console.error(
+      `\nYour base-content fork (${baseContentUrl}) does not share any commit history with upstream.`,
+    );
+    console.error("This usually means upstream rewrote its main branch after you forked.");
+    console.error("Reset your fork's main branch to match upstream:");
+    console.error("  1. On GitHub, go to your fork's main branch.");
+    console.error("  2. Use \"Sync fork\" -> \"Discard commits\" (or run a force-reset locally).");
+    console.error("  3. Re-run `ebr setup`.");
     process.exitCode = 1;
     return false;
   }

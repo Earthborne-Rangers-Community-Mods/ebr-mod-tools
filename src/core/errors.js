@@ -93,6 +93,79 @@ export class UnpushedChangesError extends GitError {
   }
 }
 
+export class IndexNotCleanError extends GitError {
+  /**
+   * Thrown when an operation that stages files into the index (e.g.
+   * `ebr include`) refuses to proceed because the index already contains
+   * staged changes. Bundling those into a merge commit would silently mix
+   * unrelated work; the user must commit or unstage first.
+   * @param {string[]} staged - Paths of files already in the index.
+   */
+  constructor(staged) {
+    const list = staged.length > 3
+      ? `${staged.slice(0, 3).join(", ")}, and ${staged.length - 3} more`
+      : staged.join(", ");
+    super(
+      "include",
+      `Cannot proceed with staged changes in the index (${list}). Commit or unstage them first, then re-run.`,
+    );
+    this.name = "IndexNotCleanError";
+    this.staged = staged;
+  }
+}
+
+export class ForkOutOfSyncError extends GitError {
+  /**
+   * Thrown when the user's base-content fork shares no commit history with
+   * the upstream base-content repo. This happens when the upstream `main`
+   * branch was rebased/rewritten after the fork was created, leaving the
+   * fork on a detached history. Every campaign include from `base` will
+   * fail with "unrelated histories" until the fork is reset.
+   *
+   * @param {object} details
+   * @param {string} details.forkBranch - e.g. "origin/main".
+   * @param {string} details.baseBranch - e.g. "base/main".
+   * @param {string} [details.forkUrl] - HTTPS URL of the fork (optional, for the message).
+   */
+  constructor({ forkBranch, baseBranch, forkUrl }) {
+    const lines = [
+      `Your fork's history (${forkBranch}) does not share any commits with upstream (${baseBranch}).`,
+      "This usually means upstream rewrote its main branch after you forked.",
+      "Reset your fork to upstream before continuing:",
+      "",
+      "  git fetch base",
+      "  git checkout main",
+      "  git reset --hard base/main",
+      "  git push --force origin main",
+    ];
+    if (forkUrl) {
+      lines.unshift(`Fork: ${forkUrl}`);
+    }
+    super("fork-out-of-sync", lines.join("\n"));
+    this.name = "ForkOutOfSyncError";
+    this.forkBranch = forkBranch;
+    this.baseBranch = baseBranch;
+    this.forkUrl = forkUrl;
+  }
+}
+
+export class IncludeRefNotFoundError extends GitError {
+  /**
+   * Thrown when `ebr include` cannot resolve the campaign branch on the
+   * `base` remote (e.g. typo in source, branch missing on the fork, or the
+   * remote hasn't been fetched yet).
+   * @param {string} ref - The unresolved ref (e.g. "base/campaign/foo").
+   */
+  constructor(ref) {
+    super(
+      "include",
+      `Could not resolve "${ref}" on the base remote. Verify the campaign id and that your fork has the campaign branch.`,
+    );
+    this.name = "IncludeRefNotFoundError";
+    this.ref = ref;
+  }
+}
+
 export class ConfigError extends Error {
   constructor(operation, message) {
     super(message);

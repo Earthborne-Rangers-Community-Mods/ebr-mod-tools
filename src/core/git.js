@@ -314,12 +314,17 @@ export async function getCurrentBranch(dir) {
  * @param {string} ref - The ref to merge (e.g., "feature", "base/main").
  * @param {object} [options]
  * @param {function} [options.onProgress] - Progress callback.
+ * @param {boolean} [options.noCommit] - If true, pass `--no-commit --no-ff` so
+ *   the merge result lands in the index without auto-committing. Lets the
+ *   caller stage additional changes before producing the merge commit and
+ *   ensures a conflict-resolution `git merge --continue` includes them.
  * @throws {MergeConflictError} If the merge results in conflicts.
  */
-export async function merge(dir, ref, { onProgress } = {}) {
+export async function merge(dir, ref, { onProgress, noCommit = false } = {}) {
   try {
     onProgress?.({ step: "merge", message: `Merging ${ref}...` });
-    await git(dir).merge([ref]);
+    const args = noCommit ? ["--no-commit", "--no-ff", ref] : [ref];
+    await git(dir).merge(args);
   } catch (err) {
     // Check if the failure is due to merge conflicts
     const status = await git(dir).status();
@@ -406,6 +411,87 @@ export async function isAncestor(dir, ancestor, descendant) {
     return mergeBase.trim() === ancestorSha.trim();
   } catch {
     return false;
+  }
+}
+
+/**
+ * Find the common ancestor of two refs. Returns the merge-base SHA, or
+ * `null` if the two refs share no history (independent root commits).
+ *
+ * @param {string} dir
+ * @param {string} refA
+ * @param {string} refB
+ * @returns {Promise<string|null>}
+ */
+export async function mergeBase(dir, refA, refB) {
+  try {
+    const out = await git(dir).raw(["merge-base", refA, refB]);
+    const sha = out.trim();
+    return sha || null;
+  } catch {
+    // `git merge-base` exits non-zero when there is no common ancestor.
+    return null;
+  }
+}
+
+/**
+ * Resolve a ref (branch, tag, or commit) to its full 40-character SHA.
+ * Throws GitError if the ref cannot be resolved.
+ *
+ * @param {string} dir
+ * @param {string} ref - Any ref (e.g. "base/main", "HEAD~1", "v1.0.0").
+ * @returns {Promise<string>}
+ */
+export async function revparseRef(dir, ref) {
+  try {
+    const sha = await git(dir).raw(["rev-parse", "--verify", `${ref}^{commit}`]);
+    return sha.trim();
+  } catch (err) {
+    throw wrapError("revparseRef", err);
+  }
+}
+
+/**
+ * Stage a single file by path (relative to the repo root).
+ * @param {string} dir
+ * @param {string} relativePath
+ */
+export async function stageFile(dir, relativePath) {
+  try {
+    await git(dir).add([relativePath]);
+  } catch (err) {
+    throw wrapError("stageFile", err);
+  }
+}
+
+/**
+ * Unstage a single file (remove it from the index, leaving the working tree
+ * unchanged). Equivalent to `git reset HEAD -- <path>`. Works for both
+ * previously-tracked files (which become "modified") and files staged for the
+ * first time (which become "untracked").
+ * @param {string} dir
+ * @param {string} relativePath
+ */
+export async function unstageFile(dir, relativePath) {
+  try {
+    await git(dir).raw(["reset", "HEAD", "--", relativePath]);
+  } catch (err) {
+    throw wrapError("unstageFile", err);
+  }
+}
+
+/**
+ * Undo the most recent commit on the current branch. Equivalent to
+ * `git reset --mixed HEAD~1`: the commit is removed from history, the index
+ * is reset to match the new HEAD, and the working tree is left alone.
+ * Use to roll back a commit while preserving any unstaged user changes.
+ * @param {string} dir
+ */
+export async function undoLastCommit(dir) {
+  try {
+    await git(dir).raw(["reset", "--mixed", "HEAD~1"]);
+  } catch (err) {
+    throw wrapError("undoLastCommit", err);
   }
 }
 
