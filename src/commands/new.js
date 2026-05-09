@@ -4,7 +4,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import { resolve, basename } from "node:path";
 import { scaffoldMod, scaffoldModIntoClone, includeCampaign } from "../core/workflows.js";
 import { isRepo, getRemotes } from "../core/git.js";
-import { buildManifest, toId } from "../core/manifest.js";
+import { buildManifest, toId, deriveOptionalProducts } from "../core/manifest.js";
 import { readManifest, writeManifest, validateNonEmpty, validateName, validateIcon, validateLanguage } from "../core/manifest.js";
 import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../core/catalogs.js";
 import { getGithubToken, getForkUrls, getAuthorDefaults } from "../core/config.js";
@@ -122,6 +122,7 @@ export const newCommand = new Command("new")
         values.authorDiscord = authorDefaults.authorDiscord;
       }
       await promptMissing(values);
+      syncOptionalProducts(values);
 
       // Build manifest
       const manifest = buildManifest(values);
@@ -221,6 +222,27 @@ function productChoices(campaigns, selected = []) {
   }));
 }
 
+/**
+ * Wrapper around `deriveOptionalProducts` that mutates the in-progress mod
+ * values used by `ebr new`. Deletes the key entirely when the result is
+ * empty so we don't write `"optionalProducts": []` to disk.
+ *
+ * @param {object} values - Mutable values object being assembled in `ebr new`.
+ */
+function syncOptionalProducts(values) {
+  const derived = deriveOptionalProducts({
+    type: values.type,
+    campaigns: values.campaigns,
+    requiredProducts: values.requiredProducts,
+    optionalProducts: values.optionalProducts,
+  });
+  if (derived.length === 0) {
+    delete values.optionalProducts;
+  } else {
+    values.optionalProducts = derived;
+  }
+}
+
 async function promptMissing(values) {
   if (!values.name) {
     values.name = await input({ message: "Mod name:", validate: validateName });
@@ -277,6 +299,9 @@ function displaySummary(context) {
   console.log(`    Type:               ${manifest.type}`);
   console.log(`    Campaigns:          ${manifest.campaigns.join(", ")}`);
   console.log(`    Required products:  ${manifest.requiredProducts.join(", ") || "(none)"}`);
+  if (manifest.optionalProducts && manifest.optionalProducts.length > 0) {
+    console.log(`    Optional products:  ${manifest.optionalProducts.join(", ")}`);
+  }
   console.log(`    Safe mid-campaign:  ${manifest.safeToAddMidCampaign ? "Yes" : "No"}`);
   console.log(`    Language:           ${manifest.language}`);
   console.log(`    Icon:               ${manifest.icon}`);
@@ -375,6 +400,7 @@ async function editField(manifest, key) {
           manifest.campaigns = ["any"];
           manifest.requiredProducts = [];
           manifest.safeToAddMidCampaign = true;
+          delete manifest.optionalProducts;
         } else if (oldType === "theme") {
           const campChoices = OFFICIAL_CAMPAIGNS.map((c) => ({
             name: `${c.name}${c.oneDayMission ? " (one-day mission)" : ""}`,
@@ -389,6 +415,7 @@ async function editField(manifest, key) {
         } else {
           delete manifest.includedMods;
         }
+        syncOptionalProducts(manifest);
       }
       break;
     }
@@ -399,11 +426,13 @@ async function editField(manifest, key) {
         checked: manifest.campaigns.includes(c.id),
       }));
       manifest.campaigns = await checkbox({ message: "Target campaigns:", choices });
+      syncOptionalProducts(manifest);
       break;
     }
     case "requiredProducts": {
       const choices = productChoices(manifest.campaigns, manifest.requiredProducts);
       manifest.requiredProducts = await checkbox({ message: "Required products:", choices });
+      syncOptionalProducts(manifest);
       break;
     }
     case "safeToAddMidCampaign":

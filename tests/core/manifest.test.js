@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, updateManifest } from "../../src/core/manifest.js";
+import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, updateManifest, deriveOptionalProducts, applyMissingProductFix } from "../../src/core/manifest.js";
 import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../../src/core/catalogs.js";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../../src/core/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
@@ -375,13 +375,65 @@ describe("validateManifest", () => {
 
   // --- Collection-specific ---
 
-  it("rejects collection without includedMods", () => {
+  it("rejects collection without includedMods or includedCampaigns", () => {
     const errors = validateManifest(validManifest({ type: "collection" }));
     expect(codes(errors)).toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
   });
 
-  it("rejects collection with empty includedMods", () => {
-    const errors = validateManifest(validManifest({ type: "collection", includedMods: [] }));
+  it("rejects collection with both includedMods and includedCampaigns empty", () => {
+    const errors = validateManifest(
+      validManifest({ type: "collection", includedMods: [], includedCampaigns: [] }),
+    );
+    expect(codes(errors)).toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
+  });
+
+  it("accepts collection with non-empty includedCampaigns and empty includedMods", () => {
+    const errors = validateManifest(
+      validManifest({
+        type: "collection",
+        includedMods: [],
+        includedCampaigns: [
+          { id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" },
+        ],
+      }),
+    );
+    expect(codes(errors)).not.toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
+  });
+
+  it("accepts collection with both includedMods and includedCampaigns non-empty", () => {
+    const errors = validateManifest(
+      validManifest({
+        type: "collection",
+        includedMods: [
+          { id: "x", name: "X", author: "A", version: "1.0.0", repoUrl: "https://github.com/a/b" },
+        ],
+        includedCampaigns: [
+          { id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" },
+        ],
+      }),
+    );
+    expect(codes(errors)).not.toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
+  });
+
+  it("accepts collection with both non-empty includedMods and non-empty includedCampaigns", () => {
+    const errors = validateManifest(
+      validManifest({
+        type: "collection",
+        includedMods: [
+          { id: "some-mod", name: "Some Mod", author: "Author", version: "1.0.0", repoUrl: "https://github.com/author/ebr-some-mod" },
+        ],
+        includedCampaigns: [
+          { id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" },
+        ],
+      }),
+    );
+    expect(codes(errors)).not.toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
+  });
+
+  it("rejects collection where includedCampaigns is a non-array and includedMods is absent", () => {
+    const errors = validateManifest(
+      validManifest({ type: "collection", includedCampaigns: "not-an-array" }),
+    );
     expect(codes(errors)).toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
   });
 
@@ -732,3 +784,185 @@ describe("validateIcon", () => {
     expect(validateIcon(42)).not.toBe(true);
   });
 });
+
+// --- deriveOptionalProducts ---
+
+describe("deriveOptionalProducts", () => {
+  it("returns empty array for theme mods regardless of inputs", () => {
+    expect(
+      deriveOptionalProducts({
+        type: "theme",
+        campaigns: ["lure-of-the-valley"],
+        requiredProducts: [],
+        optionalProducts: ["legacy-of-the-ancestors"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("does not double-add a product already in requiredProducts", () => {
+    // lure-of-the-valley implies core-set
+    const result = deriveOptionalProducts({
+      type: "campaign",
+      campaigns: ["lure-of-the-valley"],
+      requiredProducts: ["core-set"],
+      optionalProducts: [],
+    });
+    expect(result).toEqual([]);
+  });
+
+  it("moves implied-but-not-required products into optional", () => {
+    // spire-in-bloom implies core-set + spire-in-bloom
+    const result = deriveOptionalProducts({
+      type: "campaign",
+      campaigns: ["spire-in-bloom"],
+      requiredProducts: [],
+      optionalProducts: [],
+    });
+    expect(result.sort()).toEqual(["core-set", "spire-in-bloom"].sort());
+  });
+
+  it("preserves user-set optionalProducts entries", () => {
+    const result = deriveOptionalProducts({
+      type: "campaign",
+      campaigns: ["lure-of-the-valley"],
+      requiredProducts: [],
+      optionalProducts: ["legacy-of-the-ancestors"],
+    });
+    expect(new Set(result)).toEqual(new Set(["core-set", "legacy-of-the-ancestors"]));
+  });
+
+  it("removes a product from optional when it is also in required", () => {
+    const result = deriveOptionalProducts({
+      type: "campaign",
+      campaigns: [],
+      requiredProducts: ["core-set"],
+      optionalProducts: ["core-set", "legacy-of-the-ancestors"],
+    });
+    expect(result).toEqual(["legacy-of-the-ancestors"]);
+  });
+
+  it("ignores unknown campaign ids", () => {
+    const result = deriveOptionalProducts({
+      type: "campaign",
+      campaigns: ["does-not-exist"],
+      requiredProducts: [],
+      optionalProducts: [],
+    });
+    expect(result).toEqual([]);
+  });
+
+  it("does not mutate its inputs", () => {
+    const required = ["core-set"];
+    const optional = ["legacy-of-the-ancestors"];
+    deriveOptionalProducts({
+      type: "campaign",
+      campaigns: ["spire-in-bloom"],
+      requiredProducts: required,
+      optionalProducts: optional,
+    });
+    expect(required).toEqual(["core-set"]);
+    expect(optional).toEqual(["legacy-of-the-ancestors"]);
+  });
+
+  it("deduplicates products implied by multiple campaigns", () => {
+    // spire-in-bloom and shadow-of-the-storm both imply core-set
+    const result = deriveOptionalProducts({
+      type: "campaign",
+      campaigns: ["spire-in-bloom", "shadow-of-the-storm"],
+      requiredProducts: [],
+      optionalProducts: [],
+    });
+    expect(result.filter((id) => id === "core-set")).toHaveLength(1);
+    expect(new Set(result)).toEqual(new Set(["core-set", "spire-in-bloom", "shadow-of-the-storm"]));
+  });
+
+  it("defaults missing params to empty arrays (only type given)", () => {
+    expect(deriveOptionalProducts({ type: "campaign" })).toEqual([]);
+  });
+});
+
+// --- applyMissingProductFix ---
+
+describe("applyMissingProductFix", () => {
+  it("adds products to requiredProducts when bucket is 'required'", () => {
+    const manifest = { requiredProducts: ["core-set"] };
+    applyMissingProductFix(manifest, ["spire-in-bloom"], "required");
+    expect(new Set(manifest.requiredProducts)).toEqual(new Set(["core-set", "spire-in-bloom"]));
+  });
+
+  it("adds products to optionalProducts when bucket is 'optional'", () => {
+    const manifest = { optionalProducts: ["core-set"] };
+    applyMissingProductFix(manifest, ["spire-in-bloom"], "optional");
+    expect(new Set(manifest.optionalProducts)).toEqual(new Set(["core-set", "spire-in-bloom"]));
+  });
+
+  it("when promoting to required, removes the product from optional", () => {
+    const manifest = {
+      requiredProducts: [],
+      optionalProducts: ["spire-in-bloom", "legacy-of-the-ancestors"],
+    };
+    applyMissingProductFix(manifest, ["spire-in-bloom"], "required");
+    expect(manifest.requiredProducts).toEqual(["spire-in-bloom"]);
+    expect(manifest.optionalProducts).toEqual(["legacy-of-the-ancestors"]);
+  });
+
+  it("deletes optionalProducts when it empties out after promotion", () => {
+    const manifest = { requiredProducts: [], optionalProducts: ["spire-in-bloom"] };
+    applyMissingProductFix(manifest, ["spire-in-bloom"], "required");
+    expect("optionalProducts" in manifest).toBe(false);
+  });
+
+  it("creates requiredProducts array when missing", () => {
+    const manifest = {};
+    applyMissingProductFix(manifest, ["core-set"], "required");
+    expect(manifest.requiredProducts).toEqual(["core-set"]);
+  });
+
+  it("creates optionalProducts array when missing", () => {
+    const manifest = {};
+    applyMissingProductFix(manifest, ["core-set"], "optional");
+    expect(manifest.optionalProducts).toEqual(["core-set"]);
+  });
+
+  it("de-duplicates within the target bucket", () => {
+    const manifest = { requiredProducts: ["core-set"] };
+    applyMissingProductFix(manifest, ["core-set", "spire-in-bloom"], "required");
+    expect(new Set(manifest.requiredProducts)).toEqual(new Set(["core-set", "spire-in-bloom"]));
+    expect(manifest.requiredProducts.length).toBe(2);
+  });
+
+  it("returns the same manifest object", () => {
+    const manifest = { requiredProducts: [] };
+    const result = applyMissingProductFix(manifest, ["core-set"], "required");
+    expect(result).toBe(manifest);
+  });
+
+  it("does not duplicate a product already in optionalProducts when adding to optional", () => {
+    const manifest = { optionalProducts: ["core-set", "spire-in-bloom"] };
+    applyMissingProductFix(manifest, ["core-set"], "optional");
+    expect(manifest.optionalProducts.filter((id) => id === "core-set")).toHaveLength(1);
+    expect(new Set(manifest.optionalProducts)).toEqual(new Set(["core-set", "spire-in-bloom"]));
+    expect(manifest.optionalProducts.length).toBe(2);
+  });
+
+  it("removes from requiredProducts when promoting a product to optional", () => {
+    const manifest = { requiredProducts: ["core-set", "spire-in-bloom"], optionalProducts: [] };
+    applyMissingProductFix(manifest, ["core-set"], "optional");
+    expect(manifest.optionalProducts).toContain("core-set");
+    expect(manifest.requiredProducts).not.toContain("core-set");
+    expect(manifest.requiredProducts).toContain("spire-in-bloom");
+  });
+
+  it("leaves requiredProducts as an empty array (not deleted) when fully drained", () => {
+    const manifest = { requiredProducts: ["core-set"], optionalProducts: [] };
+    applyMissingProductFix(manifest, ["core-set"], "optional");
+    expect(manifest.requiredProducts).toEqual([]);
+    expect(Object.prototype.hasOwnProperty.call(manifest, "requiredProducts")).toBe(true);
+  });
+
+  it("throws on an unknown bucket", () => {
+    expect(() => applyMissingProductFix({}, ["core-set"], "neither")).toThrow();
+  });
+});
+
+

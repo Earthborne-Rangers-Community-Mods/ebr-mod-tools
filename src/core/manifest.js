@@ -259,9 +259,11 @@ export function validateManifest(manifest) {
     errors.push({ code: VALIDATION_CODES.FIELD_NOT_BOOLEAN, field: "safeToAddMidCampaign" });
   }
 
-  // collection type requires includedMods
+  // collection type requires at least one included mod or campaign
   if (manifest.type === "collection") {
-    if (!manifest.includedMods || !Array.isArray(manifest.includedMods) || manifest.includedMods.length === 0) {
+    const hasMods = Array.isArray(manifest.includedMods) && manifest.includedMods.length > 0;
+    const hasCampaigns = Array.isArray(manifest.includedCampaigns) && manifest.includedCampaigns.length > 0;
+    if (!hasMods && !hasCampaigns) {
       errors.push({ code: VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS });
     }
   }
@@ -332,7 +334,7 @@ export function formatValidationError(err) {
     case VALIDATION_CODES.FIELD_NOT_STRING:
       return `"${err.field}" must be a non-empty string.`;
     case VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS:
-      return `Collection mods must have a non-empty "includedMods" array.`;
+      return `Collection mods must include at least one mod or campaign (non-empty "includedMods" or "includedCampaigns").`;
     case VALIDATION_CODES.INCLUDED_MOD_MISSING_FIELD:
       return `includedMods[${err.index}] is missing required field: "${err.field}".`;
     case VALIDATION_CODES.INVALID_LANGUAGE_TAG:
@@ -406,6 +408,80 @@ export function toId(name) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Derive `optionalProducts` from selected campaigns. Any product implied by
+ * a campaign that the user did not put in `requiredProducts` becomes
+ * optional. Existing `optionalProducts` entries are preserved unless they
+ * have since been moved to `requiredProducts`. Theme mods (which target
+ * `"any"`) get `[]` - the caller decides whether to drop the key.
+ *
+ * Pure function: returns a fresh array, never mutates inputs.
+ *
+ * @param {object} input
+ * @param {string} input.type - Mod type (theme | campaign | one-day-mission | enhancement | expansion | collection).
+ * @param {string[]} [input.campaigns] - Selected campaign ids.
+ * @param {string[]} [input.requiredProducts] - Products the user marked required.
+ * @param {string[]} [input.optionalProducts] - Products already marked optional.
+ * @returns {string[]} The derived `optionalProducts` array.
+ */
+export function deriveOptionalProducts({ type, campaigns = [], requiredProducts = [], optionalProducts = [] }) {
+  if (type === "theme") return [];
+  const required = new Set(requiredProducts);
+  const result = new Set(optionalProducts);
+  for (const id of campaigns) {
+    const campaign = OFFICIAL_CAMPAIGNS.find((c) => c.id === id);
+    if (!campaign) continue;
+    for (const productId of campaign.requiredProducts) {
+      if (!required.has(productId)) result.add(productId);
+    }
+  }
+  // Required wins over optional.
+  for (const id of required) result.delete(id);
+  return [...result];
+}
+
+/**
+ * Apply a `CAMPAIGN_MISSING_PRODUCT` auto-fix to a manifest. Adds the given
+ * product ids to either `requiredProducts` or `optionalProducts`, with
+ * symmetric de-duplication so a product never ends up in both buckets:
+ * promoting an id into one bucket removes it from the other.
+ *
+ * Mutates the manifest in place and returns it. `requiredProducts` is a
+ * required manifest field, so it stays as an empty array if drained;
+ * `optionalProducts` is optional, so it's deleted when drained.
+ *
+ * @param {object} manifest - The parsed manifest. `requiredProducts` and
+ *   `optionalProducts` must be arrays or absent; this function is meant to
+ *   be called only after callers have confirmed those fields are well-formed.
+ * @param {string[]} missingProducts - Product ids to add.
+ * @param {"required"|"optional"} bucket - Which list to add them to.
+ * @returns {object} The same manifest object (mutated).
+ */
+export function applyMissingProductFix(manifest, missingProducts, bucket) {
+  if (bucket !== "required" && bucket !== "optional") {
+    throw new Error(`applyMissingProductFix: bucket must be "required" or "optional", got "${bucket}".`);
+  }
+  if (bucket === "required") {
+    const required = new Set(Array.isArray(manifest.requiredProducts) ? manifest.requiredProducts : []);
+    for (const id of missingProducts) required.add(id);
+    manifest.requiredProducts = [...required];
+    if (Array.isArray(manifest.optionalProducts)) {
+      manifest.optionalProducts = manifest.optionalProducts.filter((id) => !required.has(id));
+      if (manifest.optionalProducts.length === 0) delete manifest.optionalProducts;
+    }
+  } else {
+    const optional = new Set(Array.isArray(manifest.optionalProducts) ? manifest.optionalProducts : []);
+    for (const id of missingProducts) optional.add(id);
+    manifest.optionalProducts = [...optional];
+    // Symmetric de-dupe with requiredProducts. Leave requiredProducts as
+    // an empty array if it ends up empty - it's a required manifest field.
+    if (Array.isArray(manifest.requiredProducts)) {
+      manifest.requiredProducts = manifest.requiredProducts.filter((id) => !optional.has(id));
+    }
+  }
+  return manifest;
 }
 
 /**
