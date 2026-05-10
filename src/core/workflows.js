@@ -555,6 +555,74 @@ async function assertBaseRepo(dir) {
   }
 }
 
+/**
+ * Walk every entry in `manifest.includedCampaigns` and report which ones
+ * have new commits available on `base/<branch>`.
+ *
+ * Reuses the existing `base` remote (added by `ebr new`). Fetches once,
+ * then per-entry checks whether the remote branch tip is already an
+ * ancestor of HEAD - same shape as {@link checkBaseUpdate}.
+ *
+ * Entries whose branch cannot be resolved on the remote (deleted or
+ * renamed upstream) are returned with `missing: true` so the caller can
+ * warn-and-skip rather than abort the whole walk.
+ *
+ * @param {object} params
+ * @param {string} params.dir - Mod directory (must be a git repo with a `base` remote).
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ * @returns {Promise<{ updates: Array<{ id: string, branch: string, oldCommitHash: string, newCommitHash: string|null, updateAvailable: boolean, missing: boolean }> }>}
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {BaseRemoteMissingError} If no `base` remote is configured.
+ * @throws {ManifestError} If the manifest is missing or invalid.
+ */
+export async function checkIncludedCampaignsUpdates({ dir }, { onProgress } = {}) {
+  await assertBaseRepo(dir);
+
+  const manifest = await readManifest(dir);
+  const entries = Array.isArray(manifest.includedCampaigns) ? manifest.includedCampaigns : [];
+
+  if (entries.length === 0) {
+    return { updates: [] };
+  }
+
+  onProgress?.({ step: "fetch", message: `Fetching ${BASE_REMOTE_NAME}...` });
+  await fetchRemote(dir, BASE_REMOTE_NAME, { onProgress });
+
+  const updates = [];
+  for (const entry of entries) {
+    const remoteRef = `${BASE_REMOTE_NAME}/${entry.branch}`;
+    onProgress?.({ step: "check", message: `Checking ${entry.branch}...` });
+
+    let latestSha;
+    try {
+      latestSha = await revparseRef(dir, remoteRef);
+    } catch {
+      updates.push({
+        id: entry.id,
+        branch: entry.branch,
+        oldCommitHash: entry.commitHash,
+        newCommitHash: null,
+        updateAvailable: false,
+        missing: true,
+      });
+      continue;
+    }
+
+    const upToDate = await isAncestor(dir, remoteRef, "HEAD");
+    updates.push({
+      id: entry.id,
+      branch: entry.branch,
+      oldCommitHash: entry.commitHash,
+      newCommitHash: latestSha,
+      updateAvailable: !upToDate,
+      missing: false,
+    });
+  }
+
+  return { updates };
+}
+
 // --- includeCampaign ---
 
 const CAMPAIGN_BRANCH_PREFIX = "campaign/";
