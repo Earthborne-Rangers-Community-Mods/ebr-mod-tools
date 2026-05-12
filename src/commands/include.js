@@ -15,17 +15,17 @@ import {
 } from "../core/errors.js";
 
 export const includeCommand = new Command("include")
-  .description("Include one or more official campaign branches into the current mod")
-  .argument("[sources...]", "Campaign id(s) (e.g. 'lure-of-the-valley') or 'campaign/<id>' refs. Omit to pick from a checklist.")
+  .description("Include an official campaign branch (merge) into the current mod")
+  .argument("[campaigns...]", "Campaign id(s) (e.g. 'lure-of-the-valley') or 'campaign/<id>' refs. Omit to pick from a checklist.")
   .action(includeAction);
 
-async function includeAction(sourcesArg) {
+async function includeAction(campaignsArg) {
   const dir = process.cwd();
 
   // commander gives an empty array when no positional args were passed.
-  const passed = Array.isArray(sourcesArg) ? sourcesArg : (sourcesArg ? [sourcesArg] : []);
+  const passed = Array.isArray(campaignsArg) ? campaignsArg : (campaignsArg ? [campaignsArg] : []);
 
-  // Resolve sources: either explicit positional args, or a multi-select prompt.
+  // Resolve sources: explicit positional args, or a multi-select prompt.
   let sources;
   if (passed.length > 0) {
     sources = passed;

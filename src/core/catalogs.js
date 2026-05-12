@@ -59,3 +59,60 @@ export const OFFICIAL_PRODUCTS = Object.freeze([
   { id: "ranger-card-doubler", name: "Ranger Card Doubler" },
   { id: "incandescent-sky", name: "Incandescent Sky" },
 ]);
+
+/**
+ * Branch-name prefixes recognized as scaffold templates in `ebr-mod-scaffold`.
+ * `ebr scaffold` accepts either a bare branch (e.g. `map/river-valley`) or
+ * a name from {@link KNOWN_SCAFFOLDS}; the prefix list here is what the
+ * source parser uses to validate the shape of an explicit branch ref.
+ */
+export const SCAFFOLD_TYPES = Object.freeze(["map", "set"]);
+
+/**
+ * Placeholder token replaced with the current mod's `name` field when
+ * stamping a scaffold into the working tree.
+ */
+export const SCAFFOLD_NAME_TOKEN = "__MOD_NAME__";
+
+/**
+ * Top-level directory names that scaffold stamping never copies. Matched
+ * exactly against immediate children of the scaffold's root; nested
+ * directories with the same name are still traversed.
+ */
+export const SCAFFOLD_SKIP_DIRS = Object.freeze([".git"]);
+
+/**
+ * File names that scaffold stamping never copies, at any depth. These are
+ * scaffold-housekeeping files (READMEs explaining how to author the
+ * scaffold itself, empty-directory markers, etc.) -- they belong to the
+ * scaffold repo, not to the stamped mod.
+ */
+export const SCAFFOLD_SKIP_FILES = Object.freeze(["README.md", ".gitkeep"]);
+
+/**
+ * Known scaffold branches in the `ebr-mod-scaffold` repo. Drives the
+ * interactive picker in `ebr scaffold` (no positional arg) and the GUI's
+ * scaffold list. Authors can also pass an unlisted branch name explicitly
+ * -- this catalog is for discovery only, not validation.
+ *
+ * `product` names the single product that the scaffold's content draws
+ * from. `ebr scaffold` treats the manifest as valid when that product is
+ * present in either `requiredProducts` or `optionalProducts`, and offers
+ * to add it (to either list) as a courtesy when it isn't.
+ *
+ * Entry shape:
+ *   { branch: string, name: string, product: string }
+ */
+export const KNOWN_SCAFFOLDS = Object.freeze([
+  { branch: "map/lure-of-the-valley", name: "Lure of the Valley map", product: "core-set" },
+  { branch: "map/spire-in-bloom", name: "Spire in Bloom map (expanded spire)", product: "spire-in-bloom" },
+  { branch: "map/shadow-of-the-storm", name: "Shadow of the Storm map (expanded north)", product: "shadow-of-the-storm" },
+  { branch: "map/legacy-of-the-ancestors-surface", name: "Legacy of the Ancestors map (surface)", product: "legacy-of-the-ancestors" },
+  { branch: "map/legacy-of-the-ancestors-arcology", name: "Legacy of the Ancestors map (arcology)", product: "legacy-of-the-ancestors" },
+  { branch: "set/the-valley", name: "The Valley path set", product: "core-set" },
+  { branch: "set/the-arcology", name: "The Arcology path set", product: "legacy-of-the-ancestors" },
+  { branch: "set/the-valley-sib", name: "The Valley path set (Spire in Bloom expansion)", product: "spire-in-bloom" },
+  { branch: "set/the-valley-sos", name: "The Valley path set (Shadow of the Storm expansion)", product: "shadow-of-the-storm" },
+  { branch: "set/custom-campaign", name: "Custom Campaign"},
+  { branch: "set/one-day-mission", name: "One-Day Mission"},
+]);

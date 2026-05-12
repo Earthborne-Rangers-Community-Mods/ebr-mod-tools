@@ -31,7 +31,7 @@
   },
   "homepage": "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-tools#readme",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.4.1",

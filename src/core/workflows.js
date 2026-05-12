@@ -6,9 +6,12 @@
  * CLI commands and the Creator GUI call these directly.
  */
 
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile, stat, rm } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { listFilesRecursive, sanitizePathSegment, realPathSafe, realPathOfDestination, isPathInside } from "./filesystem.js";
 import { readManifest, writeManifest, validateManifest, formatValidationErrors, updateManifest } from "./manifest.js";
-import { isRepo, initRepo, addRemote, cloneRepo, fetchRemote, createLocalBranch, checkout, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase } from "./git.js";
+import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase } from "./git.js";
 import {
   getFileContent,
   createOrUpdateFileContent,
@@ -20,9 +23,9 @@ import {
   syncFork,
   normalizeGithubUrl,
 } from "./github.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError } from "./errors.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, ScaffoldDestinationExistsError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry } from "./registry.js";
-import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS } from "./catalogs.js";
+import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_DIRS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
 
 // --- Constants ---
 
@@ -801,3 +804,254 @@ export async function includeCampaign({ dir, source }, { onProgress } = {}) {
     throw err;
   }
 }
+
+// --- scaffold ---
+
+/**
+ * URL of the public `ebr-mod-scaffold` repo. Cloned anonymously over HTTPS;
+ * no fork or authentication is required because scaffolds are templates and
+ * the repo is read-only from the tool's perspective.
+ */
+const SCAFFOLD_REPO_URL = "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-scaffold.git";
+
+/**
+ * Substitute the scaffold name token in a path with the mod's name.
+ * Operates on POSIX-style paths (`/` separator); callers convert as needed.
+ *
+ * @param {string} relPath
+ * @param {string} modName
+ * @returns {string}
+ */
+function substituteScaffoldPath(relPath, modName) {
+  return relPath.split(SCAFFOLD_NAME_TOKEN).join(modName);
+}
+
+/**
+ * Look up the scaffold's product in the catalog and return it if it is not
+ * already present in the manifest's `requiredProducts` or `optionalProducts`.
+ * Returns `null` if the scaffold has no catalog entry (silent skip) or its
+ * product is already covered by the manifest.
+ *
+ * @param {string} branch - Scaffold branch (e.g. "map/river-valley").
+ * @param {object} manifest
+ * @param {ReadonlyArray<{branch: string, product: string}>} [catalog]
+ * @returns {string | null}
+ */
+export function computeMissingScaffoldProduct(branch, manifest, catalog = KNOWN_SCAFFOLDS) {
+  const entry = Array.isArray(catalog)
+    ? catalog.find((s) => s && s.branch === branch)
+    : null;
+  if (!entry || typeof entry.product !== "string") return null;
+  const have = new Set([
+    ...(Array.isArray(manifest.requiredProducts) ? manifest.requiredProducts : []),
+    ...(Array.isArray(manifest.optionalProducts) ? manifest.optionalProducts : []),
+  ]);
+  if (have.has(entry.product)) return null;
+  return entry.product;
+}
+
+/**
+ * Stamp a scaffold template branch into the mod's working tree.
+ *
+ * Clones `ebr-mod-scaffold` shallowly at the target branch, substitutes the
+ * mod's `name` field into `__MOD_NAME__` path placeholders, copies the tree
+ * into the working directory, stages the changes, and commits with the
+ * branch name. Manifest reconciliation against the scaffold's product
+ * requirements (if any) is the caller's responsibility -- see
+ * {@link computeMissingScaffoldProduct}.
+ *
+ * Scaffolds are one-shot copies: no manifest tracking (`includedScaffolds`
+ * does not exist), no update path. The commit message records the branch
+ * so creators can grep history for stamps they applied.
+ *
+ * Refuses to overwrite existing files in the working tree -- if any stamped
+ * path already exists, throws {@link ScaffoldDestinationExistsError}. The
+ * creator must move/delete the conflicting paths (or rename the mod) and
+ * re-run.
+ *
+ * @param {object} params
+ * @param {string} params.dir - Mod directory.
+ * @param {string} params.source - Scaffold source (e.g. `map/lure-of-the-valley`).
+ * @param {string} [params.scaffoldRepoUrl] - Override the scaffold repo URL (tests).
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ * @returns {Promise<{ branch: string, scaffoldCommitHash: string, filesAdded: number }>}
+ * @throws {ValidationError} If `source` is malformed or the manifest lacks a `name`.
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {IndexNotCleanError} If the index has staged changes when the workflow starts.
+ * @throws {ScaffoldRefNotFoundError} If the scaffold branch cannot be cloned.
+ * @throws {ScaffoldDestinationExistsError} If any stamped path would overwrite an existing file.
+ * @throws {ManifestError} If the manifest is missing or invalid.
+ */
+export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_REPO_URL }, { onProgress } = {}) {
+  if (typeof source !== "string" || !source.trim()) {
+    throw new ValidationError("Scaffold source must be a non-empty string.");
+  }
+  const branch = source.trim();
+
+  // Precondition: dir must be a git repo. (No `base` remote requirement --
+  // scaffolds are not pulled through `base`.)
+  if (!(await isRepo(dir))) {
+    throw new NotARepoError(dir);
+  }
+
+  // Refuse to proceed if there's any dirty *tracked* state in the working
+  // tree. Staged changes get their own typed error; modifications,
+  // deletions, and merge conflicts on tracked files are all reasons to
+  // bail before touching the working tree. Untracked (`created`) files are
+  // intentionally NOT included here -- they're handled by the destination
+  // collision pre-flight below, which produces a more actionable error
+  // (`ScaffoldDestinationExistsError` with the specific paths).
+  const status = await getStatus(dir);
+  if (status.staged.length > 0) {
+    throw new IndexNotCleanError(status.staged);
+  }
+  const trackedDirty = [...status.modified, ...status.deleted, ...status.conflicted];
+  if (trackedDirty.length > 0) {
+    const preview = trackedDirty.slice(0, 5).join(", ");
+    const tail = trackedDirty.length > 5 ? `, and ${trackedDirty.length - 5} more` : "";
+    throw new ValidationError(
+      `Cannot stamp scaffold with uncommitted changes to tracked files (e.g. ${preview}${tail}). Run ebr save first.`,
+    );
+  }
+
+  // Read manifest up front so a missing/invalid manifest fails before we
+  // touch the network.
+  const manifest = await readManifest(dir);
+  if (typeof manifest.name !== "string" || !manifest.name.trim()) {
+    throw new ValidationError(
+      `Cannot stamp scaffold: ebr-mod.json is missing a "name" field. The scaffold needs a name to substitute into path placeholders.`,
+    );
+  }
+  // Sanitize the substituted name so it can't escape the working tree via
+  // path separators or `..` segments. Mod names with `/` or `\\` collapse to
+  // a single safe segment; if the result is empty or `.`/`..`, refuse.
+  const safeModName = sanitizePathSegment(manifest.name);
+  if (!safeModName) {
+    throw new ValidationError(
+      `Cannot stamp scaffold: ebr-mod.json "name" field "${manifest.name}" does not contain any safe path characters.`,
+    );
+  }
+
+  // Clone the scaffold branch into a temp directory.
+  const tmpRoot = await mkdtemp(join(tmpdir(), "ebr-scaffold-"));
+  let scaffoldCommitHash;
+  let stamped = [];
+  try {
+    onProgress?.({ step: "clone", message: `Cloning scaffold ${branch}...` });
+    try {
+      await cloneBranchShallow(scaffoldRepoUrl, tmpRoot, branch, { onProgress });
+    } catch (err) {
+      // Branch-not-found is the common user mistake; map it to the typed
+      // error so the CLI can render a focused hint. Anything else (network
+      // failure, bad URL, auth, local git problem) is left as a GitError so
+      // the user sees the underlying message rather than a misleading
+      // "branch not found" claim.
+      const msg = (err?.message || "").toLowerCase();
+      if (msg.includes("remote branch") && msg.includes("not found")) {
+        throw new ScaffoldRefNotFoundError(branch, scaffoldRepoUrl);
+      }
+      if (msg.includes("couldn't find remote ref") || msg.includes("could not find remote ref")) {
+        throw new ScaffoldRefNotFoundError(branch, scaffoldRepoUrl);
+      }
+      throw err;
+    }
+
+    onProgress?.({ step: "resolve", message: `Resolving ${branch}...` });
+    scaffoldCommitHash = await revparseRef(tmpRoot, "HEAD");
+
+    // Enumerate files, applying path substitution.
+    onProgress?.({ step: "plan", message: "Planning scaffold stamp..." });
+    const sourceFiles = await listFilesRecursive(tmpRoot, {
+      skipTopLevelDirs: SCAFFOLD_SKIP_DIRS,
+      skipFiles: SCAFFOLD_SKIP_FILES,
+    });
+    stamped = sourceFiles.map((rel) => ({
+      src: rel,
+      dest: substituteScaffoldPath(rel, safeModName),
+    }));
+
+    // Resolve every destination to an absolute path and assert it stays
+    // under `dir`. This is a defense in depth on top of the
+    // sanitizePathSegment() check on `manifest.name`: even with a clean
+    // name, a scaffold authored upstream that contains `..` segments in its
+    // own paths -- or an intermediate symlink in the working tree -- must
+    // not be allowed to escape it.
+    const dirReal = await realPathSafe(dir);
+    for (const { dest } of stamped) {
+      const absDest = join(dir, ...dest.split("/"));
+      const realDest = await realPathOfDestination(absDest);
+      if (!isPathInside(realDest, dirReal)) {
+        throw new ValidationError(
+          `Scaffold path "${dest}" resolves outside the mod directory. Refusing to stamp.`,
+        );
+      }
+    }
+
+    // Pre-flight: bail before any write if any destination already exists.
+    // Refusing to clobber is safer than overwriting -- the creator has
+    // either already stamped this scaffold or has their own content at
+    // those paths.
+    const conflicts = [];
+    for (const { dest } of stamped) {
+      const absDest = join(dir, ...dest.split("/"));
+      try {
+        await stat(absDest);
+        conflicts.push(dest);
+      } catch (err) {
+        if (err && err.code !== "ENOENT") {
+          // A stat failure that isn't "missing" (e.g. EACCES, ENOTDIR on a
+          // path through a regular file) is a real problem; surface it
+          // rather than treating the path as safe to write.
+          throw err;
+        }
+        // ENOENT means the path is free to write.
+      }
+    }
+    if (conflicts.length > 0) {
+      throw new ScaffoldDestinationExistsError(conflicts);
+    }
+
+    // Copy files into the working tree.
+    onProgress?.({ step: "copy", message: `Copying ${stamped.length} file(s)...` });
+    for (const { src, dest } of stamped) {
+      const absSrc = join(tmpRoot, ...src.split("/"));
+      const absDest = join(dir, ...dest.split("/"));
+      await mkdir(dirname(absDest), { recursive: true });
+      const data = await readFile(absSrc);
+      await writeFile(absDest, data);
+    }
+  } finally {
+    // Always clean up the temp clone, even on failure.
+    try {
+      await rm(tmpRoot, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup -- ignore failures (e.g. Windows file locks).
+    }
+  }
+
+  // Stage exactly the files we wrote. Avoids `stageByExtensions(dir, ...)`
+  // because that would also pick up any unrelated unstaged file the
+  // working tree might have, even though we required a clean tree above
+  // (race conditions and editor temp files are still possible).
+  onProgress?.({ step: "stage", message: "Staging scaffold files..." });
+  for (const { dest } of stamped) {
+    await stageFile(dir, dest);
+  }
+
+  // Commit. The stamp normally produces at least one new file. The narrow
+  // exception is a scaffold branch whose entire content matches
+  // SCAFFOLD_SKIP_FILES (only README.md / .gitkeep, etc.); in that case
+  // every entry is filtered out, the copy and stage loops are no-ops, and
+  // commit() throws NothingToCommitError, which the CLI surfaces as a
+  // generic git error.
+  onProgress?.({ step: "commit", message: "Committing scaffold..." });
+  await commit(dir, `Add ${branch}`);
+
+  return {
+    branch,
+    scaffoldCommitHash,
+    filesAdded: stamped.length,
+  };
+}
+

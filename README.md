@@ -22,6 +22,7 @@ Requires: **Node.js** (LTS), **git**, **GitHub account** (for publishing).
 | `ebr save` | Bump version, stage allowed files, commit, and push |
 | `ebr publish` | Submit or update the mod in the registry via GitHub PR |
 | `ebr include <source>` | Merge base campaign updates or another mod into the current mod |
+| `ebr scaffold [branch]` | Stamp a reusable template (map locations + pivotal cards, path sets, etc.) into the current mod. Interactive picker when branch omitted. |
 | `ebr validate` | Check wikilink resolution, orphan files, manifest correctness |
 | `ebr update` | Check included mods for newer versions and merge updates |
 

@@ -166,6 +166,46 @@ export class IncludeRefNotFoundError extends GitError {
   }
 }
 
+export class ScaffoldRefNotFoundError extends GitError {
+  /**
+   * Thrown when `ebr include <type>/<name>` cannot find the scaffold branch
+   * on the `ebr-mod-scaffold` repo (e.g. typo in source, branch not yet
+   * authored upstream).
+   * @param {string} branch - The unresolved scaffold branch (e.g. "map/foo").
+   * @param {string} [repoUrl] - The scaffold repo URL that was queried.
+   */
+  constructor(branch, repoUrl) {
+    const where = repoUrl ? ` on ${repoUrl}` : "";
+    super(
+      "include-scaffold",
+      `Could not find scaffold branch "${branch}"${where}. Verify the scaffold name and that the branch exists upstream.`,
+    );
+    this.name = "ScaffoldRefNotFoundError";
+    this.branch = branch;
+    this.repoUrl = repoUrl;
+  }
+}
+
+export class ScaffoldDestinationExistsError extends GitError {
+  /**
+   * Thrown when stamping a scaffold would overwrite files that already
+   * exist in the mod's working tree. Scaffolds are one-shot copies; we
+   * refuse to clobber existing content rather than silently overwriting.
+   * @param {string[]} paths - Repo-relative paths that would be overwritten.
+   */
+  constructor(paths) {
+    const list = paths.length > 5
+      ? `${paths.slice(0, 5).join(", ")}, and ${paths.length - 5} more`
+      : paths.join(", ");
+    super(
+      "include-scaffold",
+      `Cannot stamp scaffold: the following paths already exist in your mod (${list}). Move or delete them, or rename your mod, then re-run.`,
+    );
+    this.name = "ScaffoldDestinationExistsError";
+    this.paths = paths;
+  }
+}
+
 export class ConfigError extends Error {
   constructor(operation, message) {
     super(message);

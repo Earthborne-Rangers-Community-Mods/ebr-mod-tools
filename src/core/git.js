@@ -75,6 +75,34 @@ export async function cloneRepo(url, dir, { onProgress } = {}) {
 }
 
 /**
+ * Clone a single branch of a remote repository at depth 1.
+ *
+ * Used for scaffold template fetches where we want only the latest tree of
+ * one branch and have no use for history. Fails if the branch does not exist
+ * on the remote.
+ *
+ * @param {string} url - Remote URL to clone.
+ * @param {string} dir - Target directory.
+ * @param {string} branch - Branch name to fetch (e.g. "map/river-valley").
+ * @param {object} [options]
+ * @param {function} [options.onProgress] - Progress callback.
+ */
+export async function cloneBranchShallow(url, dir, branch, { onProgress } = {}) {
+  try {
+    const progressOpt = onProgress ? ({ method, stage, progress }) => {
+      onProgress({ step: method, message: progressMessage(method, stage, progress), stage, percent: progress });
+    } : undefined;
+    await simpleGit({ progress: progressOpt }).clone(url, dir, [
+      "--branch", branch,
+      "--single-branch",
+      "--depth", "1",
+    ]);
+  } catch (err) {
+    throw wrapError("cloneBranchShallow", err);
+  }
+}
+
+/**
  * Create a new local branch and check it out.
  * @param {string} dir
  * @param {string} branch - Branch name to create.
@@ -350,7 +378,7 @@ export async function abortMerge(dir) {
 /**
  * Get the working tree status.
  * @param {string} dir
- * @returns {Promise<{isClean: boolean, modified: string[], staged: string[], conflicted: string[], created: string[]}>}
+ * @returns {Promise<{isClean: boolean, modified: string[], staged: string[], conflicted: string[], created: string[], deleted: string[]}>}
  */
 export async function getStatus(dir) {
   try {
@@ -361,6 +389,7 @@ export async function getStatus(dir) {
       staged: status.staged,
       conflicted: status.conflicted,
       created: status.not_added,
+      deleted: status.deleted,
     };
   } catch (err) {
     throw wrapError("getStatus", err);
