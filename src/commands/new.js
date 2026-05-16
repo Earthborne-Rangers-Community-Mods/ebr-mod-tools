@@ -2,11 +2,11 @@ import { Command } from "commander";
 import { input, select, checkbox, confirm } from "@inquirer/prompts";
 import { mkdir, readdir } from "node:fs/promises";
 import { resolve, basename } from "node:path";
-import { scaffoldMod, scaffoldModIntoClone, includeCampaign } from "../core/workflows.js";
+import { scaffoldMod, scaffoldModIntoClone, includeCampaign, includeScaffold } from "../core/workflows.js";
 import { isRepo, getRemotes } from "../core/git.js";
 import { buildManifest, toId, deriveOptionalProducts } from "../core/manifest.js";
 import { readManifest, writeManifest, validateNonEmpty, validateName, validateIcon, validateLanguage } from "../core/manifest.js";
-import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../core/catalogs.js";
+import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS, KNOWN_SCAFFOLDS } from "../core/catalogs.js";
 import { getGithubToken, getForkUrls, getAuthorDefaults } from "../core/config.js";
 import { getAuthenticatedUser } from "../core/github.js";
 import { AuthenticationError, ManifestNotFoundError, GitError, ValidationError } from "../core/errors.js";
@@ -15,6 +15,28 @@ const MOD_TYPE_CHOICES = MOD_TYPES.map(t => ({
   name: `${t.name} - ${t.description.toLowerCase()}`,
   value: t.id,
 }));
+
+const MAP_SCAFFOLD_CHOICES = KNOWN_SCAFFOLDS
+  .filter(s => s.branch.startsWith("map/"))
+  .map(s => ({ name: s.name, value: s.branch }));
+
+const PATH_SET_SCAFFOLD_CHOICES = KNOWN_SCAFFOLDS
+  .filter(s => s.branch.startsWith("set/") && s.branch !== "set/custom-campaign" && s.branch !== "set/one-day-mission")
+  .map(s => ({ name: s.name, value: s.branch }));
+
+const CAMPAIGN_CHOICES = OFFICIAL_CAMPAIGNS
+  .filter(c => !c.oneDayMission)
+  .map(c => ({ name: c.name, value: c.id }));
+
+const ALL_CAMPAIGN_CHOICES = OFFICIAL_CAMPAIGNS.map(c => ({
+  name: c.oneDayMission ? `${c.name} (one-day mission)` : c.name,
+  value: c.id,
+}));
+
+const MID_CAMPAIGN_HEURISTIC =
+  "  If your mod mostly adds new content, it's probably safe.\n" +
+  "  If your mod modifies existing content, it's probably not,\n" +
+  "  unless the changes are just flavor text or story content.";
 
 const EDITABLE_FIELDS = [
   { key: "name", label: "Mod name" },
@@ -25,6 +47,7 @@ const EDITABLE_FIELDS = [
   { key: "campaigns", label: "Campaigns" },
   { key: "requiredProducts", label: "Required products" },
   { key: "safeToAddMidCampaign", label: "Safe mid-campaign" },
+  { key: "midCampaignNotes", label: "Mid-campaign notes" },
   { key: "language", label: "Language" },
   { key: "icon", label: "Icon" },
 ];
@@ -121,7 +144,11 @@ export const newCommand = new Command("new")
       if (!("authorDiscord" in values) && authorDefaults.authorDiscord) {
         values.authorDiscord = authorDefaults.authorDiscord;
       }
-      await promptMissing(values);
+      // Stage 1: Universal prompts
+      await promptUniversal(values);
+
+      // Stage 2: Type-specific prompts
+      const postActions = await promptForType(values);
       syncOptionalProducts(values);
 
       // Build manifest
@@ -159,7 +186,7 @@ export const newCommand = new Command("new")
       }
 
       // Confirm / edit loop
-      const context = { manifest, targetDir, existingRepo };
+      const context = { manifest, targetDir, existingRepo, scaffoldsToStamp: postActions.scaffoldsToStamp };
       const confirmed = await confirmLoop(context);
       if (!confirmed) {
         console.log("Cancelled.");
@@ -183,18 +210,8 @@ export const newCommand = new Command("new")
         console.log(`  ID:     ${result.manifest.id}`);
         console.log(`  Type:   ${result.manifest.type}`);
 
-        if (manifest.type === "collection") {
-          console.log("\nTo add mods to this collection, use: ebr include <repo-url>");
-        }
-
-        // Offer to include any selected official campaigns. Theme mods (which
-        // target "any") and any unrecognized ids are skipped here; the user
-        // can always run `ebr include` later.
-        const knownIds = new Set(OFFICIAL_CAMPAIGNS.map((c) => c.id));
-        const includable = (manifest.campaigns || []).filter((id) => knownIds.has(id));
-        if (includable.length > 0) {
-          await offerIncludeCampaigns(result.modDir, includable);
-        }
+        // Stamp scaffolds and include official campaigns
+        await stampScaffoldsAndIncludeCampaigns(result.modDir, manifest, context.scaffoldsToStamp);
       }
     } catch (err) {
       console.error(err.message);
@@ -202,13 +219,22 @@ export const newCommand = new Command("new")
     }
   });
 
-// --- Prompting helpers ---
+// --- Helper functions ---
 
 function impliedProducts(campaigns) {
   const products = new Set();
   for (const id of campaigns) {
     const campaign = OFFICIAL_CAMPAIGNS.find(c => c.id === id);
     if (campaign) campaign.requiredProducts.forEach(p => products.add(p));
+  }
+  return products;
+}
+
+function scaffoldProducts(scaffoldBranches) {
+  const products = new Set();
+  for (const branch of scaffoldBranches) {
+    const entry = KNOWN_SCAFFOLDS.find(s => s.branch === branch);
+    if (entry && entry.product) products.add(entry.product);
   }
   return products;
 }
@@ -243,7 +269,9 @@ function syncOptionalProducts(values) {
   }
 }
 
-async function promptMissing(values) {
+// --- Universal prompts ---
+
+async function promptUniversal(values) {
   if (!values.name) {
     values.name = await input({ message: "Mod name:", validate: validateName });
   }
@@ -256,40 +284,236 @@ async function promptMissing(values) {
   if (!values.description) {
     values.description = await input({ message: "Short description (1-2 sentences):", validate: validateNonEmpty });
   }
-  if (!values.type) {
-    values.type = await select({ message: "Mod type:", choices: MOD_TYPE_CHOICES });
-  }
-
-  if (values.type === "theme") {
-    values.campaigns = values.campaigns || ["any"];
-    values.requiredProducts = values.requiredProducts || [];
-    if (values.safeToAddMidCampaign === undefined) values.safeToAddMidCampaign = true;
-  } else {
-    if (!values.campaigns || values.campaigns.length === 0) {
-      const choices = OFFICIAL_CAMPAIGNS.map((c) => ({
-        name: `${c.name}${c.oneDayMission ? " (one-day)" : ""}`,
-        value: c.id,
-      }));
-      values.campaigns = await checkbox({ message: "Target campaigns:", choices });
-    }
-    if (!values.requiredProducts) {
-      const choices = productChoices(values.campaigns);
-      values.requiredProducts = await checkbox({ message: "Required products:", choices });
-    }
-    if (values.safeToAddMidCampaign === undefined) {
-      values.safeToAddMidCampaign = await confirm({ message: "Safe to add mid-campaign?", default: false });
+  if (!values.icon) {
+    const iconVal = await input({ message: "Icon emoji (optional, press Enter for default):", default: "" });
+    if (iconVal && validateIcon(iconVal) === true) {
+      values.icon = iconVal;
     }
   }
-
   if (!values.language) {
     values.language = await input({ message: "Language (BCP 47 code):", default: "en", validate: validateLanguage });
   }
+  if (!values.type) {
+    values.type = await select({ message: "Mod type:", choices: MOD_TYPE_CHOICES });
+  }
+}
+
+// --- Type-specific prompts ---
+
+/**
+ * Dispatch to the correct type-specific prompt function.
+ * Returns a postActions object with scaffoldsToStamp (array of branch names).
+ */
+async function promptForType(values) {
+  switch (values.type) {
+    case "campaign": return promptCampaignType(values);
+    case "expansion": return promptExpansionType(values);
+    case "enhancement": return promptEnhancementType(values);
+    case "one-day-mission": return promptOneDayMissionType(values);
+    case "collection": return promptCollectionType(values);
+    case "theme": return promptThemeType(values);
+    default: return promptGenericType(values);
+  }
+}
+
+async function promptCampaignType(values) {
+  values.campaigns = [toId(values.name)];
+  values.safeToAddMidCampaign = false;
+
+  const maps = await checkbox({
+    message: "Map scaffolds to include (leave empty for fully custom):",
+    choices: [...MAP_SCAFFOLD_CHOICES, { name: "Fully custom", value: null }],
+  });
+  const selectedMaps = maps.filter(v => v !== null);
+
+  const sets = await checkbox({
+    message: "Path set scaffolds to include (leave empty for fully custom):",
+    choices: [...PATH_SET_SCAFFOLD_CHOICES, { name: "Fully custom", value: null }],
+  });
+  const selectedSets = sets.filter(v => v !== null);
+
+  const allScaffolds = ["set/custom-campaign", ...selectedMaps, ...selectedSets];
+  const products = scaffoldProducts(allScaffolds);
+  if (!values.requiredProducts) {
+    values.requiredProducts = [...products];
+  }
+
+  return { scaffoldsToStamp: allScaffolds };
+}
+
+async function promptExpansionType(values) {
+  if (!values.campaigns || values.campaigns.length === 0) {
+    values.campaigns = await checkbox({
+      message: "Which campaign(s) does this expansion extend?",
+      choices: CAMPAIGN_CHOICES,
+    });
+    if (values.campaigns.length === 0) {
+      const sure = await confirm({
+        message: "No campaigns selected. An expansion typically extends at least one campaign. Continue without?",
+        default: false,
+      });
+      if (!sure) {
+        values.campaigns = await checkbox({
+          message: "Which campaign(s) does this expansion extend?",
+          choices: CAMPAIGN_CHOICES,
+        });
+      }
+    }
+  }
+
+  if (!values.requiredProducts) {
+    const choices = productChoices(values.campaigns);
+    values.requiredProducts = await checkbox({ message: "Required products:", choices });
+  }
+
+  if (values.safeToAddMidCampaign === undefined) {
+    console.log("\n" + MID_CAMPAIGN_HEURISTIC);
+    values.safeToAddMidCampaign = await confirm({
+      message: "Safe to add mid-campaign?",
+      default: false,
+    });
+  }
+
+  if (!values.safeToAddMidCampaign && !values.midCampaignNotes) {
+    values.midCampaignNotes = await input({
+      message: "Mid-campaign notes (guidance for players on when to install):",
+      default: "",
+    }) || undefined;
+  }
+
+  return { scaffoldsToStamp: [] };
+}
+
+async function promptEnhancementType(values) {
+  if (!values.campaigns || values.campaigns.length === 0) {
+    values.campaigns = await checkbox({
+      message: "Which campaign(s) does this enhancement target? (may be empty)",
+      choices: ALL_CAMPAIGN_CHOICES,
+    });
+    if (values.campaigns.length === 0) {
+      const sure = await confirm({
+        message: "No campaigns selected. You'll likely want to `ebr include` a campaign later. Continue without?",
+        default: false,
+      });
+      if (!sure) {
+        values.campaigns = await checkbox({
+          message: "Which campaign(s) does this enhancement target?",
+          choices: ALL_CAMPAIGN_CHOICES,
+        });
+      }
+    }
+  }
+
+  if (!values.requiredProducts) {
+    const choices = productChoices(values.campaigns);
+    values.requiredProducts = await checkbox({ message: "Required products:", choices });
+  }
+
+  if (values.safeToAddMidCampaign === undefined) {
+    console.log("\n" + MID_CAMPAIGN_HEURISTIC);
+    values.safeToAddMidCampaign = await confirm({
+      message: "Safe to add mid-campaign?",
+      default: false,
+    });
+  }
+
+  if (!values.safeToAddMidCampaign && !values.midCampaignNotes) {
+    values.midCampaignNotes = await input({
+      message: "Mid-campaign notes (guidance for players on when to install):",
+      default: "",
+    }) || undefined;
+  }
+
+  return { scaffoldsToStamp: [] };
+}
+
+async function promptOneDayMissionType(values) {
+  if (!values.campaigns || values.campaigns.length === 0) {
+    values.campaigns = await checkbox({
+      message: "Which campaign(s) should this mission include?",
+      choices: ALL_CAMPAIGN_CHOICES.map(c => ({
+        ...c,
+        checked: c.value === "lure-of-the-valley",
+      })),
+    });
+    if (values.campaigns.length === 0) {
+      console.log("  Note: The mission will require a separate campaign vault at play time.");
+    }
+  }
+
+  if (!values.requiredProducts) {
+    const choices = productChoices(values.campaigns);
+    values.requiredProducts = await checkbox({ message: "Required products:", choices });
+  }
+
+  values.safeToAddMidCampaign = true;
+
+  return { scaffoldsToStamp: ["set/one-day-mission"] };
+}
+
+async function promptCollectionType(values) {
+  if (!values.campaigns || values.campaigns.length === 0) {
+    values.campaigns = await checkbox({
+      message: "Which campaign(s) does this collection target?",
+      choices: ALL_CAMPAIGN_CHOICES,
+    });
+  }
+
+  if (!values.requiredProducts) {
+    const choices = productChoices(values.campaigns);
+    values.requiredProducts = await checkbox({ message: "Required products:", choices });
+  }
+
+  if (values.safeToAddMidCampaign === undefined) {
+    values.safeToAddMidCampaign = await confirm({
+      message: "Safe to add mid-campaign?",
+      default: false,
+    });
+  }
+
+  return { scaffoldsToStamp: [] };
+}
+
+async function promptThemeType(values) {
+  values.campaigns = ["any"];
+  values.requiredProducts = [];
+  values.safeToAddMidCampaign = true;
+
+  console.log("\n  Theme defaults:");
+  console.log('    Campaigns:          ["any"]');
+  console.log("    Required products:  (none)");
+  console.log("    Safe mid-campaign:  Yes");
+  console.log("  Theme creators modify the existing ebr-symbols.css and ebr-styles.css directly.\n");
+
+  const ok = await confirm({ message: "Accept these defaults?", default: true });
+  if (!ok) {
+    console.log("  You can edit individual fields in the next step.");
+  }
+
+  return { scaffoldsToStamp: [] };
+}
+
+async function promptGenericType(values) {
+  if (!values.campaigns || values.campaigns.length === 0) {
+    values.campaigns = await checkbox({
+      message: "Target campaigns:",
+      choices: ALL_CAMPAIGN_CHOICES,
+    });
+  }
+  if (!values.requiredProducts) {
+    const choices = productChoices(values.campaigns);
+    values.requiredProducts = await checkbox({ message: "Required products:", choices });
+  }
+  if (values.safeToAddMidCampaign === undefined) {
+    values.safeToAddMidCampaign = await confirm({ message: "Safe to add mid-campaign?", default: false });
+  }
+  return { scaffoldsToStamp: [] };
 }
 
 // --- Summary display ---
 
 function displaySummary(context) {
-  const { manifest, targetDir } = context;
+  const { manifest, targetDir, scaffoldsToStamp } = context;
   console.log("\n  Mod Summary:");
   console.log(`    Name:               ${manifest.name}`);
   console.log(`    ID:                 ${manifest.id}`);
@@ -303,8 +527,14 @@ function displaySummary(context) {
     console.log(`    Optional products:  ${manifest.optionalProducts.join(", ")}`);
   }
   console.log(`    Safe mid-campaign:  ${manifest.safeToAddMidCampaign ? "Yes" : "No"}`);
+  if (manifest.midCampaignNotes) {
+    console.log(`    Mid-campaign notes: ${manifest.midCampaignNotes}`);
+  }
   console.log(`    Language:           ${manifest.language}`);
   console.log(`    Icon:               ${manifest.icon}`);
+  if (scaffoldsToStamp && scaffoldsToStamp.length > 0) {
+    console.log(`    Scaffolds:          ${scaffoldsToStamp.join(", ")}`);
+  }
   console.log(`    Directory:          ${targetDir}`);
   console.log();
 }
@@ -318,6 +548,22 @@ function formatFieldValue(manifest, key) {
 }
 
 // --- Confirm / edit loop ---
+
+function isFieldVisible(manifest, key) {
+  const type = manifest.type;
+  switch (key) {
+    case "campaigns":
+      return type !== "campaign" && type !== "theme";
+    case "requiredProducts":
+      return type !== "theme";
+    case "safeToAddMidCampaign":
+      return type !== "campaign" && type !== "one-day-mission" && type !== "theme";
+    case "midCampaignNotes":
+      return (type === "expansion" || type === "enhancement") && !manifest.safeToAddMidCampaign;
+    default:
+      return true;
+  }
+}
 
 async function confirmLoop(context) {
   const { manifest, existingRepo } = context;
@@ -336,14 +582,8 @@ async function confirmLoop(context) {
     if (action === "confirm") return true;
     if (action === "cancel") return false;
 
-    // Build choices showing current values, hide theme-locked fields
     const fieldChoices = EDITABLE_FIELDS
-      .filter((f) => {
-        if (manifest.type === "theme" && ["campaigns", "requiredProducts", "safeToAddMidCampaign"].includes(f.key)) {
-          return false;
-        }
-        return true;
-      })
+      .filter((f) => isFieldVisible(manifest, f.key))
       .map((f) => ({
         name: `${f.label}: ${formatFieldValue(manifest, f.key)}`,
         value: f.key,
@@ -366,16 +606,23 @@ async function confirmLoop(context) {
       });
       context.targetDir = resolve(context.targetDir);
     } else {
-      await editField(manifest, field);
+      await editField(manifest, field, context);
     }
   }
 }
 
-async function editField(manifest, key) {
+async function editField(manifest, key, context) {
   switch (key) {
     case "name":
       manifest.name = await input({ message: "Mod name:", default: manifest.name, validate: validateName });
       manifest.id = toId(manifest.name);
+      if (manifest.type === "campaign") {
+        manifest.campaigns = [manifest.id];
+      }
+      // Update targetDir to match new mod ID
+      if (context && !context.existingRepo) {
+        context.targetDir = resolve(context.targetDir, "..", manifest.id);
+      }
       break;
     case "author":
       manifest.author = await input({ message: "Author display name:", default: manifest.author, validate: validateNonEmpty });
@@ -401,14 +648,57 @@ async function editField(manifest, key) {
           manifest.requiredProducts = [];
           manifest.safeToAddMidCampaign = true;
           delete manifest.optionalProducts;
-        } else if (oldType === "theme") {
-          const campChoices = OFFICIAL_CAMPAIGNS.map((c) => ({
-            name: `${c.name}${c.oneDayMission ? " (one-day mission)" : ""}`,
-            value: c.id,
-          }));
-          manifest.campaigns = await checkbox({ message: "Target campaigns:", choices: campChoices });
-          manifest.requiredProducts = await checkbox({ message: "Required products:", choices: productChoices(manifest.campaigns) });
-          manifest.safeToAddMidCampaign = await confirm({ message: "Safe to add mid-campaign?", default: false });
+          delete manifest.midCampaignNotes;
+          context.scaffoldsToStamp = [];
+        } else if (manifest.type === "campaign") {
+          manifest.campaigns = [manifest.id];
+          manifest.safeToAddMidCampaign = false;
+          delete manifest.midCampaignNotes;
+          // Re-ask scaffold questions
+          const maps = await checkbox({
+            message: "Map scaffolds to include (leave empty for fully custom):",
+            choices: [...MAP_SCAFFOLD_CHOICES, { name: "Fully custom", value: null }],
+          });
+          const selectedMaps = maps.filter(v => v !== null);
+          const sets = await checkbox({
+            message: "Path set scaffolds to include (leave empty for fully custom):",
+            choices: [...PATH_SET_SCAFFOLD_CHOICES, { name: "Fully custom", value: null }],
+          });
+          const selectedSets = sets.filter(v => v !== null);
+          context.scaffoldsToStamp = ["set/custom-campaign", ...selectedMaps, ...selectedSets];
+          manifest.requiredProducts = [...scaffoldProducts(context.scaffoldsToStamp)];
+        } else if (manifest.type === "one-day-mission") {
+          manifest.safeToAddMidCampaign = true;
+          delete manifest.midCampaignNotes;
+          context.scaffoldsToStamp = ["set/one-day-mission"];
+          if (oldType === "theme" || oldType === "campaign") {
+            const choices = ALL_CAMPAIGN_CHOICES.map(c => ({
+              ...c,
+              checked: c.value === "lure-of-the-valley",
+            }));
+            manifest.campaigns = await checkbox({ message: "Target campaigns:", choices });
+            manifest.requiredProducts = await checkbox({
+              message: "Required products:",
+              choices: productChoices(manifest.campaigns),
+            });
+          }
+        } else {
+          // expansion, enhancement, collection
+          context.scaffoldsToStamp = [];
+          if (oldType === "theme" || oldType === "campaign") {
+            manifest.campaigns = await checkbox({
+              message: "Target campaigns:",
+              choices: ALL_CAMPAIGN_CHOICES,
+            });
+            manifest.requiredProducts = await checkbox({
+              message: "Required products:",
+              choices: productChoices(manifest.campaigns),
+            });
+            manifest.safeToAddMidCampaign = await confirm({
+              message: "Safe to add mid-campaign?",
+              default: false,
+            });
+          }
         }
         if (manifest.type === "collection") {
           manifest.includedMods = manifest.includedMods || [];
@@ -420,10 +710,9 @@ async function editField(manifest, key) {
       break;
     }
     case "campaigns": {
-      const choices = OFFICIAL_CAMPAIGNS.map((c) => ({
-        name: `${c.name}${c.oneDayMission ? " (one-day mission)" : ""}`,
-        value: c.id,
-        checked: manifest.campaigns.includes(c.id),
+      const choices = ALL_CAMPAIGN_CHOICES.map(c => ({
+        ...c,
+        checked: manifest.campaigns.includes(c.value),
       }));
       manifest.campaigns = await checkbox({ message: "Target campaigns:", choices });
       syncOptionalProducts(manifest);
@@ -440,7 +729,22 @@ async function editField(manifest, key) {
         message: "Safe to add mid-campaign?",
         default: manifest.safeToAddMidCampaign,
       });
+      if (manifest.safeToAddMidCampaign) {
+        delete manifest.midCampaignNotes;
+      }
       break;
+    case "midCampaignNotes": {
+      const notes = await input({
+        message: "Mid-campaign notes:",
+        default: manifest.midCampaignNotes || "",
+      });
+      if (notes) {
+        manifest.midCampaignNotes = notes;
+      } else {
+        delete manifest.midCampaignNotes;
+      }
+      break;
+    }
     case "language":
       manifest.language = await input({ message: "Language (BCP 47 code):", default: manifest.language, validate: validateLanguage });
       break;
@@ -450,66 +754,64 @@ async function editField(manifest, key) {
   }
 }
 
+// --- Stamp scaffolds and include campaigns ---
+
 /**
- * Offer to run `ebr include` for each campaign the user selected during
- * `ebr new`. The user gets a checkbox preselected with everything; they can
- * deselect any they'd rather include manually later.
- *
- * Failures are reported but don't abort the overall workflow - the mod is
- * already scaffolded, and the user can always re-run `ebr include` for any
- * campaign that didn't make it through.
+ * Stamp scaffolds and include official campaigns after the mod is initialized.
+ * Scaffolds are stamped first, then campaigns are included. Failures in
+ * either step are reported but don't abort the overall workflow -- the mod
+ * is already initialized and the user can retry with `ebr scaffold` or
+ * `ebr include`.
  *
  * @param {string} dir - Mod directory.
- * @param {string[]} campaignIds - Official campaign ids to offer.
+ * @param {object} manifest - The mod's manifest.
+ * @param {string[]} scaffoldsToStamp - Scaffold branch names to stamp.
  */
-async function offerIncludeCampaigns(dir, campaignIds) {
-  const labelFor = (id) => {
-    const c = OFFICIAL_CAMPAIGNS.find((c) => c.id === id);
-    if (!c) return id;
-    return c.oneDayMission ? `${c.name} (one-day mission)` : c.name;
-  };
+async function stampScaffoldsAndIncludeCampaigns(dir, manifest, scaffoldsToStamp) {
+  const onProgress = ({ message }) => console.log(message);
 
-  console.log(`\nThis mod targets ${campaignIds.length} official campaign(s).`);
-  const proceed = await confirm({
-    message: "Include them now? (You can also do this later with `ebr include`.)",
-    default: true,
-  });
-  if (!proceed) return;
-
-  const selected = await checkbox({
-    message: "Select campaigns to include (space to toggle, enter to confirm):",
-    choices: campaignIds.map((id) => ({
-      name: labelFor(id),
-      value: id,
-      checked: true,
-    })),
-  });
-  if (selected.length === 0) {
-    console.log("No campaigns selected.");
-    return;
+  // Stamp scaffolds
+  if (scaffoldsToStamp && scaffoldsToStamp.length > 0) {
+    console.log(`\nStamping ${scaffoldsToStamp.length} scaffold(s)...`);
+    for (const branch of scaffoldsToStamp) {
+      try {
+        const result = await includeScaffold({ dir, source: branch }, { onProgress });
+        console.log(`  Stamped ${result.branch} (${result.filesAdded} file(s))`);
+      } catch (err) {
+        console.error(`  Failed to stamp ${branch}: ${err.message}`);
+        console.error(`  You can retry later with: ebr scaffold ${branch}`);
+      }
+    }
   }
 
-  const onProgress = ({ message }) => console.log(message);
-  for (let i = 0; i < selected.length; i++) {
-    const id = selected[i];
-    if (selected.length > 1) {
-      console.log(`\n=== Including ${id} (${i + 1}/${selected.length}) ===`);
-    }
-    try {
-      const result = await includeCampaign({ dir, source: id }, { onProgress });
-      if (result.alreadyUpToDate) {
-        console.log(`\n${result.branch} is already up to date at ${result.commitHash.slice(0, 7)}.`);
-      } else {
-        console.log(`\nMerged ${result.branch} at ${result.commitHash.slice(0, 7)}.`);
+  // Include official campaigns
+  const knownIds = new Set(OFFICIAL_CAMPAIGNS.map(c => c.id));
+  const campaignsToInclude = (manifest.campaigns || []).filter(id => knownIds.has(id));
+
+  if (campaignsToInclude.length > 0) {
+    console.log(`\nIncluding ${campaignsToInclude.length} campaign(s)...`);
+    for (let i = 0; i < campaignsToInclude.length; i++) {
+      const id = campaignsToInclude[i];
+      try {
+        const result = await includeCampaign({ dir, source: id }, { onProgress });
+        if (result.alreadyUpToDate) {
+          console.log(`  ${result.branch} is already up to date.`);
+        } else {
+          console.log(`  Merged ${result.branch} at ${result.commitHash.slice(0, 7)}.`);
+        }
+      } catch (err) {
+        console.error(`  Failed to include ${id}: ${err.message}`);
+        console.error(`  You can retry later with: ebr include ${id}`);
+        const remaining = campaignsToInclude.slice(i + 1);
+        for (const skipped of remaining) {
+          console.error(`  Skipped ${skipped}. Retry later with: ebr include ${skipped}`);
+        }
+        break;
       }
-    } catch (err) {
-      console.error(`\nFailed to include ${id}: ${err.message}`);
-      const remaining = selected.slice(i + 1);
-      if (remaining.length > 0) {
-        console.error(`Skipped: ${remaining.join(", ")}`);
-        console.error("Re-run `ebr include` for the remaining campaigns once the failure is resolved.");
-      }
-      return;
     }
+  }
+
+  if (manifest.type === "collection") {
+    console.log("\nTo add mods to this collection, use: ebr include <mod-id-or-url>");
   }
 }
