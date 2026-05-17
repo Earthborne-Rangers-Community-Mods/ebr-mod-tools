@@ -18,7 +18,6 @@ const REQUIRED_MIRROR_FIELDS = [
 const OPTIONAL_MIRROR_FIELDS = [
   { key: "authorDiscord", test: (v) => typeof v === "string" && v.length > 0 },
   { key: "tags", test: (v) => Array.isArray(v) && v.length > 0 },
-  { key: "coverImage", test: (v) => typeof v === "string" && v.length > 0 },
   { key: "icon", test: (v) => typeof v === "string" && v.length > 0 },
   { key: "optionalProducts", test: (v) => Array.isArray(v) && v.length > 0 },
   { key: "includedMods", test: (v) => Array.isArray(v) && v.length > 0 },

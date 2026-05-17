@@ -107,7 +107,7 @@ describe("validateManifest", () => {
       tags: ["npc", "encounters"],
       optionalProducts: ["stewards-of-the-valley"],
       midCampaignNotes: "Safe after Prologue.",
-      coverImage: "cover.png",
+
       icon: "🏔️",
     });
     expect(validateManifest(manifest)).toEqual([]);

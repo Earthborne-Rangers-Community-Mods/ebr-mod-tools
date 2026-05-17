@@ -20,7 +20,6 @@ Every mod repo has an `ebr-mod.json` file at its root. This file describes the m
   "optionalProducts": [],
   "safeToAddMidCampaign": true,
   "midCampaignNotes": "Safe before day 15. After day 15, you'll miss conent.",
-  "coverImage": "cover.png",
   "icon": "🏔️",
   "language": "en",
   "repoUrl": "https://github.com/creator/ebr-mod-base-content"
@@ -164,13 +163,9 @@ The `ebr include` command automatically adds or updates entries here after a suc
 
 Human-readable guidance on when it's safe or unsafe to add this mod mid-campaign. Only useful when `safeToAddMidCampaign` is `true` with caveats (e.g., "Safe as long as rangers haven't reached day 15.").
 
-### `coverImage`
-
-Relative path to a cover image in the repo (e.g., `"cover.png"`). Displayed in the registry browser. Recommended 16:9 aspect ratio, 800x450px minimum.
-
 ### `icon`
 
-A single emoji used as a compact visual identity for the mod (e.g., `"🏔️"`, `"⚔️"`, `"🧩"`). Shown in list views, badges, and anywhere space is tight. Serves as a fallback when `coverImage` is absent.
+A single emoji used as a compact visual identity for the mod (e.g., `"🏔️"`, `"⚔️"`, `"🧩"`). Shown in list views, badges, and anywhere space is tight.
 
 ## Collection Example
 
@@ -197,7 +192,6 @@ Collections combine multiple mods into a single pre-merged experience. The `incl
   ],
   "safeToAddMidCampaign": false,
   "midCampaignNotes": "Touches content across multiple areas. Best installed before starting a new campaign.",
-  "coverImage": "cover.png",
   "icon": "🧩",
   "language": "en",
   "repoUrl": "https://github.com/mergemaster/ebr-mod-base-content"

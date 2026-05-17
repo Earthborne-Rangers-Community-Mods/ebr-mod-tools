@@ -100,7 +100,6 @@ describe("buildRegistryEntry", () => {
     const manifest = validManifest({
       authorDiscord: "testuser#1234",
       tags: ["combat", "npc"],
-      coverImage: "cover.png",
       icon: "🏔️",
       optionalProducts: ["stewards-of-the-valley"],
       includedMods: [{ id: "other-mod", name: "Other Mod", author: "OA", version: "1.0.0", repoUrl: "https://github.com/oa/other" }],
@@ -110,7 +109,6 @@ describe("buildRegistryEntry", () => {
 
     expect(entry.authorDiscord).toBe("testuser#1234");
     expect(entry.tags).toEqual(["combat", "npc"]);
-    expect(entry.coverImage).toBe("cover.png");
     expect(entry.icon).toBe("🏔️");
     expect(entry.optionalProducts).toEqual(["stewards-of-the-valley"]);
     expect(entry.includedMods).toHaveLength(1);
@@ -123,7 +121,6 @@ describe("buildRegistryEntry", () => {
 
     expect(entry.authorDiscord).toBeUndefined();
     expect(entry.tags).toBeUndefined();
-    expect(entry.coverImage).toBeUndefined();
     expect(entry.icon).toBeUndefined();
     expect(entry.optionalProducts).toBeUndefined();
     expect(entry.includedMods).toBeUndefined();
