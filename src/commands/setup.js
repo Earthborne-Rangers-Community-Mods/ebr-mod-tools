@@ -20,6 +20,7 @@ export const setupCommand = new Command("setup")
   .option("--clear", "Remove the stored token, fork URLs, and author defaults")
   .option("--token", "Replace just the stored token")
   .option("--author", "Update just the author defaults")
+  .option("--skip-checks", "Skip fork-history and permission verification")
   .action(async (opts) => {
     try {
       if (opts.clear) {
@@ -45,7 +46,7 @@ export const setupCommand = new Command("setup")
         return;
       }
 
-      await interactive();
+      await interactive(opts);
     } catch (err) {
       console.error(err.message);
       process.exitCode = 1;
@@ -83,7 +84,9 @@ async function status() {
   if (defaults.authorDiscord) console.log(`Default Discord: ${defaults.authorDiscord}`);
 }
 
-async function interactive() {
+async function interactive(opts = {}) {
+  const skipChecks = !!opts.skipChecks;
+
   // Check existing state to decide which steps to run
   let token = await getGithubToken();
   let user = null;
@@ -101,14 +104,14 @@ async function interactive() {
     const forks = await getForkUrls();
     if (forks.baseContent && forks.registry) {
       console.log(`Authenticated as ${user.login}. Verifying permissions...`);
-      const forksOk = await verifyForks(token, user);
+      const forksOk = await verifyForks(token, user, skipChecks);
       if (forksOk) {
         console.log("Forks and permissions verified.\n");
       }
     } else {
       // Token works but forks aren't recorded - verify them
       console.log(`Authenticated as ${user.login}, but fork URLs are incomplete.`);
-      await verifyForks(token, user);
+      await verifyForks(token, user, skipChecks);
     }
   } else {
     // No valid token - full setup
@@ -143,7 +146,7 @@ async function replaceToken() {
   if (!token) return;
 
   await setGithubToken(token);
-  await verifyForks(token, user);
+  await verifyForks(token, user, false);
 
   console.log(`\nToken updated. Authenticated as ${user.login}.`);
 }
@@ -200,7 +203,7 @@ async function setupTokenAndForks() {
   if (!token) return { token: null, user: null };
 
   // Verify forks
-  const forksOk = await verifyForks(token, user);
+  const forksOk = await verifyForks(token, user, false);
   if (!forksOk) return { token: null, user: null };
 
   await setGithubToken(token);
@@ -254,7 +257,7 @@ async function promptForToken() {
  * Saves fork URLs on success.
  * @returns {Promise<boolean>} true if forks are valid
  */
-async function verifyForks(token, user) {
+async function verifyForks(token, user, skipChecks = false) {
   const baseContentUrl = `https://github.com/${user.login}/${BASE_CONTENT_REPO}`;
   const registryUrl = `https://github.com/${user.login}/${REGISTRY_REPO}`;
 
@@ -277,23 +280,28 @@ async function verifyForks(token, user) {
   // Confirm the fork still shares history with upstream. If upstream rewrote
   // its main branch after the user forked, every later `ebr include` would
   // fail with "unrelated histories"; flag it now so they can reset the fork.
-  const { mergeBase: sharedBase } = await compareCommits(token, {
-    owner: BASE_CONTENT_OWNER,
-    repo: BASE_CONTENT_REPO,
-    base: "main",
-    head: `${user.login}:main`,
-  });
-  if (!sharedBase) {
-    console.error(
-      `\nYour base-content fork (${baseContentUrl}) does not share any commit history with upstream.`,
-    );
-    console.error("This usually means upstream rewrote its main branch after you forked.");
-    console.error("Reset your fork's main branch to match upstream:");
-    console.error("  1. On GitHub, go to your fork's main branch.");
-    console.error("  2. Use \"Sync fork\" -> \"Discard commits\" (or run a force-reset locally).");
-    console.error("  3. Re-run `ebr setup`.");
-    process.exitCode = 1;
-    return false;
+  if (skipChecks) {
+    console.log("Skipping fork-history verification (--skip-checks).");
+  } else {
+    const { mergeBase: sharedBase } = await compareCommits(token, {
+      owner: BASE_CONTENT_OWNER,
+      repo: BASE_CONTENT_REPO,
+      base: "main",
+      head: `${user.login}:main`,
+    });
+    if (!sharedBase) {
+      console.error(
+        `\nYour base-content fork (${baseContentUrl}) does not share any commit history with upstream.`,
+      );
+      console.error("This usually means upstream rewrote its main branch after you forked.");
+      console.error("Reset your fork's main branch to match upstream:");
+      console.error("  1. On GitHub, go to your fork's main branch.");
+      console.error("  2. Use \"Sync fork\" -> \"Discard commits\" (or run a force-reset locally).");
+      console.error("  3. Re-run `ebr setup`.");
+      console.error("\nTo skip this check, run `ebr setup --skip-checks`.");
+      process.exitCode = 1;
+      return false;
+    }
   }
 
   let registryFork;
@@ -314,15 +322,17 @@ async function verifyForks(token, user) {
 
   // Probe token permissions on the registry fork (the only one this tool
   // accesses via the PAT; base-content is accessed via git only).
-  const permissionIssues = await checkTokenPermissions(token, user.login);
-  if (permissionIssues.length > 0) {
-    console.error("\nToken is missing required permissions:");
-    for (const issue of permissionIssues) {
-      console.error(`  - ${issue}`);
+  if (!skipChecks) {
+    const permissionIssues = await checkTokenPermissions(token, user.login);
+    if (permissionIssues.length > 0) {
+      console.error("\nToken is missing required permissions:");
+      for (const issue of permissionIssues) {
+        console.error(`  - ${issue}`);
+      }
+      console.error("\nRecreate the token with Contents (read+write), Pull requests (read+write), and Workflows (read+write) for your ebr-mod-registry fork.");
+      process.exitCode = 1;
+      return false;
     }
-    console.error("\nRecreate the token with Contents (read+write), Pull requests (read+write), and Workflows (read+write) for your ebr-mod-registry fork.");
-    process.exitCode = 1;
-    return false;
   }
 
   await setForkUrls({ baseContent: baseContentUrl, registry: registryUrl });
