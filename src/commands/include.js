@@ -11,6 +11,7 @@ import {
   BaseRemoteMissingError,
   IncludeRefNotFoundError,
   IndexNotCleanError,
+  DirtyWorkingTreeError,
   ValidationError,
 } from "../core/errors.js";
 
@@ -136,6 +137,19 @@ function handleIncludeError(err) {
   }
   if (err instanceof ManifestError) {
     console.error(`Manifest error: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (err instanceof DirtyWorkingTreeError) {
+    console.error("\nCannot include because you have unsaved local changes that would be overwritten.");
+    if (err.files.length > 0) {
+      console.error("Files affected:");
+      for (const f of err.files) {
+        console.error(`  - ${f}`);
+      }
+    }
+    console.error("\nRun `ebr save` to commit your changes, then re-run `ebr include`.");
+    console.error("(Git-savvy? You can also stash or reset the files manually.)");
     process.exitCode = 1;
     return;
   }

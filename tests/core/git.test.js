@@ -26,6 +26,7 @@ import {
   NotARepoError,
   MergeConflictError,
   NothingToCommitError,
+  DirtyWorkingTreeError,
 } from "../../src/core/errors.js";
 
 // --- Helpers ---
@@ -326,6 +327,26 @@ describe("merge", () => {
       expect(err.conflictedFiles).toContain("shared.txt");
       expect(err.conflictedFiles).toContain("other.txt");
       expect(err.conflictedFiles).toHaveLength(2);
+    }
+  });
+
+  it("throws DirtyWorkingTreeError when uncommitted changes would be overwritten", async () => {
+    const git = simpleGit(tmpDir);
+    // Create a branch that modifies shared.txt
+    await git.checkoutLocalBranch("feature");
+    await commitFile(tmpDir, "shared.txt", "feature version", "feature commit");
+    await git.checkout("-");
+
+    // Leave uncommitted changes to shared.txt in the working tree
+    await writeFile(join(tmpDir, "shared.txt"), "dirty local edit");
+
+    try {
+      await merge(tmpDir, "feature");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DirtyWorkingTreeError);
+      expect(err).toBeInstanceOf(GitError);
+      expect(err.files).toContain("shared.txt");
     }
   });
 });

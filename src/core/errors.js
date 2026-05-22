@@ -59,6 +59,19 @@ export class NothingToCommitError extends GitError {
   }
 }
 
+export class DirtyWorkingTreeError extends GitError {
+  /**
+   * Thrown when a merge cannot proceed because uncommitted local changes
+   * would be overwritten.
+   * @param {string[]} files - Paths that would be overwritten.
+   */
+  constructor(files) {
+    super("merge", "Cannot merge because you have unsaved changes that would be overwritten.");
+    this.name = "DirtyWorkingTreeError";
+    this.files = files;
+  }
+}
+
 export class BaseRemoteMissingError extends GitError {
   /**
    * Thrown when a base-content operation runs in a repo that has no `base` remote.

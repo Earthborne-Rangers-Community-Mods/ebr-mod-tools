@@ -182,20 +182,35 @@ async function updateAuthorDefaults() {
  * @returns {Promise<{token: string|null, user: object|null}>}
  */
 async function setupTokenAndForks() {
+  // Step 0: Check for a GitHub account
+  const hasAccount = await confirm({
+    message: "Do you have a GitHub account?",
+    default: true,
+  });
+  if (!hasAccount) {
+    console.log("\nYou'll need a free GitHub account to publish mods.");
+    console.log("We'll open the sign-up page for you. Create an account, then re-run `ebr setup`.\n");
+    const openSignup = await confirm({ message: "Ready to open github.com/signup?" });
+    if (openSignup) await open("https://github.com/signup");
+    return { token: null, user: null };
+  }
+
   // Step 1: Fork base-content
-  console.log("--- Step 1: Fork ebr-mod-base-content ---");
-  console.log("This becomes your mod workspace where all your mods live as branches.");
+  console.log("\n--- Step 1: Fork ebr-mod-base-content ---");
+  console.log("This is your mod workspace. All your mods live here as branches.");
   console.log(`\n  ${FORK_BASE_URL}\n`);
-  console.log("Opening in your browser... Click \"Create fork\" (keep the default name).");
-  await open(FORK_BASE_URL);
+  console.log("We'll open that page. Click \"Create fork\" (keep the default name).");
+  const openBase = await confirm({ message: "Ready to open the ebr-mod-base-content fork page?" });
+  if (openBase) await open(FORK_BASE_URL);
   await confirm({ message: "Done forking ebr-mod-base-content?" });
 
   // Step 2: Fork registry
   console.log("\n--- Step 2: Fork ebr-mod-registry ---");
   console.log("This is where `ebr publish` pushes registry entries.");
   console.log(`\n  ${FORK_REGISTRY_URL}\n`);
-  console.log("Opening in your browser... Click \"Create fork\" (keep the default name).");
-  await open(FORK_REGISTRY_URL);
+  console.log("We'll open that page. Click \"Create fork\" (keep the default name).");
+  const openRegistry = await confirm({ message: "Ready to open the ebr-mod-registry fork page?" });
+  if (openRegistry) await open(FORK_REGISTRY_URL);
   await confirm({ message: "Done forking ebr-mod-registry?" });
 
   // Step 3: Create fine-grained PAT
@@ -217,9 +232,7 @@ async function setupTokenAndForks() {
 async function promptForToken() {
   console.log("\n--- Create a Personal Access Token ---");
   console.log(`\n  ${PAT_URL}\n`);
-  console.log("Opening in your browser...");
-  await open(PAT_URL);
-  console.log("\nSettings:");
+  console.log("We'll open GitHub's token creation page. Use these settings:");
   console.log("  - Token name: ebr-mod-tools (or anything you like)");
   console.log("  - Resource owner: Your personal account");
   console.log("  - Expiration: 90 days or longer");
@@ -229,6 +242,8 @@ async function promptForToken() {
   console.log("    - Contents: Read and write");
   console.log("    - Pull requests: Read and write");
   console.log("    - Workflows: Read and write\n");
+  const openToken = await confirm({ message: "Ready to open the token page?" });
+  if (openToken) await open(PAT_URL);
 
   const token = await password({ message: "Paste your token:", mask: "*" });
   if (!token) {

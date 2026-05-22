@@ -3,7 +3,7 @@
  */
 
 import simpleGit from "simple-git";
-import { GitError, NotARepoError, MergeConflictError, NothingToCommitError } from "./errors.js";
+import { GitError, NotARepoError, MergeConflictError, NothingToCommitError, DirtyWorkingTreeError } from "./errors.js";
 
 /**
  * Build a human-readable message from a simple-git progress event.
@@ -354,6 +354,19 @@ export async function merge(dir, ref, { onProgress, noCommit = false } = {}) {
     const args = noCommit ? ["--no-commit", "--no-ff", ref] : [ref];
     await git(dir).merge(args);
   } catch (err) {
+    const msg = err?.message || String(err);
+
+    // Detect "local changes would be overwritten by merge" before checking
+    // for conflicts -- git aborts before starting the merge in this case.
+    if (msg.includes("would be overwritten by merge")) {
+      // Git indents file paths with a tab; message lines are flush-left.
+      const files = msg
+        .split("\n")
+        .filter((l) => /^\s+\S/.test(l))
+        .map((l) => l.trim());
+      throw new DirtyWorkingTreeError(files);
+    }
+
     // Check if the failure is due to merge conflicts
     const status = await git(dir).status();
     if (status.conflicted.length > 0) {

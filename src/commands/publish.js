@@ -56,14 +56,13 @@ async function publishAction(opts) {
         console.log(`\nExisting PR updated: ${result.existingPr.url}`);
         console.log("The branch has been refreshed with your latest changes.");
       } else {
-        console.log("\nOpening GitHub to create your pull request...");
-        console.log(`  ${result.compareUrl}`);
-        // Race against a timeout so a slow launcher doesn't block the
-        // publish from completing.
-        await Promise.race([
-          open(result.compareUrl).catch(() => {}),
-          new Promise((resolve) => setTimeout(resolve, 5000)),
-        ]);
+        console.log("\nWe'll open GitHub so you can create a pull request.");
+        console.log("Click \"Create pull request\" on the page that opens.");
+        console.log(`\n  ${result.compareUrl}\n`);
+        const openPr = await confirm({ message: "Ready to open the compare page?" });
+        if (openPr) {
+          await open(result.compareUrl).catch(() => {});
+        }
       }
 
       console.log(`\nCommit: ${result.commitHash.slice(0, 7)}`);
