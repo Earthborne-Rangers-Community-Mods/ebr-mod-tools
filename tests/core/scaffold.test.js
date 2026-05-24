@@ -18,7 +18,6 @@ import {
   NotARepoError,
   IndexNotCleanError,
   ScaffoldRefNotFoundError,
-  ScaffoldDestinationExistsError,
   ManifestNotFoundError,
   NothingToCommitError,
 } from "../../src/core/errors.js";
@@ -240,8 +239,51 @@ describe("includeScaffold", () => {
     progress.assertValid();
   });
 
-  it("refuses to overwrite existing files with ScaffoldDestinationExistsError", async () => {
+  it("skips conflicting files without overwriting them", async () => {
     const branch = "map/river-valley";
+    const remote = track(await buildScaffoldRemote({
+      branch,
+      files: {
+        [`Custom Campaigns/${SCAFFOLD_NAME_TOKEN}/intro.md`]: "from scaffold\n",
+        [`Custom Campaigns/${SCAFFOLD_NAME_TOKEN}/new.md`]: "new content\n",
+      },
+    }));
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+
+    // Pre-create one destination so it conflicts.
+    await mkdir(join(dir, "Custom Campaigns", "My Custom Campaign"), { recursive: true });
+    await writeFile(join(dir, "Custom Campaigns", "My Custom Campaign", "intro.md"), "hand-written\n");
+
+    const progress = [];
+    const result = await includeScaffold(
+      { dir, source: branch, scaffoldRepoUrl: remote },
+      { onProgress: (p) => progress.push(p) },
+    );
+
+    // The conflicting file is skipped, not overwritten.
+    expect(result.filesAdded).toBe(1);
+    expect(result.filesSkipped).toBe(1);
+    const intro = await readFile(
+      join(dir, "Custom Campaigns", "My Custom Campaign", "intro.md"),
+      "utf8",
+    );
+    expect(intro).toBe("hand-written\n");
+
+    // The non-conflicting file is stamped.
+    const newFile = await readFile(
+      join(dir, "Custom Campaigns", "My Custom Campaign", "new.md"),
+      "utf8",
+    );
+    expect(newFile).toBe("new content\n");
+
+    // onProgress reported the conflict.
+    const conflictStep = progress.find((p) => p.step === "conflict");
+    expect(conflictStep).toBeDefined();
+    expect(conflictStep.paths).toContain("Custom Campaigns/My Custom Campaign/intro.md");
+  });
+
+  it("throws NothingToCommitError when all scaffold files conflict", async () => {
+    const branch = "map/all-conflict";
     const remote = track(await buildScaffoldRemote({
       branch,
       files: {
@@ -250,25 +292,20 @@ describe("includeScaffold", () => {
     }));
     const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
 
-    // Pre-create the destination so the stamp would clobber it.
+    // Pre-create the only destination.
     await mkdir(join(dir, "Custom Campaigns", "My Custom Campaign"), { recursive: true });
     await writeFile(join(dir, "Custom Campaigns", "My Custom Campaign", "intro.md"), "hand-written\n");
 
-    const err = await includeScaffold(
-      { dir, source: branch, scaffoldRepoUrl: remote },
-    ).catch((e) => e);
-    expect(err).toBeInstanceOf(ScaffoldDestinationExistsError);
-    expect(err.paths).toContain("Custom Campaigns/My Custom Campaign/intro.md");
+    await expect(
+      includeScaffold({ dir, source: branch, scaffoldRepoUrl: remote }),
+    ).rejects.toBeInstanceOf(NothingToCommitError);
 
-    // Working tree must be untouched: hand-written content survives, and
-    // the index is clean (we bailed before staging anything).
+    // Working tree untouched.
     const intro = await readFile(
       join(dir, "Custom Campaigns", "My Custom Campaign", "intro.md"),
       "utf8",
     );
     expect(intro).toBe("hand-written\n");
-    const status = await simpleGit(dir).status();
-    expect(status.staged).toEqual([]);
   });
 
   it("does not stamp scaffold housekeeping files (README.md, .gitkeep)", async () => {
@@ -301,9 +338,8 @@ describe("includeScaffold", () => {
   });
 
   it("never stamps the scaffold's .git directory", async () => {
-    // Explicit assertion that the .git skip in SCAFFOLD_SKIP_DIRS is wired
-    // through to the walker -- complements the implicit `filesAdded` math
-    // in the other integration tests.
+    // Explicit assertion that skipDotTopLevel filters .git -- complements
+    // the implicit `filesAdded` math in the other integration tests.
     const branch = "map/git-skip";
     const remote = track(await buildScaffoldRemote({
       branch,
@@ -318,6 +354,30 @@ describe("includeScaffold", () => {
       "show", "--name-only", "--pretty=format:", "HEAD",
     ]);
     expect(lastCommitFiles).not.toMatch(/(^|\/)\.git\//);
+  });
+
+  it("never stamps dot-prefixed top-level dirs like .github", async () => {
+    // Regression test: multiple scaffolds sharing .github/CODEOWNERS would
+    // conflict on the second stamp. skipDotTopLevel excludes all dot-prefixed
+    // top-level entries from the scaffold.
+    const branch = "set/dot-skip";
+    const remote = track(await buildScaffoldRemote({
+      branch,
+      files: {
+        ".github/CODEOWNERS": "* @earthborne-games/mod-team\n",
+        "content/card.md": "card data\n",
+      },
+    }));
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    const result = await includeScaffold(
+      { dir, source: branch, scaffoldRepoUrl: remote },
+    );
+    expect(result.filesAdded).toBe(1);
+    const lastCommitFiles = await simpleGit(dir).raw([
+      "show", "--name-only", "--pretty=format:", "HEAD",
+    ]);
+    expect(lastCommitFiles).toContain("content/card.md");
+    expect(lastCommitFiles).not.toContain(".github");
   });
 
   it("propagates NothingToCommitError when every scaffold file is housekeeping-filtered", async () => {

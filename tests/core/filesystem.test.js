@@ -58,11 +58,20 @@ describe("sanitizePathSegment", () => {
 
   it("replaces backslashes with dashes", () => {
     expect(sanitizePathSegment("foo\\bar")).toBe("foo-bar");
-    expect(sanitizePathSegment("C:\\Users\\name")).toBe("C:-Users-name");
+    expect(sanitizePathSegment("C:\\Users\\name")).toBe("C--Users-name");
   });
 
   it("replaces NUL characters with dashes", () => {
     expect(sanitizePathSegment("foo\0bar")).toBe("foo-bar");
+  });
+
+  it("replaces Windows-reserved characters with dashes", () => {
+    expect(sanitizePathSegment("Fire and Oath: A Prequel")).toBe("Fire and Oath- A Prequel");
+    expect(sanitizePathSegment("what<ever>")).toBe("what-ever-");
+    expect(sanitizePathSegment("pipe|name")).toBe("pipe-name");
+    expect(sanitizePathSegment("ask?me")).toBe("ask-me");
+    expect(sanitizePathSegment("star*dust")).toBe("star-dust");
+    expect(sanitizePathSegment('say"what')).toBe("say-what");
   });
 
   it("trims leading and trailing whitespace", () => {
@@ -225,6 +234,52 @@ describe("listFilesRecursive", () => {
       skipFiles: [".gitkeep"],
     });
     expect(files).toEqual(["a/real.md"]);
+  });
+
+  it("skipDotTopLevel drops dot-prefixed top-level dirs", async () => {
+    const dir = await makeDir();
+    await mkdir(join(dir, ".github"));
+    await writeFile(join(dir, ".github", "CODEOWNERS"), "* @owner");
+    await mkdir(join(dir, "content"));
+    await writeFile(join(dir, "content", "card.md"), "x");
+    const files = await listFilesRecursive(dir, { skipDotTopLevel: true });
+    expect(files).toEqual(["content/card.md"]);
+  });
+
+  it("skipDotTopLevel drops dot-prefixed root-level files", async () => {
+    const dir = await makeDir();
+    await writeFile(join(dir, ".gitignore"), "node_modules");
+    await writeFile(join(dir, "manifest.json"), "{}");
+    const files = await listFilesRecursive(dir, { skipDotTopLevel: true });
+    expect(files).toEqual(["manifest.json"]);
+  });
+
+  it("skipDotTopLevel does NOT drop nested dot-dirs or dot-files", async () => {
+    const dir = await makeDir();
+    await mkdir(join(dir, "src", ".hidden"), { recursive: true });
+    await writeFile(join(dir, "src", ".hidden", "secret.md"), "x");
+    await writeFile(join(dir, "src", ".dotfile"), "x");
+    const files = await listFilesRecursive(dir, { skipDotTopLevel: true });
+    expect(files).toContain("src/.hidden/secret.md");
+    expect(files).toContain("src/.dotfile");
+  });
+
+  it("skipDotTopLevel works alongside skipTopLevelDirs and skipFiles", async () => {
+    const dir = await makeDir();
+    await mkdir(join(dir, ".github"));
+    await mkdir(join(dir, "vendor"));
+    await mkdir(join(dir, "content"));
+    await writeFile(join(dir, ".github", "CODEOWNERS"), "* @owner");
+    await writeFile(join(dir, ".gitignore"), "node_modules");
+    await writeFile(join(dir, "vendor", "lib.js"), "x");
+    await writeFile(join(dir, "content", "README.md"), "readme");
+    await writeFile(join(dir, "content", "card.md"), "x");
+    const files = await listFilesRecursive(dir, {
+      skipTopLevelDirs: ["vendor"],
+      skipFiles: ["README.md"],
+      skipDotTopLevel: true,
+    });
+    expect(files).toEqual(["content/card.md"]);
   });
 });
 

@@ -297,6 +297,30 @@ describe("scaffoldMod", () => {
       await rm(unrelatedBase, { recursive: true, force: true });
     }
   });
+
+  it("branches from base/main when fork main is behind upstream", async () => {
+    // Push a new commit to baseDir (upstream) so it's ahead of forkDir.
+    const upstreamWork = await createTempDir("ebr-upstream-work-");
+    await simpleGit().clone(baseDir, upstreamWork);
+    const ug = simpleGit(upstreamWork);
+    await ug.addConfig("user.name", "Upstream");
+    await ug.addConfig("user.email", "upstream@example.com");
+    await writeFile(join(upstreamWork, "NEW_FILE.md"), "new upstream content\n");
+    await ug.add("-A");
+    await ug.commit("Add new file upstream");
+    await ug.push("origin", "main");
+    await rm(upstreamWork, { recursive: true, force: true });
+
+    // Now scaffoldMod: fork is 1 commit behind upstream.
+    const subDir = join(tmpDir, "my-mod");
+    const manifest = buildManifest(BASE_OPTIONS);
+    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir });
+
+    // The mod branch should contain the new upstream file.
+    const g = simpleGit(subDir);
+    const files = await g.raw(["ls-tree", "--name-only", "HEAD"]);
+    expect(files).toContain("NEW_FILE.md");
+  });
 });
 
 // --- scaffoldModIntoClone ---
@@ -329,7 +353,7 @@ describe("scaffoldModIntoClone", () => {
     await rm(forkDir, { recursive: true, force: true });
   });
 
-  it("fetches origin and creates branch from origin/main", async () => {
+  it("fetches origin and creates branch from origin/main when no base remote", async () => {
     const existingDir = await createTempDir("ebr-existing-");
     await simpleGit().clone(forkDir, existingDir);
     const g = simpleGit(existingDir);

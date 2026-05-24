@@ -75,13 +75,6 @@ export const SCAFFOLD_TYPES = Object.freeze(["map", "set"]);
 export const SCAFFOLD_NAME_TOKEN = "__MOD_NAME__";
 
 /**
- * Top-level directory names that scaffold stamping never copies. Matched
- * exactly against immediate children of the scaffold's root; nested
- * directories with the same name are still traversed.
- */
-export const SCAFFOLD_SKIP_DIRS = Object.freeze([".git"]);
-
-/**
  * File names that scaffold stamping never copies, at any depth. These are
  * scaffold-housekeeping files (READMEs explaining how to author the
  * scaffold itself, empty-directory markers, etc.) -- they belong to the

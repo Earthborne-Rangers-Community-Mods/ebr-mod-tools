@@ -18,7 +18,6 @@ import {
   IndexNotCleanError,
   ValidationError,
   ScaffoldRefNotFoundError,
-  ScaffoldDestinationExistsError,
 } from "../core/errors.js";
 
 export const scaffoldCommand = new Command("scaffold")
@@ -52,7 +51,8 @@ async function scaffoldAction(branchArg) {
       { dir, source: branch },
       { onProgress },
     );
-    console.log(`\nStamped ${stampResult.branch} at ${stampResult.scaffoldCommitHash.slice(0, 7)} (${stampResult.filesAdded} file(s)).`);
+    const skipped = stampResult.filesSkipped ? ` (${stampResult.filesSkipped} skipped)` : "";
+    console.log(`\nStamped ${stampResult.branch} at ${stampResult.scaffoldCommitHash.slice(0, 7)} (${stampResult.filesAdded} file(s)${skipped}).`);
 
     await reconcileScaffoldProducts(dir, stampResult.branch);
     console.log("\nReview the changes and run `ebr save` when ready.");
@@ -137,11 +137,6 @@ function handleScaffoldError(err) {
     return;
   }
   if (err instanceof ScaffoldRefNotFoundError) {
-    console.error(`\n${err.message}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof ScaffoldDestinationExistsError) {
     console.error(`\n${err.message}`);
     process.exitCode = 1;
     return;

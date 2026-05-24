@@ -776,7 +776,8 @@ async function stampScaffoldsAndIncludeCampaigns(dir, manifest, scaffoldsToStamp
     for (const branch of scaffoldsToStamp) {
       try {
         const result = await includeScaffold({ dir, source: branch }, { onProgress });
-        console.log(`  Stamped ${result.branch} (${result.filesAdded} file(s))`);
+        const skipped = result.filesSkipped ? ` (${result.filesSkipped} skipped)` : "";
+        console.log(`  Stamped ${result.branch} (${result.filesAdded} file(s)${skipped})`);
       } catch (err) {
         console.error(`  Failed to stamp ${branch}: ${err.message}`);
         console.error(`  You can retry later with: ebr scaffold ${branch}`);

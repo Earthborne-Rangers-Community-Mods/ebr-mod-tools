@@ -23,9 +23,9 @@ import {
   syncFork,
   normalizeGithubUrl,
 } from "./github.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, ScaffoldDestinationExistsError } from "./errors.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry } from "./registry.js";
-import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_DIRS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
+import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
 
 // --- Constants ---
 
@@ -81,8 +81,11 @@ export async function scaffoldModIntoClone({ dir, manifest }, { onProgress } = {
     }
   }
 
+  // Branch from the latest upstream content when available. If the clone
+  // has no base remote, fall back to origin/main (best we can do).
+  const branchFrom = (await hasRemote(dir, "base")) ? "base/main" : "origin/main";
   onProgress?.({ step: "branch", message: `Creating branch ${modBranch}...` });
-  await createLocalBranch(dir, modBranch, "origin/main");
+  await createLocalBranch(dir, modBranch, branchFrom);
 
   onProgress?.({ step: "manifest", message: "Writing ebr-mod.json..." });
   await writeManifest(dir, manifest);
@@ -152,9 +155,10 @@ export async function scaffoldMod({ dir, manifest, forkUrl, baseRepoUrl = BASE_R
     });
   }
 
-  // Create mod branch from main
+  // Create mod branch from the latest upstream content, not the fork's
+  // potentially-stale main. base/main was just fetched above.
   onProgress?.({ step: "branch", message: `Creating branch ${modBranch}...` });
-  await createLocalBranch(dir, modBranch, "main");
+  await createLocalBranch(dir, modBranch, "base/main");
 
   // Write manifest
   onProgress?.({ step: "manifest", message: "Writing ebr-mod.json..." });
@@ -864,10 +868,10 @@ export function computeMissingScaffoldProduct(branch, manifest, catalog = KNOWN_
  * does not exist), no update path. The commit message records the branch
  * so creators can grep history for stamps they applied.
  *
- * Refuses to overwrite existing files in the working tree -- if any stamped
- * path already exists, throws {@link ScaffoldDestinationExistsError}. The
- * creator must move/delete the conflicting paths (or rename the mod) and
- * re-run.
+ * Files that already exist in the working tree are skipped (not overwritten).
+ * The caller is notified via `onProgress` with step `"conflict"` and can
+ * surface the warning to the user. If ALL scaffold files conflict, throws
+ * {@link NothingToCommitError}.
  *
  * @param {object} params
  * @param {string} params.dir - Mod directory.
@@ -875,12 +879,12 @@ export function computeMissingScaffoldProduct(branch, manifest, catalog = KNOWN_
  * @param {string} [params.scaffoldRepoUrl] - Override the scaffold repo URL (tests).
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress]
- * @returns {Promise<{ branch: string, scaffoldCommitHash: string, filesAdded: number }>}
+ * @returns {Promise<{ branch: string, scaffoldCommitHash: string, filesAdded: number, filesSkipped: number }>}
  * @throws {ValidationError} If `source` is malformed or the manifest lacks a `name`.
  * @throws {NotARepoError} If `dir` is not a git repository.
  * @throws {IndexNotCleanError} If the index has staged changes when the workflow starts.
  * @throws {ScaffoldRefNotFoundError} If the scaffold branch cannot be cloned.
- * @throws {ScaffoldDestinationExistsError} If any stamped path would overwrite an existing file.
+ * @throws {NothingToCommitError} If every scaffold file already exists (nothing to stamp).
  * @throws {ManifestError} If the manifest is missing or invalid.
  */
 export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_REPO_URL }, { onProgress } = {}) {
@@ -900,8 +904,7 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
   // deletions, and merge conflicts on tracked files are all reasons to
   // bail before touching the working tree. Untracked (`created`) files are
   // intentionally NOT included here -- they're handled by the destination
-  // collision pre-flight below, which produces a more actionable error
-  // (`ScaffoldDestinationExistsError` with the specific paths).
+  // collision pre-flight below, which skips conflicting paths and warns.
   const status = await getStatus(dir);
   if (status.staged.length > 0) {
     throw new IndexNotCleanError(status.staged);
@@ -937,6 +940,7 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
   const tmpRoot = await mkdtemp(join(tmpdir(), "ebr-scaffold-"));
   let scaffoldCommitHash;
   let stamped = [];
+  let conflicts = [];
   try {
     onProgress?.({ step: "clone", message: `Cloning scaffold ${branch}...` });
     try {
@@ -963,8 +967,8 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
     // Enumerate files, applying path substitution.
     onProgress?.({ step: "plan", message: "Planning scaffold stamp..." });
     const sourceFiles = await listFilesRecursive(tmpRoot, {
-      skipTopLevelDirs: SCAFFOLD_SKIP_DIRS,
       skipFiles: SCAFFOLD_SKIP_FILES,
+      skipDotTopLevel: true,
     });
     stamped = sourceFiles.map((rel) => ({
       src: rel,
@@ -988,11 +992,9 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
       }
     }
 
-    // Pre-flight: bail before any write if any destination already exists.
-    // Refusing to clobber is safer than overwriting -- the creator has
-    // either already stamped this scaffold or has their own content at
-    // those paths.
-    const conflicts = [];
+    // Pre-flight: detect destinations that already exist. Rather than
+    // aborting the entire stamp, skip conflicting files and warn the caller
+    // so the remaining scaffold content can still land.
     for (const { dest } of stamped) {
       const absDest = join(dir, ...dest.split("/"));
       try {
@@ -1009,7 +1011,11 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
       }
     }
     if (conflicts.length > 0) {
-      throw new ScaffoldDestinationExistsError(conflicts);
+      onProgress?.({ step: "conflict", message: `Skipping ${conflicts.length} file(s) that already exist`, paths: conflicts });
+      stamped = stamped.filter(({ dest }) => !conflicts.includes(dest));
+    }
+    if (stamped.length === 0) {
+      throw new NothingToCommitError();
     }
 
     // Copy files into the working tree.
@@ -1052,6 +1058,7 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
     branch,
     scaffoldCommitHash,
     filesAdded: stamped.length,
+    filesSkipped: conflicts.length,
   };
 }
 

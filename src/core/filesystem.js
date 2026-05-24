@@ -14,15 +14,19 @@ import { join, dirname, posix, relative, isAbsolute, sep } from "node:path";
  * to `root`. Filters out:
  *   - immediate children of `root` whose name is in `skipTopLevelDirs`
  *     (used to exclude `.git`),
- *   - any file whose basename is in `skipFiles` (at any depth).
+ *   - any file whose basename is in `skipFiles` (at any depth),
+ *   - when `skipDotTopLevel` is true, any top-level directory or root-level
+ *     file whose name starts with `.` (covers `.github`, `.gitignore`, etc.).
  *
  * @param {string} root - Directory to walk.
  * @param {object} [options]
  * @param {string[]} [options.skipTopLevelDirs] - Top-level dir names to drop.
  * @param {string[]} [options.skipFiles] - File basenames to drop at any depth.
- * @returns {Promise<string[]>} Repo-relative POSIX paths.
+ * @param {boolean} [options.skipDotTopLevel] - Drop all dot-prefixed top-level
+ *   dirs and root-level files.
+ * @returns {Promise<string[]>} POSIX paths relative to `root`.
  */
-export async function listFilesRecursive(root, { skipTopLevelDirs = [], skipFiles = [] } = {}) {
+export async function listFilesRecursive(root, { skipTopLevelDirs = [], skipFiles = [], skipDotTopLevel = false } = {}) {
   const skipDirSet = new Set(skipTopLevelDirs);
   const skipFileSet = new Set(skipFiles);
   const entries = await readdir(root, { recursive: true, withFileTypes: true });
@@ -37,8 +41,11 @@ export async function listFilesRecursive(root, { skipTopLevelDirs = [], skipFile
       const segments = relDir.split(sep);
       // Drop entries under any top-level dir we were told to skip.
       if (skipDirSet.has(segments[0])) continue;
+      if (skipDotTopLevel && segments[0].startsWith(".")) continue;
       out.push(posix.join(...segments, entry.name));
     } else {
+      // Root-level file.
+      if (skipDotTopLevel && entry.name.startsWith(".")) continue;
       out.push(entry.name);
     }
   }
@@ -46,8 +53,9 @@ export async function listFilesRecursive(root, { skipTopLevelDirs = [], skipFile
 }
 
 /**
- * Strip path-traversal characters from a string so it's safe to use as a
- * single path segment after substitution. Replaces `/`, `\\`, and NUL with
+ * Strip path-traversal characters and OS-reserved filename characters from a
+ * string so it's safe to use as a single path segment after substitution.
+ * Replaces `/`, `\\`, NUL, and Windows-reserved characters (`<>:"|?*`) with
  * `-`, then rejects names that resolve to `.`, `..`, or any string that
  * would still be interpreted as a parent reference (e.g. `..foo`, which
  * `path.relative` treats as starting with `..`).
@@ -57,10 +65,11 @@ export async function listFilesRecursive(root, { skipTopLevelDirs = [], skipFile
  */
 export function sanitizePathSegment(raw) {
   if (typeof raw !== "string") return "";
-  // Replace separators and NUL with dashes so the segment can't escape its
-  // intended folder, but otherwise preserve user characters (spaces,
-  // unicode, punctuation) for legibility in the file tree.
-  const cleaned = raw.replace(/[\\/\0]/g, "-").trim();
+  // Replace separators, NUL, and Windows-reserved characters with dashes so
+  // the segment can't escape its intended folder or fail on any OS, but
+  // otherwise preserve user characters (spaces, unicode, punctuation) for
+  // legibility in the file tree.
+  const cleaned = raw.replace(/[\\/\0<>:"|?*]/g, "-").trim();
   if (!cleaned || cleaned === "." || cleaned === "..") return "";
   // Reject anything that *starts* with `..` -- the input may have been
   // `../escape` (collapsed to `..-escape`), and even though `..-escape` is
