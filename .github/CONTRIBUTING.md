@@ -4,30 +4,14 @@ The mod tools CLI (`ebr`) helps Earthborne Rangers mod creators scaffold, save,
 and publish mods without needing to learn git. Contributions that improve the
 tooling are welcome.
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js (LTS)
-- git
-
-### Development
-
-```bash
-npm install
-npm link
-```
-
-This makes the `ebr` command available globally for testing.
-
 ## Architecture
 
 The codebase is split into two layers:
 
 ```
 src/
-  core/       # Pure business logic - no console.log, no process.exit, no prompts
-  commands/   # CLI-only layer - prompts, output formatting, error display
+  core/       # Pure business logic
+  commands/   # CLI-only layer, one file per command
   cli.js      # Commander setup and entry point
 ```
 
@@ -68,6 +52,8 @@ Open an issue before working on:
 
 ## Testing
 
+If you're changing anything in core logic, you probably need to add or change some tests as well.
+
 - Core logic (`src/core/`) is tested with Vitest
 - Tests live in `tests/core/`
 - Run tests: `npm test`
@@ -86,7 +72,7 @@ Open an issue before working on:
 
 ## Commit Messages
 
-Use clear, descriptive commit messages. One logical change per commit.
+Use clear, descriptive commit messages.
 
 ## Questions
 

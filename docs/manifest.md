@@ -10,8 +10,8 @@ Every mod repo has an `ebr-mod.json` file at its root. This file describes the m
   "name": "Expanded Boulder Field",
   "id": "expanded-boulder-field",
   "version": "1.2.0",
-  "type": "enhancement",
-  "description": "Adds 3 new encounters and an NPC to Boulder Field.",
+  "type": "expansion",
+  "description": "Adds 3 new missions and an NPC to Boulder Field.",
   "author": "ModCreatorName",
   "authorDiscord": "modcreator#1234",
   "tags": ["npc", "location"],
@@ -72,7 +72,7 @@ Display name of the creator.
 
 Array of campaign identifiers this mod targets.
 
-A mod can target multiple campaigns - for example, a mod that bridges content between two campaigns might use `["lure-of-the-valley", "legacy-of-the-ancestors"]`.
+A mod can target multiple campaigns - for example, a mod that adds content to two campaigns might use `["lure-of-the-valley", "legacy-of-the-ancestors"]`.
 
 **Known campaigns:** `"lure-of-the-valley"`, `"legacy-of-the-ancestors"`, `"spire-in-bloom"`, `"shadow-of-the-storm"`
 
@@ -86,7 +86,7 @@ The canonical list lives in [`src/core/catalogs.js`](../src/core/catalogs.js). C
 
 ### `requiredProducts`
 
-Array of product identifiers the player **must own** to play this mod. This can't be inferred from `campaigns` alone - a mod targeting Lure of the Valley might also require cards from an expansion pack.
+Array of product identifiers the player **must own** to play this mod. This can't be inferred from `campaigns` alone - a mod targeting both Lure of the Valley and Spire in Bloom might work just fine if the player doesn't have Spire in Bloom and the changes made therein aren't load-bearing.
 
 **Known product IDs:**
 - `"core-set"` - Contains Lure of the Valley campaign and official one-day missions
@@ -103,7 +103,7 @@ The canonical list lives in [`src/core/catalogs.js`](../src/core/catalogs.js).
 
 ### `safeToAddMidCampaign`
 
-Boolean. Can players install this mod while a campaign is already in progress?
+Boolean. Can players start using this mod on a campaign that is already in progress?
 
 ### `language`
 
@@ -123,7 +123,7 @@ Creator's Discord handle (e.g., `"modcreator#1234"` or just `"modcreator"`). Dis
 
 ### `tags`
 
-Array of lowercase kebab-case tags for search and filtering (e.g., `["boulder-field", "npc", "combat"]`).
+Array of lowercase kebab-case tags for search and filtering (e.g., `["lore-friendly", "npc", "romance"]`).
 
 ### `optionalProducts`
 
@@ -131,7 +131,7 @@ Array of product identifiers that **enhance** the experience but aren't required
 
 ### `includedMods`
 
-Array of objects listing the mods this one is built from. **Required for `collection` type** (must be non-empty). Optional for all other types - any mod can declare lineage.
+Array of objects listing the mods this one is built from. **Required for `collection` type** (must be non-empty). Optional for all other types - any mod can declare its lineage.
 
 Each entry must have these fields:
 
@@ -165,7 +165,7 @@ Human-readable guidance on when it's safe or unsafe to add this mod mid-campaign
 
 ### `icon`
 
-A single emoji used as a compact visual identity for the mod (e.g., `"🏔️"`, `"⚔️"`, `"🧩"`). Shown in list views, badges, and anywhere space is tight.
+A single emoji used as a compact visual identity for the mod (e.g., `"🏔️"`, `"⚔️"`, `"🧩"`).
 
 ## Collection Example
 
@@ -191,7 +191,7 @@ Collections combine multiple mods into a single pre-merged experience. The `incl
     { "id": "meadow-nights", "name": "Meadow Nights", "author": "NightOwl", "version": "0.9.0", "repoUrl": "https://github.com/nightowl/ebr-mod-base-content" }
   ],
   "safeToAddMidCampaign": false,
-  "midCampaignNotes": "Touches content across multiple areas. Best installed before starting a new campaign.",
+  "midCampaignNotes": "Touches content across multiple areas. Best started from the beginning.",
   "icon": "🧩",
   "language": "en",
   "repoUrl": "https://github.com/mergemaster/ebr-mod-base-content"
