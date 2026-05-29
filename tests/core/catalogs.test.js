@@ -32,14 +32,14 @@ describe("KNOWN_SCAFFOLDS", () => {
     expect(entry.product).toBeUndefined();
   });
 
-  it("set/one-day-mission has no product (utility scaffold)", () => {
-    const entry = KNOWN_SCAFFOLDS.find(s => s.branch === "set/one-day-mission");
+  it("set/custom-one-day-mission has no product (utility scaffold)", () => {
+    const entry = KNOWN_SCAFFOLDS.find(s => s.branch === "set/custom-one-day-mission");
     expect(entry).toBeDefined();
     expect(entry.product).toBeUndefined();
   });
 
   it("non-utility set/* entries all have a product field", () => {
-    const UTILITY = ["set/custom-campaign", "set/one-day-mission"];
+    const UTILITY = ["set/custom-campaign", "set/custom-one-day-mission"];
     const setEntries = KNOWN_SCAFFOLDS.filter(
       s => s.branch.startsWith("set/") && !UTILITY.includes(s.branch),
     );
@@ -81,15 +81,15 @@ describe("KNOWN_SCAFFOLDS", () => {
   // --- Path set scaffold filter (simulates PATH_SET_SCAFFOLD_CHOICES in commands/new.js) ---
 
   describe("path set scaffold filter (PATH_SET_SCAFFOLD_CHOICES shape)", () => {
-    const UTILITY_SET_BRANCHES = ["set/custom-campaign", "set/one-day-mission"];
+    const UTILITY_SET_BRANCHES = ["set/custom-campaign", "set/custom-one-day-mission"];
     const setEntries = KNOWN_SCAFFOLDS.filter(
       s => s.branch.startsWith("set/") && !UTILITY_SET_BRANCHES.includes(s.branch),
     );
 
-    it("excludes utility scaffolds set/custom-campaign and set/one-day-mission", () => {
+    it("excludes utility scaffolds set/custom-campaign and set/custom-one-day-mission", () => {
       const branches = setEntries.map(s => s.branch);
       expect(branches).not.toContain("set/custom-campaign");
-      expect(branches).not.toContain("set/one-day-mission");
+      expect(branches).not.toContain("set/custom-one-day-mission");
     });
 
     it("includes known path-set branches", () => {

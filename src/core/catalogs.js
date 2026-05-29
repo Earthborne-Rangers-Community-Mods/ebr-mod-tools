@@ -107,5 +107,5 @@ export const KNOWN_SCAFFOLDS = Object.freeze([
   { branch: "set/the-valley-sib", name: "The Valley path set (Spire in Bloom expansion)", product: "spire-in-bloom" },
   { branch: "set/the-valley-sos", name: "The Valley path set (Shadow of the Storm expansion)", product: "shadow-of-the-storm" },
   { branch: "set/custom-campaign", name: "Custom Campaign"},
-  { branch: "set/one-day-mission", name: "One-Day Mission"},
+  { branch: "set/custom-one-day-mission", name: "One-Day Mission"},
 ]);

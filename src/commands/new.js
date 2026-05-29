@@ -21,7 +21,7 @@ const MAP_SCAFFOLD_CHOICES = KNOWN_SCAFFOLDS
   .map(s => ({ name: s.name, value: s.branch }));
 
 const PATH_SET_SCAFFOLD_CHOICES = KNOWN_SCAFFOLDS
-  .filter(s => s.branch.startsWith("set/") && s.branch !== "set/custom-campaign" && s.branch !== "set/one-day-mission")
+  .filter(s => s.branch.startsWith("set/") && s.branch !== "set/custom-campaign" && s.branch !== "set/custom-one-day-mission")
   .map(s => ({ name: s.name, value: s.branch }));
 
 const CAMPAIGN_CHOICES = OFFICIAL_CAMPAIGNS
@@ -448,7 +448,7 @@ async function promptOneDayMissionType(values) {
 
   values.safeToAddMidCampaign = true;
 
-  return { scaffoldsToStamp: ["set/one-day-mission"] };
+  return { scaffoldsToStamp: ["set/custom-one-day-mission"] };
 }
 
 async function promptCollectionType(values) {
@@ -670,7 +670,7 @@ async function editField(manifest, key, context) {
         } else if (manifest.type === "one-day-mission") {
           manifest.safeToAddMidCampaign = true;
           delete manifest.midCampaignNotes;
-          context.scaffoldsToStamp = ["set/one-day-mission"];
+          context.scaffoldsToStamp = ["set/custom-one-day-mission"];
           if (oldType === "theme" || oldType === "campaign") {
             const choices = ALL_CAMPAIGN_CHOICES.map(c => ({
               ...c,
