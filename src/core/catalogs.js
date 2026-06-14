@@ -19,6 +19,12 @@ export const ALLOWED_EXTENSIONS = Object.freeze([
   ".txt", ".pdf",
 ]);
 
+// NOTE: MOD_TYPES is mirrored as a plain string array in
+// ebr-mod-registry/scripts/validate-mods.js. That repo is standalone and cannot
+// import this module, so keep the two lists in sync if mod types change (rare).
+// OFFICIAL_PRODUCTS is deliberately NOT mirrored there: the registry validates
+// product fields structurally and relies on this publish-time validator for the
+// full catalog.
 export const MOD_TYPES = Object.freeze([
   { id: "enhancement", name: "Enhancement", description: "Modify existing campaign content" },
   { id: "expansion", name: "Expansion", description: "Add new content to a campaign" },

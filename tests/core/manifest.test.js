@@ -512,6 +512,39 @@ describe("validateManifest", () => {
     expect(errors.filter((e) => e.code === VALIDATION_CODES.INVALID_REPO_URL)).toEqual([]);
   });
 
+  it("accepts a GitHub URL with a trailing .git suffix", () => {
+    const errors = validateManifest(validManifest({ repoUrl: "https://github.com/test/mod.git" }));
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.INVALID_REPO_URL)).toEqual([]);
+  });
+
+  it("rejects a GitHub URL with no repo segment", () => {
+    const errors = validateManifest(validManifest({ repoUrl: "https://github.com/owner" }));
+    expect(hasError(errors, { code: VALIDATION_CODES.INVALID_REPO_URL })).toBe(true);
+  });
+
+  it("rejects a GitHub URL with extra path segments", () => {
+    const errors = validateManifest(validManifest({ repoUrl: "https://github.com/owner/repo/tree/main" }));
+    expect(hasError(errors, { code: VALIDATION_CODES.INVALID_REPO_URL })).toBe(true);
+  });
+
+  // --- name / author / description non-empty ---
+
+  it.each(["name", "author", "description"])(
+    "rejects an empty %s",
+    (field) => {
+      const errors = validateManifest(validManifest({ [field]: "" }));
+      expect(hasError(errors, { code: VALIDATION_CODES.FIELD_NOT_STRING, field })).toBe(true);
+    },
+  );
+
+  it.each(["name", "author", "description"])(
+    "rejects a whitespace-only %s",
+    (field) => {
+      const errors = validateManifest(validManifest({ [field]: "   " }));
+      expect(hasError(errors, { code: VALIDATION_CODES.FIELD_NOT_STRING, field })).toBe(true);
+    },
+  );
+
   // --- icon ---
 
   it("rejects a multi-character icon", () => {

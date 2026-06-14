@@ -33,6 +33,11 @@ const INCLUDED_MOD_REQUIRED_FIELDS = ["id", "name", "author", "version", "repoUr
 
 const KEBAB_CASE_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+/;
+// Strict owner/repo shape. Mirrors GITHUB_REPO_RE in
+// ebr-mod-registry/scripts/validate-mods.js so a manifest that passes publish
+// also passes the registry PR check. Trailing ".git" and a trailing slash are
+// tolerated; anything beyond owner/repo is rejected.
+const GITHUB_REPO_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/i;
 
 /**
  * Validate that a value is a non-empty string.
@@ -110,14 +115,17 @@ export function validateLanguage(val) {
 
 /**
  * Validate a GitHub repo URL (or empty string for unpublished mods).
+ * Non-empty values must be a full https://github.com/<owner>/<repo> URL; the
+ * empty string is allowed so work-in-progress mods pass `ebr validate`. The
+ * publish flow separately requires a non-empty repoUrl.
  * @param {string} val
  * @returns {true|string}
  */
 export function validateRepoUrl(val) {
   if (typeof val !== "string") return "Must be a string.";
   if (val === "") return true;
-  return val.toLowerCase().startsWith("https://github.com/")
-    || `Must be a GitHub URL (https://github.com/...). Got "${val}".`;
+  return GITHUB_REPO_RE.test(val)
+    || `Must be a GitHub repo URL (https://github.com/<owner>/<repo>). Got "${val}".`;
 }
 
 /**
@@ -208,6 +216,13 @@ export function validateManifest(manifest) {
   // ID format: kebab-case
   if (manifest.id !== undefined && validateId(manifest.id) !== true) {
     errors.push({ code: VALIDATION_CODES.INVALID_ID_FORMAT, field: "id", value: manifest.id });
+  }
+
+  // Free-text required fields must be non-empty strings (not just present).
+  for (const field of ["name", "author", "description"]) {
+    if (manifest[field] != null && validateNonEmpty(manifest[field]) !== true) {
+      errors.push({ code: VALIDATION_CODES.FIELD_NOT_STRING, field });
+    }
   }
 
   // Version format: semver-like
