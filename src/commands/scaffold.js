@@ -9,14 +9,9 @@ import {
   commit,
 } from "../core/index.js";
 import { KNOWN_SCAFFOLDS, SCAFFOLD_TYPES } from "../core/catalogs.js";
+import { renderCliError } from "./render-error.js";
 import {
-  ManifestError,
-  ManifestNotFoundError,
-  GitError,
-  NotARepoError,
   NothingToCommitError,
-  IndexNotCleanError,
-  ValidationError,
   ScaffoldRefNotFoundError,
 } from "../core/errors.js";
 
@@ -119,35 +114,8 @@ function mergeUnique(existing, additions) {
  * Map a typed error to user-facing output and set process.exitCode.
  */
 function handleScaffoldError(err) {
-  if (err instanceof ValidationError) {
-    console.error(`\n${err.message}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof ManifestNotFoundError) {
-    console.error("No ebr-mod.json found in the current directory.");
-    console.error("Run this command from the root of your mod.");
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof NotARepoError) {
-    console.error(`Not a git repository: ${err.dir}`);
-    console.error("Run this command from the root of your mod.");
-    process.exitCode = 1;
-    return;
-  }
   if (err instanceof ScaffoldRefNotFoundError) {
     console.error(`\n${err.message}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof IndexNotCleanError) {
-    console.error(`\n${err.message}`);
-    console.error("Staged files:");
-    for (const f of err.staged) {
-      console.error(`  - ${f}`);
-    }
-    console.error("\nCommit them with `ebr save` (or unstage with `git reset`) before scaffolding.");
     process.exitCode = 1;
     return;
   }
@@ -156,13 +124,7 @@ function handleScaffoldError(err) {
     process.exitCode = 1;
     return;
   }
-  if (err instanceof ManifestError) {
-    console.error(`Manifest error: ${err.message}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof GitError) {
-    console.error(`Git error: ${err.message}`);
+  if (renderCliError(err, { command: "ebr scaffold" })) {
     process.exitCode = 1;
     return;
   }

@@ -3,19 +3,10 @@ import { checkbox } from "@inquirer/prompts";
 import { includeCampaign, includeMod, classifyIncludeSource } from "../core/workflows.js";
 import { fetchRegistry } from "../core/registry.js";
 import { OFFICIAL_CAMPAIGNS } from "../core/catalogs.js";
+import { renderCliError } from "./render-error.js";
 import {
-  ManifestError,
-  ManifestNotFoundError,
-  GitError,
-  NotARepoError,
-  MergeConflictError,
-  BaseRemoteMissingError,
   IncludeRefNotFoundError,
-  IndexNotCleanError,
-  DirtyWorkingTreeError,
-  ValidationError,
   IncludeModNotFoundError,
-  GithubError,
 } from "../core/errors.js";
 
 export const includeCommand = new Command("include")
@@ -113,81 +104,12 @@ function handleIncludeError(err) {
     process.exitCode = 1;
     return;
   }
-  if (err instanceof ValidationError) {
-    console.error(`\n${err.message}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof ManifestNotFoundError) {
-    console.error("No ebr-mod.json found in the current directory.");
-    console.error("Run this command from the root of your mod.");
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof BaseRemoteMissingError) {
-    console.error(`\n${err.message}`);
-    console.error("Hint: mods scaffolded with `ebr new` add this remote automatically.");
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof NotARepoError) {
-    console.error(`Not a git repository: ${err.dir}`);
-    console.error("Run this command from the root of your mod.");
-    process.exitCode = 1;
-    return;
-  }
   if (err instanceof IncludeRefNotFoundError) {
     console.error(`\n${err.message}`);
     process.exitCode = 1;
     return;
   }
-  if (err instanceof IndexNotCleanError) {
-    console.error(`\n${err.message}`);
-    console.error("Staged files:");
-    for (const f of err.staged) {
-      console.error(`  - ${f}`);
-    }
-    console.error("\nCommit them with `ebr save` (or unstage with `git reset`) before including.");
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof MergeConflictError) {
-    console.error("\nMerge produced conflicts. Resolve them in Obsidian (or `git mergetool`, if you have one set up):");
-    for (const f of err.conflictedFiles) {
-      console.error(`  - ${f}`);
-    }
-    console.error("\nLook for `<<<<<<<` markers, choose which version to keep, save,");
-    console.error("then run `git merge --continue` to finalize. To bail out,");
-    console.error("run `git merge --abort`.");
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof ManifestError) {
-    console.error(`Manifest error: ${err.message}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof GithubError) {
-    console.error(`\nCould not reach the registry: ${err.message}`);
-    console.error("Check your network connection and try again.");
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof DirtyWorkingTreeError) {
-    console.error("\nCannot include because you have unsaved local changes that would be overwritten.");
-    if (err.files.length > 0) {
-      console.error("Files affected:");
-      for (const f of err.files) {
-        console.error(`  - ${f}`);
-      }
-    }
-    console.error("\nRun `ebr save` to commit your changes, then re-run `ebr include`.");
-    console.error("(Git-savvy? You can also stash or reset the files manually.)");
-    process.exitCode = 1;
-    return;
-  }
-  if (err instanceof GitError) {
-    console.error(`Git error: ${err.message}`);
+  if (renderCliError(err, { command: "ebr include" })) {
     process.exitCode = 1;
     return;
   }

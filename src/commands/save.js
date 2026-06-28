@@ -2,7 +2,8 @@ import { Command } from "commander";
 import { select, input } from "@inquirer/prompts";
 import { readManifest, bumpVersion } from "../core/manifest.js";
 import { saveMod } from "../core/workflows.js";
-import { ManifestNotFoundError, NothingToCommitError, GitError } from "../core/errors.js";
+import { renderCliError } from "./render-error.js";
+import { ManifestNotFoundError, NothingToCommitError } from "../core/errors.js";
 
 export const saveCommand = new Command("save")
   .description("Update manifest, stage all changes, commit, and push")
@@ -72,8 +73,7 @@ export const saveCommand = new Command("save")
         process.exitCode = 1;
         return;
       }
-      if (err instanceof GitError) {
-        console.error(`Git error: ${err.message}`);
+      if (renderCliError(err, { command: "ebr save" })) {
         process.exitCode = 1;
         return;
       }

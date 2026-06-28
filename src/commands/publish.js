@@ -5,7 +5,8 @@ import { getGithubToken } from "../core/config.js";
 import { publishMod } from "../core/workflows.js";
 import { readManifest, writeManifest, validateManifest, formatValidationError, applyMissingProductFix, VALIDATION_CODES } from "../core/manifest.js";
 import { OFFICIAL_PRODUCTS } from "../core/catalogs.js";
-import { ManifestError, ManifestNotFoundError, GithubError, AuthenticationError, InsufficientScopeError, GitError, UnpushedChangesError, ModIdConflictError } from "../core/errors.js";
+import { renderCliError } from "./render-error.js";
+import { GithubError, AuthenticationError, InsufficientScopeError, UnpushedChangesError, ModIdConflictError } from "../core/errors.js";
 
 export const publishCommand = new Command("publish")
   .description("Submit or update the mod in the registry via GitHub PR")
@@ -68,12 +69,6 @@ async function publishAction(opts) {
       console.log(`\nCommit: ${result.commitHash.slice(0, 7)}`);
       console.log("A registry maintainer will review and merge your PR.");
     } catch (err) {
-      if (err instanceof ManifestNotFoundError) {
-        console.error("No ebr-mod.json found in the current directory.");
-        console.error("Run this command from the root of your mod.");
-        process.exitCode = 1;
-        return;
-      }
       if (err instanceof AuthenticationError) {
         console.error("GitHub authentication failed. Run `ebr setup` to update your token.");
         process.exitCode = 1;
@@ -91,11 +86,6 @@ async function publishAction(opts) {
       }
       if (err instanceof ModIdConflictError) {
         console.error(`\nMod ID conflict: ${err.message}`);
-        process.exitCode = 1;
-        return;
-      }
-      if (err instanceof ManifestError) {
-        console.error(`Manifest error: ${err.message}`);
         process.exitCode = 1;
         return;
       }
@@ -119,13 +109,12 @@ async function publishAction(opts) {
         process.exitCode = 1;
         return;
       }
-      if (err instanceof GitError) {
-        console.error(`Git error: ${err.message}`);
+      if (err instanceof GithubError) {
+        console.error(`GitHub error: ${err.message}`);
         process.exitCode = 1;
         return;
       }
-      if (err instanceof GithubError) {
-        console.error(`GitHub error: ${err.message}`);
+      if (renderCliError(err, { command: "ebr publish" })) {
         process.exitCode = 1;
         return;
       }
