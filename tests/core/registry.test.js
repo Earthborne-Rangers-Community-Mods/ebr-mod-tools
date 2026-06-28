@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { checkIncludedMods, buildRegistryEntry } from "../../src/core/registry.js";
+import { checkIncludedMods, buildRegistryEntry, fetchRegistry, checkModIdAvailability, REGISTRY_RAW_URL } from "../../src/core/registry.js";
+import { GithubError } from "../../src/core/errors.js";
 import { validManifest } from "../helpers.js";
 
 const COMMIT_SHA = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
@@ -133,5 +134,111 @@ describe("buildRegistryEntry", () => {
 
     expect(entry.version).toBeUndefined();
     expect(entry.latestVersion).toBe("1.0.0");
+  });
+});
+
+// --- fetchRegistry ---
+
+/** Build a minimal Response-like stub for an injected fetch. */
+function okResponse(body) {
+  return { ok: true, status: 200, json: async () => body };
+}
+
+describe("fetchRegistry", () => {
+  it("requests the public registry URL by default", async () => {
+    const fetchImpl = async (url) => {
+      expect(url).toBe(REGISTRY_RAW_URL);
+      return okResponse({ mods: [] });
+    };
+    const registry = await fetchRegistry({ fetchImpl });
+    expect(registry).toEqual({ mods: [] });
+  });
+
+  it("uses an overridden URL when provided", async () => {
+    let requested;
+    const fetchImpl = async (url) => {
+      requested = url;
+      return okResponse({ mods: [{ id: "mod-a" }] });
+    };
+    await fetchRegistry({ url: "https://example.test/registry.json", fetchImpl });
+    expect(requested).toBe("https://example.test/registry.json");
+  });
+
+  it("throws GithubError with the HTTP status on a non-OK response", async () => {
+    const fetchImpl = async () => ({ ok: false, status: 404, json: async () => ({}) });
+    await expect(fetchRegistry({ fetchImpl })).rejects.toMatchObject({
+      name: "GithubError",
+      httpStatus: 404,
+    });
+  });
+
+  it("throws GithubError when the body is not valid JSON", async () => {
+    const fetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError("bad json"); },
+    });
+    await expect(fetchRegistry({ fetchImpl })).rejects.toBeInstanceOf(GithubError);
+  });
+
+  it("propagates a network error from fetch", async () => {
+    const fetchImpl = async () => { throw new TypeError("network down"); };
+    await expect(fetchRegistry({ fetchImpl })).rejects.toBeInstanceOf(TypeError);
+  });
+});
+
+// --- checkModIdAvailability ---
+
+describe("checkModIdAvailability", () => {
+  const registry = {
+    mods: [
+      { id: "mod-a", name: "Mod A", author: "Author A" },
+      { id: "mod-b", name: "Mod B", author: "Author B" },
+    ],
+  };
+
+  it("reports available when the id is not claimed", async () => {
+    const fetchImpl = async () => okResponse(registry);
+    const result = await checkModIdAvailability("brand-new-mod", { fetchImpl });
+    expect(result.status).toBe("available");
+    expect(result.entry).toBeUndefined();
+  });
+
+  it("reports claimed with the existing entry when the id exists", async () => {
+    const fetchImpl = async () => okResponse(registry);
+    const result = await checkModIdAvailability("mod-a", { fetchImpl });
+    expect(result.status).toBe("claimed");
+    expect(result.entry.author).toBe("Author A");
+  });
+
+  it("degrades to unverified on a network failure", async () => {
+    const fetchImpl = async () => { throw new TypeError("network down"); };
+    const result = await checkModIdAvailability("mod-a", { fetchImpl });
+    expect(result.status).toBe("unverified");
+    expect(result.error).toBeInstanceOf(TypeError);
+  });
+
+  it("degrades to unverified on a non-OK response", async () => {
+    const fetchImpl = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    const result = await checkModIdAvailability("mod-a", { fetchImpl });
+    expect(result.status).toBe("unverified");
+    expect(result.error).toBeInstanceOf(GithubError);
+  });
+
+  it("treats a registry with no mods array as available", async () => {
+    const fetchImpl = async () => okResponse({});
+    const result = await checkModIdAvailability("mod-a", { fetchImpl });
+    expect(result.status).toBe("available");
+  });
+
+  it("degrades to unverified when the registry body is not valid JSON", async () => {
+    const fetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError("bad json"); },
+    });
+    const result = await checkModIdAvailability("mod-a", { fetchImpl });
+    expect(result.status).toBe("unverified");
+    expect(result.error).toBeInstanceOf(GithubError);
   });
 });

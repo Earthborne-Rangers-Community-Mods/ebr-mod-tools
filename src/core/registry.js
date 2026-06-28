@@ -1,8 +1,18 @@
 /**
  * Registry query and entry-building utilities.
- *
- * Pure functions for checking includedMods and building registry entries.
  */
+
+import { GithubError } from "./errors.js";
+
+// Public registry location. Mirrors the mod manager app's anonymous
+// raw.githubusercontent fetch path (see ebr-mod-manager src/lib/registry.ts).
+const REGISTRY_OWNER = "Earthborne-Rangers-Community-Mods";
+const REGISTRY_REPO = "ebr-mod-registry";
+const REGISTRY_BRANCH = "main";
+
+/** Anonymous, CDN-backed URL of the built browse-tier registry. */
+export const REGISTRY_RAW_URL =
+  `https://raw.githubusercontent.com/${REGISTRY_OWNER}/${REGISTRY_REPO}/${REGISTRY_BRANCH}/registry.json`;
 
 /**
  * Fields always mirrored from the manifest into the registry entry.
@@ -75,4 +85,57 @@ export function buildRegistryEntry(manifest, commitHash) {
   entry.commitHash = commitHash;
 
   return entry;
+}
+
+/**
+ * Fetch the public browse-tier registry over anonymous HTTPS.
+ *
+ * This is the same fetch path the mod manager app uses: an unauthenticated
+ * GET of `registry.json` from raw.githubusercontent. Throws on network
+ * failure, non-OK response, or invalid JSON so callers can decide how to
+ * degrade.
+ *
+ * @param {object} [options]
+ * @param {string} [options.url] - Override the registry URL (tests).
+ * @param {typeof fetch} [options.fetchImpl] - Injected fetch implementation (tests).
+ * @returns {Promise<{mods: Array<{id: string}>}>} Parsed registry.
+ * @throws {GithubError} On a non-OK HTTP response or invalid JSON body.
+ */
+export async function fetchRegistry({ url = REGISTRY_RAW_URL, fetchImpl = fetch } = {}) {
+  const response = await fetchImpl(url);
+  if (!response.ok) {
+    throw new GithubError(
+      "registry-fetch",
+      `Registry fetch failed with status ${response.status}.`,
+      response.status,
+    );
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new GithubError("registry-fetch", "Registry response was not valid JSON.");
+  }
+}
+
+/**
+ * Courtesy check of whether a proposed mod id is already claimed in the
+ * public registry. Never throws: a network or parse failure degrades to
+ * `{ status: "unverified" }` so the caller can proceed rather than block.
+ *
+ * @param {string} modId - The proposed mod id (kebab-case).
+ * @param {object} [options]
+ * @param {string} [options.url] - Override the registry URL (tests).
+ * @param {typeof fetch} [options.fetchImpl] - Injected fetch implementation (tests).
+ * @returns {Promise<{status: "available"|"claimed"|"unverified", entry?: object, error?: Error}>}
+ */
+export async function checkModIdAvailability(modId, { url, fetchImpl } = {}) {
+  let registry;
+  try {
+    registry = await fetchRegistry({ url, fetchImpl });
+  } catch (error) {
+    return { status: "unverified", error };
+  }
+
+  const entry = registry?.mods?.find((mod) => mod.id === modId);
+  return entry ? { status: "claimed", entry } : { status: "available" };
 }

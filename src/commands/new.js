@@ -9,7 +9,10 @@ import { readManifest, writeManifest, validateNonEmpty, validateName, validateIc
 import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS, KNOWN_SCAFFOLDS } from "../core/catalogs.js";
 import { getGithubToken, getForkUrls, getAuthorDefaults } from "../core/config.js";
 import { getAuthenticatedUser } from "../core/github.js";
+import { checkModIdAvailability } from "../core/registry.js";
 import { AuthenticationError, ManifestNotFoundError, GitError, ValidationError } from "../core/errors.js";
+
+const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
 
 const MOD_TYPE_CHOICES = MOD_TYPES.map(t => ({
   name: `${t.name} - ${t.description.toLowerCase()}`,
@@ -187,6 +190,8 @@ export const newCommand = new Command("new")
 
       // Confirm / edit loop
       const context = { manifest, targetDir, existingRepo, scaffoldsToStamp: postActions.scaffoldsToStamp };
+      // Courtesy mod-id uniqueness check; the warning is shown after the summary.
+      context.modIdStatus = await checkModIdAvailability(manifest.id);
       const confirmed = await confirmLoop(context);
       if (!confirmed) {
         console.log("Cancelled.");
@@ -220,6 +225,25 @@ export const newCommand = new Command("new")
   });
 
 // --- Helper functions ---
+
+/**
+ * Courtesy check: warn if the proposed mod id is already claimed in
+ * the public registry. A network failure degrades to a quiet "could
+ * not verify" note rather than stopping mod creation.
+ *
+ * @param {string} modId
+ * @param {{ status: string, entry?: { author?: string } }} [result]
+ */
+function printModIdWarning(modId, result) {
+  if (!result) return;
+  if (result.status === "claimed") {
+    const claimedBy = result.entry?.author ?? "unknown author";
+    console.log(yellow(`\n\u26a0 A mod with ID "${modId}" already exists in the registry (by ${claimedBy}).`));
+    console.log(yellow("  Publishing will require a unique ID. Consider renaming before you continue."));
+  } else if (result.status === "unverified") {
+    console.log("\n  Could not verify mod ID uniqueness (registry unreachable). Proceeding.");
+  }
+}
 
 function impliedProducts(campaigns) {
   const products = new Set();
@@ -569,6 +593,7 @@ async function confirmLoop(context) {
   const { manifest, existingRepo } = context;
   while (true) {
     displaySummary(context);
+    printModIdWarning(manifest.id, context.modIdStatus);
 
     const action = await select({
       message: "Does this look right?",
@@ -606,7 +631,12 @@ async function confirmLoop(context) {
       });
       context.targetDir = resolve(context.targetDir);
     } else {
+      const idBefore = manifest.id;
       await editField(manifest, field, context);
+      // Re-run the courtesy uniqueness check if an edit changed the mod id.
+      if (manifest.id !== idBefore) {
+        context.modIdStatus = await checkModIdAvailability(manifest.id);
+      }
     }
   }
 }
