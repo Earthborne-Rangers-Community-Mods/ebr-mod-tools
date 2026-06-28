@@ -42,6 +42,7 @@ Unique kebab-case identifier (lowercase letters, numbers, and hyphens). Must not
 
 **Valid:** `expanded-boulder-field`, `hard-mode`, `mymod`, `mod-v2`
 **Invalid:** `Expanded-Boulder-Field`, `my mod`, `-leading-hyphen`, `trailing-hyphen-`
+**Reserved:** Official campaign ids (e.g., `"lure-of-the-valley"`, `"animal-rescue"`) may not be used as mod ids. Any `id` that exactly matches an official campaign id from the official atalog is rejected.
 
 ### `version`
 
@@ -212,3 +213,4 @@ Run `ebr validate` or `ebr publish` to check your manifest. The validator checks
 - `repoUrl` is a GitHub URL
 - `collection` type has a non-empty `includedMods` array
 - Each `includedMods` entry has all required fields (`id`, `name`, `author`, `version`, `repoUrl`)
+- `id` does not exactly match any official campaign id (`OFFICIAL_CAMPAIGNS` catalog)

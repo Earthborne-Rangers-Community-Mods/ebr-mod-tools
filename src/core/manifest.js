@@ -137,6 +137,7 @@ export const VALIDATION_CODES = Object.freeze({
   MISSING_REQUIRED_FIELD: "MISSING_REQUIRED_FIELD",
   INVALID_TYPE: "INVALID_TYPE",
   INVALID_ID_FORMAT: "INVALID_ID_FORMAT",
+  RESERVED_ID: "RESERVED_ID",
   INVALID_VERSION_FORMAT: "INVALID_VERSION_FORMAT",
   FIELD_NOT_ARRAY: "FIELD_NOT_ARRAY",
   FIELD_NOT_BOOLEAN: "FIELD_NOT_BOOLEAN",
@@ -216,6 +217,11 @@ export function validateManifest(manifest) {
   // ID format: kebab-case
   if (manifest.id !== undefined && validateId(manifest.id) !== true) {
     errors.push({ code: VALIDATION_CODES.INVALID_ID_FORMAT, field: "id", value: manifest.id });
+  }
+
+  // ID must not collide with an official campaign id
+  if (typeof manifest.id === "string" && OFFICIAL_CAMPAIGNS.some((c) => c.id === manifest.id)) {
+    errors.push({ code: VALIDATION_CODES.RESERVED_ID, field: "id", value: manifest.id });
   }
 
   // Free-text required fields must be non-empty strings (not just present).
@@ -340,6 +346,8 @@ export function formatValidationError(err) {
       return `Invalid type "${err.value}". Must be one of: ${MOD_TYPES.map(t => t.id).join(", ")}.`;
     case VALIDATION_CODES.INVALID_ID_FORMAT:
       return `"id" must be kebab-case (lowercase letters, numbers, hyphens). Got "${err.value}".`;
+    case VALIDATION_CODES.RESERVED_ID:
+      return `"id" cannot be "${err.value}" - that is an official campaign id, reserved for campaigns. Choose a different mod id.`;
     case VALIDATION_CODES.INVALID_VERSION_FORMAT:
       return `"${err.field}" must be a semver string (e.g. "1.0.0"). Got "${err.value}".`;
     case VALIDATION_CODES.FIELD_NOT_ARRAY:
@@ -411,6 +419,33 @@ export function bumpVersion(version, type) {
         `Invalid bump type "${type}". Must be "major", "minor", or "patch".`,
       );
   }
+}
+
+/**
+ * Compare two semver-like version strings by their major.minor.patch triple.
+ *
+ * Pre-release and build metadata are ignored (only the leading numeric triple
+ * is compared), matching the rest of the toolchain's lenient SEMVER handling.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {-1|0|1|null} -1 if a < b, 1 if a > b, 0 if equal, or `null` when
+ *   either value cannot be parsed as a version (callers treat null as
+ *   "cannot compare").
+ */
+export function compareVersions(a, b) {
+  const parse = (v) => {
+    const m = typeof v === "string" ? v.match(/^(\d+)\.(\d+)\.(\d+)/) : null;
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  if (!pa || !pb) return null;
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] > pb[i]) return 1;
+    if (pa[i] < pb[i]) return -1;
+  }
+  return 0;
 }
 
 /**

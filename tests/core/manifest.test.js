@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, updateManifest, deriveOptionalProducts, applyMissingProductFix } from "../../src/core/manifest.js";
+import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix } from "../../src/core/manifest.js";
 import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../../src/core/catalogs.js";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../../src/core/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
@@ -232,6 +232,31 @@ describe("validateManifest", () => {
   it("accepts id with numbers", () => {
     const errors = validateManifest(validManifest({ id: "mod-v2" }));
     expect(errors.filter((e) => e.code === VALIDATION_CODES.INVALID_ID_FORMAT)).toEqual([]);
+  });
+
+  // --- Reserved ids (official campaign collision) ---
+
+  it("rejects a mod id that collides with an official campaign id", () => {
+    const errors = validateManifest(validManifest({ id: "lure-of-the-valley" }));
+    expect(hasError(errors, { code: VALIDATION_CODES.RESERVED_ID })).toBe(true);
+    // A campaign id is well-formed kebab-case, so the format check must not also fire.
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.INVALID_ID_FORMAT)).toEqual([]);
+  });
+
+  it("rejects a mod id that collides with a one-day mission campaign id", () => {
+    const errors = validateManifest(validManifest({ id: "animal-rescue" }));
+    expect(hasError(errors, { code: VALIDATION_CODES.RESERVED_ID })).toBe(true);
+  });
+
+  it("does not flag a well-formed, non-campaign id as reserved", () => {
+    const errors = validateManifest(validManifest({ id: "expanded-boulder-field" }));
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.RESERVED_ID)).toEqual([]);
+  });
+
+  it("formats the reserved-id error to name the colliding id", () => {
+    const msg = formatValidationError({ code: VALIDATION_CODES.RESERVED_ID, field: "id", value: "lure-of-the-valley" });
+    expect(msg).toContain("lure-of-the-valley");
+    expect(msg).toContain("campaign");
   });
 
   // --- Version format ---
@@ -655,6 +680,48 @@ describe("bumpVersion", () => {
 
   it("error message mentions the invalid bump type", () => {
     expect(() => bumpVersion("1.0.0", "huge")).toThrow(/huge/);
+  });
+});
+
+// --- compareVersions ---
+
+describe("compareVersions", () => {
+  it("returns 0 for equal versions", () => {
+    expect(compareVersions("1.2.3", "1.2.3")).toBe(0);
+  });
+
+  it("returns 1 when the first version is greater", () => {
+    expect(compareVersions("1.2.4", "1.2.3")).toBe(1);
+    expect(compareVersions("1.3.0", "1.2.9")).toBe(1);
+    expect(compareVersions("2.0.0", "1.9.9")).toBe(1);
+  });
+
+  it("returns -1 when the first version is lesser", () => {
+    expect(compareVersions("1.2.3", "1.2.4")).toBe(-1);
+    expect(compareVersions("1.2.9", "1.3.0")).toBe(-1);
+    expect(compareVersions("1.9.9", "2.0.0")).toBe(-1);
+  });
+
+  it("compares numerically, not lexically (10 > 9)", () => {
+    expect(compareVersions("1.10.0", "1.9.0")).toBe(1);
+    expect(compareVersions("0.0.10", "0.0.9")).toBe(1);
+  });
+
+  it("ignores pre-release and build metadata beyond the numeric triple", () => {
+    expect(compareVersions("1.2.3-beta", "1.2.3")).toBe(0);
+    expect(compareVersions("1.2.3+build.5", "1.2.3-rc.1")).toBe(0);
+  });
+
+  it("returns null when either version is unparseable", () => {
+    expect(compareVersions("not-a-version", "1.0.0")).toBeNull();
+    expect(compareVersions("1.0.0", "")).toBeNull();
+    expect(compareVersions("1.0", "1.0.0")).toBeNull();
+  });
+
+  it("returns null for non-string inputs", () => {
+    expect(compareVersions(undefined, "1.0.0")).toBeNull();
+    expect(compareVersions("1.0.0", null)).toBeNull();
+    expect(compareVersions(123, "1.0.0")).toBeNull();
   });
 });
 

@@ -265,3 +265,19 @@ export class ModIdConflictError extends ValidationError {
     this.existingRepoUrl = existingRepoUrl;
   }
 }
+
+export class IncludeModNotFoundError extends ValidationError {
+  /**
+   * Thrown when `ebr include <mod>` cannot resolve the source to a mod in the
+   * public registry. Mods are included by their registry id; the registry
+   * supplies the pinned `commitHash` and the fork `repoUrl` to merge from.
+   * @param {string} source - The unresolved source (mod id).
+   */
+  constructor(source) {
+    super(
+      `Could not find a mod matching "${source}" in the registry. Mods are included by their registry id (e.g. "ultimate-valley-experience"); verify the id is published.`,
+    );
+    this.name = "IncludeModNotFoundError";
+    this.source = source;
+  }
+}

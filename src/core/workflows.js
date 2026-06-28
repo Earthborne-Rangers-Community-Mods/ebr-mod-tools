@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile, stat, rm } from "node:fs/
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { listFilesRecursive, sanitizePathSegment, realPathSafe, realPathOfDestination, isPathInside } from "./filesystem.js";
-import { readManifest, writeManifest, validateManifest, formatValidationErrors, updateManifest } from "./manifest.js";
+import { readManifest, writeManifest, validateManifest, formatValidationErrors, updateManifest, compareVersions } from "./manifest.js";
 import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase } from "./git.js";
 import {
   getFileContent,
@@ -23,8 +23,8 @@ import {
   syncFork,
   normalizeGithubUrl,
 } from "./github.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError } from "./errors.js";
-import { checkIncludedMods, buildRegistryEntry } from "./registry.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError } from "./errors.js";
+import { checkIncludedMods, buildRegistryEntry, fetchRegistry } from "./registry.js";
 import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
 
 // --- Constants ---
@@ -635,30 +635,17 @@ export async function checkIncludedCampaignsUpdates({ dir }, { onProgress } = {}
 const CAMPAIGN_BRANCH_PREFIX = "campaign/";
 
 /**
- * Resolve an `ebr include` source string into a campaign branch name.
- *
- * Accepts either a full `campaign/<id>` ref or a bare campaign id.
+ * Resolve an `ebr include` campaign source into a campaign id and its branch.
  *
  * @param {string} source
  * @returns {{ campaignId: string, branch: string }}
- * @throws {ValidationError} If source is empty or not a recognizable campaign reference.
+ * @throws {ValidationError} If source is empty or not a known campaign id.
  */
 export function resolveCampaignSource(source) {
   if (typeof source !== "string" || !source.trim()) {
     throw new ValidationError("Include source must be a non-empty string.");
   }
-  const trimmed = source.trim();
-
-  let campaignId;
-  if (trimmed.startsWith(CAMPAIGN_BRANCH_PREFIX)) {
-    campaignId = trimmed.slice(CAMPAIGN_BRANCH_PREFIX.length);
-  } else if (!trimmed.includes("/") && !trimmed.includes(":")) {
-    campaignId = trimmed;
-  } else {
-    throw new ValidationError(
-      `Unrecognized include source "${source}". Expected a campaign id (e.g. "lure-of-the-valley") or a "campaign/<id>" branch ref.`,
-    );
-  }
+  const campaignId = source.trim();
 
   // Validate against the canonical OFFICIAL_CAMPAIGNS catalog. `ebr include`
   // only handles official campaign branches; custom-campaign mods don't get
@@ -717,7 +704,7 @@ export function upsertIncludedCampaign(existing, entry) {
  *
  * @param {object} params
  * @param {string} params.dir - Mod directory.
- * @param {string} params.source - Campaign id or `campaign/<id>` branch ref.
+ * @param {string} params.source - Official campaign id (e.g. "lure-of-the-valley").
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress]
  * @returns {Promise<{ campaignId: string, branch: string, commitHash: string, alreadyUpToDate: boolean }>}
@@ -807,6 +794,332 @@ export async function includeCampaign({ dir, source }, { onProgress } = {}) {
     }
     throw err;
   }
+}
+
+// --- includeMod ---
+
+/**
+ * Classify an `ebr include` source as a campaign or a mod.
+ *
+ * A campaign source is a bare official campaign id (from
+ * {@link OFFICIAL_CAMPAIGNS}). Everything else routes to the mod path.
+ *
+ * @param {string} source
+ * @returns {"campaign"|"mod"}
+ */
+export function classifyIncludeSource(source) {
+  const trimmed = typeof source === "string" ? source.trim() : "";
+  if (trimmed && OFFICIAL_CAMPAIGNS.some((c) => c.id === trimmed)) {
+    return "campaign";
+  }
+  return "mod";
+}
+
+/**
+ * Derive a stable, git-safe remote name for a mod fork's repo URL.
+ *
+ * Every mod by an author lives as a branch in the same fork, so keying the
+ * remote by the fork's `owner/repo` (not by mod id) means multiple includes
+ * from the same author reuse one remote.
+ *
+ * @param {string} repoUrl
+ * @returns {string}
+ * @throws {ValidationError} If `repoUrl` is not a recognizable GitHub URL.
+ */
+export function remoteNameForRepoUrl(repoUrl) {
+  const normalized = normalizeGithubUrl(repoUrl);
+  const match = normalized && normalized.match(/github\.com\/([^/]+)\/([^/]+)/i);
+  if (!match) {
+    throw new ValidationError(
+      `Cannot derive a remote name from repo URL "${repoUrl}". Expected a GitHub URL like https://github.com/<owner>/<repo>.`,
+    );
+  }
+  const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `inc-${slug(match[1])}-${slug(match[2])}`;
+}
+
+/**
+ * Resolve an `ebr include <mod>` source into the registry entry that pins the
+ * mod's published `commitHash` and fork `repoUrl`. Mod includes are
+ * registry-driven: the registry is the source of truth for which commit a mod
+ * version corresponds to.
+ *
+ * The source is a bare mod id, matched against `registry.mods[].id`. Repo URLs
+ * are not accepted - one fork hosts every mod by an author, so a URL cannot
+ * identify a single mod.
+ *
+ * @param {string} source
+ * @param {{mods?: Array<object>}} registry - Parsed browse-tier registry.
+ * @returns {{ modId: string, entry: object }}
+ * @throws {ValidationError} If `source` is empty.
+ * @throws {IncludeModNotFoundError} If no registry entry matches.
+ */
+export function resolveModSource(source, registry) {
+  if (typeof source !== "string" || !source.trim()) {
+    throw new ValidationError("Include source must be a non-empty string.");
+  }
+  const trimmed = source.trim();
+  const mods = Array.isArray(registry?.mods) ? registry.mods : [];
+
+  const entry = mods.find((m) => m.id === trimmed);
+  if (!entry) {
+    throw new IncludeModNotFoundError(trimmed);
+  }
+  return { modId: trimmed, entry };
+}
+
+/**
+ * Insert or replace an entry in `includedMods` keyed by `id`.
+ * Pure helper - exported for tests.
+ *
+ * @param {Array<{id: string, name: string, author: string, version: string, repoUrl: string}>|undefined} existing
+ * @param {{id: string, name: string, author: string, version: string, repoUrl: string}} entry
+ * @returns {Array<object>}
+ */
+export function upsertIncludedMod(existing, entry) {
+  const list = Array.isArray(existing) ? [...existing] : [];
+  const idx = list.findIndex((e) => e && e.id === entry.id);
+  if (idx >= 0) {
+    list[idx] = entry;
+  } else {
+    list.push(entry);
+  }
+  return list;
+}
+
+/**
+ * Include another mod into the current one (the merge behind collections and
+ * any mod that builds on upstream work). The source is resolved through the
+ * registry, which pins the exact published `commitHash` to merge - the same
+ * commit-pinning the app downloads, so a collection author merges the reviewed
+ * version rather than whatever happens to be on the mod's branch tip.
+ *
+ * Unlike {@link includeCampaign}, this does not require a `base` remote; it
+ * adds (or reuses) a remote for the source's fork `repoUrl`.
+ *
+ * The current mod's `ebr-mod.json` and the source's are both rooted at the
+ * repo root, so merging two distinct mods produces a guaranteed add/add (or
+ * modify/modify) conflict on the manifest. This is resolved automatically by
+ * always keeping OUR manifest plus the new `includedMods` entry; the include
+ * never changes the current mod's identity. Genuine content conflicts on other
+ * files are left for the author to resolve by hand (manifest already staged so
+ * `git merge --continue` rolls it into the merge commit).
+ *
+ * @param {object} params
+ * @param {string} params.dir - Mod directory.
+ * @param {string} params.source - Mod id.
+ * @param {object} [params.registry] - Pre-fetched browse-tier registry. Fetched
+ *   anonymously when omitted (avoids a redundant fetch when the caller, e.g.
+ *   `ebr update`, already has it).
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ * @returns {Promise<{ modId: string, includedEntry: object, commitHash: string, alreadyUpToDate: boolean }>}
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {IndexNotCleanError} If the index has staged changes when the workflow starts.
+ * @throws {ValidationError} If `source` is malformed.
+ * @throws {IncludeModNotFoundError} If the source matches no registry entry.
+ * @throws {MergeConflictError} If the merge produces conflicts beyond the manifest.
+ * @throws {GithubError} If the registry cannot be fetched.
+ * @throws {GitError} For other git failures.
+ * @throws {ManifestError} If the current manifest is missing or invalid.
+ */
+export async function includeMod({ dir, source, registry }, { onProgress } = {}) {
+  if (!(await isRepo(dir))) {
+    throw new NotARepoError(dir);
+  }
+
+  // Refuse to proceed with a dirty index, mirroring includeCampaign: bundling
+  // unrelated staged work into a merge commit would silently mix concerns.
+  const status = await getStatus(dir);
+  if (status.staged.length > 0) {
+    throw new IndexNotCleanError(status.staged);
+  }
+
+  // Read our manifest up front (before any merge can touch it). This is the
+  // identity we always keep.
+  const manifest = await readManifest(dir);
+
+  onProgress?.({ step: "registry", message: "Looking up mod in the registry..." });
+  const reg = registry ?? (await fetchRegistry());
+  const { modId, entry: regEntry } = resolveModSource(source, reg);
+
+  const repoUrl = regEntry.repoUrl;
+  const commitHash = regEntry.commitHash;
+  const remoteName = remoteNameForRepoUrl(repoUrl);
+
+  // The registry entry is a faithful mirror of the source manifest at this
+  // exact commit (publish builds it from that manifest), so it carries the
+  // id/name/author/version actually being merged without a second round-trip.
+  const includedEntry = {
+    id: regEntry.id,
+    name: regEntry.name,
+    author: regEntry.author,
+    version: regEntry.latestVersion,
+    repoUrl,
+  };
+  const shortSha = commitHash.slice(0, 7);
+
+  // Ensure a remote for the fork exists, then fetch so `commitHash` is local.
+  if (!(await hasRemote(dir, remoteName))) {
+    onProgress?.({ step: "remote", message: `Adding remote ${remoteName}...` });
+    await addRemote(dir, remoteName, repoUrl);
+  }
+  onProgress?.({ step: "fetch", message: `Fetching ${remoteName}...` });
+  await fetchRemote(dir, remoteName, { onProgress });
+
+  onProgress?.({ step: "merge", message: `Merging ${shortSha}...` });
+  try {
+    await merge(dir, commitHash, { onProgress, noCommit: true });
+  } catch (err) {
+    if (err instanceof MergeConflictError) {
+      // Always resolve OUR manifest: the include must not change our identity.
+      // Staging it means a `git merge --continue` (for any remaining content
+      // conflicts) folds the includedMods update into the merge commit.
+      onProgress?.({ step: "manifest", message: "Updating includedMods..." });
+      manifest.includedMods = upsertIncludedMod(manifest.includedMods, includedEntry);
+      await writeManifest(dir, manifest);
+      await stageFile(dir, "ebr-mod.json");
+
+      const otherConflicts = err.conflictedFiles.filter((f) => f !== "ebr-mod.json");
+      if (otherConflicts.length === 0) {
+        // The manifest was the only conflict (the common case for two mods
+        // off the same shell). Finalize the merge ourselves - the author
+        // never sees it.
+        onProgress?.({ step: "commit", message: "Committing include..." });
+        await commit(dir, `Include mod ${includedEntry.id} v${includedEntry.version} at ${shortSha}`);
+        return { modId: includedEntry.id, includedEntry, commitHash, alreadyUpToDate: false };
+      }
+
+      // Real content conflicts remain. Hand them to the author with the
+      // manifest already resolved and staged.
+      err.conflictedFiles = otherConflicts;
+      err.modId = includedEntry.id;
+      err.commitHash = commitHash;
+      throw err;
+    }
+    // Any other failure: manifest untouched, merge aborts cleanly.
+    throw err;
+  }
+
+  // Clean merge (re-include of an already-merged mod, or a content-only merge
+  // with no manifest collision). Enforce our manifest + entry, then commit.
+  onProgress?.({ step: "manifest", message: "Updating includedMods..." });
+  manifest.includedMods = upsertIncludedMod(manifest.includedMods, includedEntry);
+  await writeManifest(dir, manifest);
+  await stageFile(dir, "ebr-mod.json");
+
+  onProgress?.({ step: "commit", message: "Committing include..." });
+  try {
+    await commit(dir, `Include mod ${includedEntry.id} v${includedEntry.version} at ${shortSha}`);
+    return { modId: includedEntry.id, includedEntry, commitHash, alreadyUpToDate: false };
+  } catch (err) {
+    if (err instanceof NothingToCommitError) {
+      return { modId: includedEntry.id, includedEntry, commitHash, alreadyUpToDate: true };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Walk every entry in `manifest.includedMods` and report which ones have a
+ * newer published version available, using the registry as the source of
+ * truth.
+ *
+ * For each entry: look up its id in the registry. The registry's `commitHash`
+ * is checked for ancestry against HEAD (so the relevant remote is fetched
+ * first). Two conditions are reported for warn-and-skip rather than treated as
+ * updates:
+ * - `missing: true` - the mod is no longer in the registry (delisted).
+ * - `manifestAhead: true` - `includedMods[].version` is newer than the
+ *   registry's published version (manifest ahead of registry, e.g. after a
+ *   registry rollback).
+ *
+ * @param {object} params
+ * @param {string} params.dir - Mod directory (must be a git repo).
+ * @param {object} [params.registry] - Pre-fetched browse-tier registry. Fetched
+ *   anonymously when omitted - but only when there are included mods to check,
+ *   so a mod with an empty `includedMods` never touches the network.
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ * @returns {Promise<{ updates: Array<{ id: string, name: string, missing: boolean, manifestAhead: boolean, updateAvailable: boolean, currentVersion: string, registryVersion: string|null, repoUrl: string, commitHash: string|null }>, registry: object|null }>} The walk results plus the registry that was used (the passed-in one, the freshly fetched one, or `null` when there were no mods to check), so the caller can drive merges without fetching again.
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {GithubError} If the registry cannot be fetched.
+ * @throws {ManifestError} If the manifest is missing or invalid.
+ */
+export async function checkIncludedModsUpdates({ dir, registry }, { onProgress } = {}) {
+  if (!(await isRepo(dir))) {
+    throw new NotARepoError(dir);
+  }
+
+  const manifest = await readManifest(dir);
+  const entries = Array.isArray(manifest.includedMods) ? manifest.includedMods : [];
+
+  if (entries.length === 0) {
+    return { updates: [], registry: registry ?? null };
+  }
+
+  const reg = registry ?? (await fetchRegistry());
+  const regById = new Map(
+    (Array.isArray(reg?.mods) ? reg.mods : []).map((m) => [m.id, m]),
+  );
+
+  const updates = [];
+  for (const entry of entries) {
+    const regEntry = regById.get(entry.id);
+
+    if (!regEntry) {
+      updates.push({
+        id: entry.id,
+        name: entry.name,
+        missing: true,
+        manifestAhead: false,
+        updateAvailable: false,
+        currentVersion: entry.version,
+        registryVersion: null,
+        repoUrl: entry.repoUrl,
+        commitHash: null,
+      });
+      continue;
+    }
+
+    if (compareVersions(entry.version, regEntry.latestVersion) === 1) {
+      updates.push({
+        id: entry.id,
+        name: entry.name,
+        missing: false,
+        manifestAhead: true,
+        updateAvailable: false,
+        currentVersion: entry.version,
+        registryVersion: regEntry.latestVersion,
+        repoUrl: regEntry.repoUrl,
+        commitHash: regEntry.commitHash,
+      });
+      continue;
+    }
+
+    const remoteName = remoteNameForRepoUrl(regEntry.repoUrl);
+    if (!(await hasRemote(dir, remoteName))) {
+      onProgress?.({ step: "remote", message: `Adding remote ${remoteName}...` });
+      await addRemote(dir, remoteName, regEntry.repoUrl);
+    }
+    onProgress?.({ step: "fetch", message: `Fetching ${remoteName}...` });
+    await fetchRemote(dir, remoteName, { onProgress });
+
+    const upToDate = await isAncestor(dir, regEntry.commitHash, "HEAD");
+    updates.push({
+      id: entry.id,
+      name: entry.name,
+      missing: false,
+      manifestAhead: false,
+      updateAvailable: !upToDate,
+      currentVersion: entry.version,
+      registryVersion: regEntry.latestVersion,
+      repoUrl: regEntry.repoUrl,
+      commitHash: regEntry.commitHash,
+    });
+  }
+
+  return { updates, registry: reg };
 }
 
 // --- scaffold ---

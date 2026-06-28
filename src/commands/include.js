@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { checkbox } from "@inquirer/prompts";
-import { includeCampaign } from "../core/workflows.js";
+import { includeCampaign, includeMod, classifyIncludeSource } from "../core/workflows.js";
+import { fetchRegistry } from "../core/registry.js";
 import { OFFICIAL_CAMPAIGNS } from "../core/catalogs.js";
 import {
   ManifestError,
@@ -13,20 +14,24 @@ import {
   IndexNotCleanError,
   DirtyWorkingTreeError,
   ValidationError,
+  IncludeModNotFoundError,
+  GithubError,
 } from "../core/errors.js";
 
 export const includeCommand = new Command("include")
-  .description("Include an official campaign branch (merge) into the current mod")
-  .argument("[campaigns...]", "Campaign id(s) (e.g. 'lure-of-the-valley') or 'campaign/<id>' refs. Omit to pick from a checklist.")
+  .description("Include an official campaign branch or another mod into the current mod")
+  .argument("[sources...]", "Campaign id(s) (e.g. 'lure-of-the-valley'), or mod id(s). Omit to pick campaigns from a checklist.")
   .action(includeAction);
 
-async function includeAction(campaignsArg) {
+async function includeAction(sourcesArg) {
   const dir = process.cwd();
 
   // commander gives an empty array when no positional args were passed.
-  const passed = Array.isArray(campaignsArg) ? campaignsArg : (campaignsArg ? [campaignsArg] : []);
+  const passed = Array.isArray(sourcesArg) ? sourcesArg : (sourcesArg ? [sourcesArg] : []);
 
   // Resolve sources: explicit positional args, or a multi-select prompt.
+  // The interactive picker is for campaigns-only - mods are too numerous to
+  // enumerate without a registry round-trip, so they must be named explicitly.
   let sources;
   if (passed.length > 0) {
     sources = passed;
@@ -48,6 +53,10 @@ async function includeAction(campaignsArg) {
   const onProgress = (p) => console.log(p.message);
   const completed = [];
 
+  // The browse-tier registry is fetched once, lazily, the first time a mod
+  // source appears - campaign-only runs never touch the network for it.
+  let registry;
+
   for (let i = 0; i < sources.length; i++) {
     const current = sources[i];
     if (sources.length > 1) {
@@ -55,13 +64,26 @@ async function includeAction(campaignsArg) {
     }
 
     try {
-      const result = await includeCampaign({ dir, source: current }, { onProgress });
-
-      if (result.alreadyUpToDate) {
-        console.log(`\n${result.branch} is already up to date at ${result.commitHash.slice(0, 7)}.`);
+      if (classifyIncludeSource(current) === "mod") {
+        if (!registry) {
+          console.log("Fetching registry...");
+          registry = await fetchRegistry();
+        }
+        const result = await includeMod({ dir, source: current, registry }, { onProgress });
+        if (result.alreadyUpToDate) {
+          console.log(`\n${result.modId} is already included at ${result.commitHash.slice(0, 7)}.`);
+        } else {
+          console.log(`\nIncluded mod ${result.modId} v${result.includedEntry.version} at ${result.commitHash.slice(0, 7)}.`);
+          console.log("Recorded in includedMods.");
+        }
       } else {
-        console.log(`\nMerged ${result.branch} at ${result.commitHash.slice(0, 7)}.`);
-        console.log("Recorded in includedCampaigns.");
+        const result = await includeCampaign({ dir, source: current }, { onProgress });
+        if (result.alreadyUpToDate) {
+          console.log(`\n${result.branch} is already up to date at ${result.commitHash.slice(0, 7)}.`);
+        } else {
+          console.log(`\nMerged ${result.branch} at ${result.commitHash.slice(0, 7)}.`);
+          console.log("Recorded in includedCampaigns.");
+        }
       }
       completed.push(current);
     } catch (err) {
@@ -75,7 +97,7 @@ async function includeAction(campaignsArg) {
   }
 
   if (sources.length > 1) {
-    console.log(`\nIncluded ${completed.length} campaign(s). Review the changes and run \`ebr save\` when ready.`);
+    console.log(`\nIncluded ${completed.length} item(s). Review the changes and run \`ebr save\` when ready.`);
   } else if (completed.length === 1) {
     console.log("\nReview the changes and run `ebr save` when ready.");
   }
@@ -86,6 +108,11 @@ async function includeAction(campaignsArg) {
  * Returns nothing; caller decides whether to continue or abort.
  */
 function handleIncludeError(err) {
+  if (err instanceof IncludeModNotFoundError) {
+    console.error(`\n${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
   if (err instanceof ValidationError) {
     console.error(`\n${err.message}`);
     process.exitCode = 1;
@@ -120,7 +147,7 @@ function handleIncludeError(err) {
     for (const f of err.staged) {
       console.error(`  - ${f}`);
     }
-    console.error("\nCommit them with `ebr save` (or unstage with `git reset`) before including a campaign.");
+    console.error("\nCommit them with `ebr save` (or unstage with `git reset`) before including.");
     process.exitCode = 1;
     return;
   }
@@ -137,6 +164,12 @@ function handleIncludeError(err) {
   }
   if (err instanceof ManifestError) {
     console.error(`Manifest error: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (err instanceof GithubError) {
+    console.error(`\nCould not reach the registry: ${err.message}`);
+    console.error("Check your network connection and try again.");
     process.exitCode = 1;
     return;
   }
@@ -169,6 +202,6 @@ function printMultiSummary(completed, failedAt, remaining) {
   console.error(`Failed at: ${failedAt}`);
   if (remaining.length > 0) {
     console.error(`Skipped: ${remaining.join(", ")}`);
-    console.error("Re-run `ebr include` for the remaining campaigns once the failure is resolved.");
+    console.error("Re-run `ebr include` for the remaining items once the failure is resolved.");
   }
 }
