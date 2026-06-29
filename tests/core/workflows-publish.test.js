@@ -27,7 +27,7 @@ vi.mock("../../src/core/git.js", () => gitMocks);
 // Import AFTER mocks are set up
 import { publishMod } from "../../src/core/workflows.js";
 import { buildRegistryEntry } from "../../src/core/registry.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, UnpushedChangesError, ModIdConflictError, InsufficientScopeError } from "../../src/core/errors.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, UnpushedChangesError, ModIdConflictError, InsufficientScopeError, VersionNotHigherError } from "../../src/core/errors.js";
 
 // --- Helpers ---
 
@@ -153,6 +153,69 @@ describe("publishMod", () => {
     expect(err).toBeInstanceOf(ModIdConflictError);
     expect(err.modId).toBe("test-mod");
     expect(err.existingAuthor).toBe("OtherAuthor");
+  });
+
+  it("throws VersionNotHigherError when version equals the published version", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest({ version: "1.0.0" }));
+    setupGithubMocks({
+      modFileExists: true,
+      existingModEntry: { author: "TestAuthor", repoUrl: "https://github.com/test/ebr-test-mod", latestVersion: "1.0.0" },
+    });
+
+    const err = await publishMod({ dir, token: TOKEN }).catch((e) => e);
+    expect(err).toBeInstanceOf(VersionNotHigherError);
+    expect(err.attemptedVersion).toBe("1.0.0");
+    expect(err.publishedVersion).toBe("1.0.0");
+  });
+
+  it("throws VersionNotHigherError when version is lower than the published version", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest({ version: "0.9.0" }));
+    setupGithubMocks({
+      modFileExists: true,
+      existingModEntry: { author: "TestAuthor", repoUrl: "https://github.com/test/ebr-test-mod", latestVersion: "1.0.0" },
+    });
+
+    const err = await publishMod({ dir, token: TOKEN }).catch((e) => e);
+    expect(err).toBeInstanceOf(VersionNotHigherError);
+  });
+
+  it("allows publishing a strictly higher version", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest({ version: "2.0.0" }));
+    setupGithubMocks({
+      modFileExists: true,
+      existingModEntry: { author: "TestAuthor", repoUrl: "https://github.com/test/ebr-test-mod", latestVersion: "1.0.0" },
+    });
+
+    const result = await publishMod({ dir, token: TOKEN });
+    expect(result.isUpdate).toBe(true);
+    expect(result.entry.latestVersion).toBe("2.0.0");
+  });
+
+  it("skips the version gate when the published entry has no latestVersion", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest({ version: "1.0.0" }));
+    setupGithubMocks({
+      modFileExists: true,
+      existingModEntry: { author: "TestAuthor", repoUrl: "https://github.com/test/ebr-test-mod" },
+    });
+
+    const result = await publishMod({ dir, token: TOKEN });
+    expect(result.isUpdate).toBe(true);
+  });
+
+  it("skips the version gate when the published latestVersion is unparseable", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest({ version: "1.0.0" }));
+    setupGithubMocks({
+      modFileExists: true,
+      existingModEntry: { author: "TestAuthor", repoUrl: "https://github.com/test/ebr-test-mod", latestVersion: "not-a-version" },
+    });
+
+    const result = await publishMod({ dir, token: TOKEN });
+    expect(result.isUpdate).toBe(true);
   });
 
   it("creates a branch named publish/<mod-id>", async () => {

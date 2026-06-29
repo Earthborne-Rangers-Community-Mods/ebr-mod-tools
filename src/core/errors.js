@@ -266,6 +266,25 @@ export class ModIdConflictError extends ValidationError {
   }
 }
 
+export class VersionNotHigherError extends ValidationError {
+  /**
+   * Thrown by `ebr publish` when the manifest version is not strictly higher
+   * than the version already published in the registry.
+   * @param {string} modId - The mod ID being published.
+   * @param {string} attemptedVersion - The version in the local manifest.
+   * @param {string} publishedVersion - The version currently in the registry.
+   */
+  constructor(modId, attemptedVersion, publishedVersion) {
+    super(
+      `Version ${attemptedVersion} is not higher than the published version ${publishedVersion} for mod "${modId}". Bump the version in ebr-mod.json (e.g. via \`ebr save --bump\`) before publishing.`,
+    );
+    this.name = "VersionNotHigherError";
+    this.modId = modId;
+    this.attemptedVersion = attemptedVersion;
+    this.publishedVersion = publishedVersion;
+  }
+}
+
 export class IncludeModNotFoundError extends ValidationError {
   /**
    * Thrown when `ebr include <mod>` cannot resolve the source to a mod in the

@@ -23,7 +23,7 @@ import {
   syncFork,
   normalizeGithubUrl,
 } from "./github.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError } from "./errors.js";
+import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry, fetchRegistry } from "./registry.js";
 import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
 
@@ -327,7 +327,9 @@ async function requestPrViaWorker({ workerUrl, token, forkOwner, branch, title, 
  * 6. Check includedMods against the registry (warn for delisted mods).
  * 7. Check if mod file already exists (determines new vs update).
  * 8. **Mod ID ownership check:** If the mod file exists and belongs to a
- *    different author/repoUrl, abort with ModIdConflictError.
+ *    different author/repoUrl, abort with ModIdConflictError. If it belongs to
+ *    the same author, abort with VersionNotHigherError unless the manifest
+ *    version is strictly higher than the published version.
  * 9. Build the registry entry.
  * 10. Sync fork with upstream.
  * 11. Create a branch in the fork from upstream's latest main.
@@ -444,6 +446,16 @@ export async function publishMod(
     const sameRepo = existingEntry.repoUrl === manifest.repoUrl;
     if (!sameAuthor || !sameRepo) {
       throw new ModIdConflictError(manifest.id, existingEntry.author, existingEntry.repoUrl);
+    }
+
+    // Version gate - the new version must be strictly higher than the one
+    // already published. compareVersions returns null when either value is
+    // unparseable; treat that as "cannot compare" and skip rather than block.
+    if (existingEntry.latestVersion) {
+      const cmp = compareVersions(manifest.version, existingEntry.latestVersion);
+      if (cmp !== null && cmp <= 0) {
+        throw new VersionNotHigherError(manifest.id, manifest.version, existingEntry.latestVersion);
+      }
     }
   }
 

@@ -6,7 +6,7 @@ import { publishMod } from "../core/workflows.js";
 import { readManifest, writeManifest, validateManifest, formatValidationError, applyMissingProductFix, VALIDATION_CODES } from "../core/manifest.js";
 import { OFFICIAL_PRODUCTS } from "../core/catalogs.js";
 import { renderCliError } from "./render-error.js";
-import { GithubError, AuthenticationError, InsufficientScopeError, UnpushedChangesError, ModIdConflictError } from "../core/errors.js";
+import { GithubError, AuthenticationError, InsufficientScopeError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "../core/errors.js";
 
 export const publishCommand = new Command("publish")
   .description("Submit or update the mod in the registry via GitHub PR")
@@ -101,6 +101,11 @@ async function publishAction(opts) {
       }
       if (err instanceof ModIdConflictError) {
         console.error(`\nMod ID conflict: ${err.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (err instanceof VersionNotHigherError) {
+        console.error(`\n${err.message}`);
         process.exitCode = 1;
         return;
       }
