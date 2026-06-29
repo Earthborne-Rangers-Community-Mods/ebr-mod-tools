@@ -191,7 +191,12 @@ async function setupTokenAndForks() {
     console.log("\nYou'll need a free GitHub account to publish mods.");
     console.log("We'll open the sign-up page for you. Create an account, then re-run `ebr setup`.\n");
     const openSignup = await confirm({ message: "Ready to open github.com/signup?" });
-    if (openSignup) await open("https://github.com/signup");
+    if (openSignup) {
+      await open("https://github.com/signup");
+      // No prompt follows, so give the OS opener a moment to hand off to the
+      // browser before we return and the process exits.
+      await new Promise((r) => setTimeout(r, 1500));
+    }
     return { token: null, user: null };
   }
 

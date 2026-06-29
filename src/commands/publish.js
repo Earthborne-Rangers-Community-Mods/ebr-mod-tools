@@ -41,7 +41,12 @@ async function publishAction(opts) {
 
       const result = await publishMod(
         { dir, token, force: opts.force },
-        { onProgress: (p) => console.log(p.message) },
+        {
+          onProgress: (p) =>
+            p.step === "create-pr-failed"
+              ? console.log(`\x1b[33m⚠ ${p.message}\x1b[0m`)
+              : console.log(p.message),
+        },
       );
 
       // Report includedMods warnings
@@ -56,13 +61,23 @@ async function publishAction(opts) {
       if (result.existingPr) {
         console.log(`\nExisting PR updated: ${result.existingPr.url}`);
         console.log("The branch has been refreshed with your latest changes.");
+      } else if (result.createdPr) {
+        console.log(`\nPull request opened: ${result.createdPr.url}`);
       } else {
         console.log("\nWe'll open GitHub so you can create a pull request.");
         console.log("Click \"Create pull request\" on the page that opens.");
         console.log(`\n  ${result.compareUrl}\n`);
         const openPr = await confirm({ message: "Ready to open the compare page?" });
         if (openPr) {
-          await open(result.compareUrl).catch(() => {});
+          try {
+            await open(result.compareUrl);
+            // open() resolves the moment it spawns the OS opener; give it a
+            // moment to hand off to the browser before this process exits, or
+            // the opener is killed first and nothing launches.
+            await new Promise((r) => setTimeout(r, 1500));
+          } catch (e) {
+            console.log(`Couldn't open a browser (${e.message}). Use the link above.`);
+          }
         }
       }
 

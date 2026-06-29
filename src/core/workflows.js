@@ -35,6 +35,7 @@ const DEFAULT_REGISTRY_REPO = "ebr-mod-registry";
 const REGISTRY_FILE = "registry.json";
 const MODS_DIR = "mods";
 const REGISTRY_BASE_BRANCH = "main";
+const DEFAULT_PR_WORKER_URL = "https://ebr-mod-pr.ebr-mods.workers.dev/create-pr";
 
 /**
  * Derive the git branch name for a mod from its ID.
@@ -256,6 +257,11 @@ function buildPrBody(manifest, commitHash, isUpdate) {
 
 /**
  * Build a GitHub compare URL that pre-fills a PR form.
+ *
+ * Asterisks are percent-encoded explicitly: URLSearchParams leaves `*` literal,
+ * and many terminals treat it as a URL boundary, so a markdown body with `**`
+ * truncates the clickable link mid-string. Encoding them keeps the full body
+ * and a fully clickable URL.
  * @param {object} options
  * @param {string} options.registryOwner
  * @param {string} options.registryRepo
@@ -266,8 +272,48 @@ function buildPrBody(manifest, commitHash, isUpdate) {
  * @returns {string}
  */
 function buildCompareUrl({ registryOwner, registryRepo, base, head, title, body }) {
-  const params = new URLSearchParams({ expand: "1", title, body });
+  const params = new URLSearchParams({ expand: "1", title, body }).toString().replace(/\*/g, "%2A");
   return `https://github.com/${registryOwner}/${registryRepo}/compare/${base}...${head}?${params}`;
+}
+
+/**
+ * Ask the GitHub App worker to open the registry PR on the user's behalf.
+ *
+ * Returns the created PR on success, or null on any failure (worker down,
+ * non-2xx, malformed response, fetch threw). Returning null lets the caller
+ * fall back to the browser compare-URL flow so `ebr publish` always works.
+ *
+ * @param {object} options
+ * @param {string} options.workerUrl - POST /create-pr endpoint.
+ * @param {string} options.token - Caller's GitHub token (worker verifies it owns the fork).
+ * @param {string} options.forkOwner
+ * @param {string} options.branch
+ * @param {string} options.title
+ * @param {string} options.body
+ * @returns {Promise<{number: number, url: string}|null>}
+ */
+async function requestPrViaWorker({ workerUrl, token, forkOwner, branch, title, body }, onProgress) {
+  try {
+    const res = await fetch(workerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ forkOwner, branch, title, body }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      onProgress?.({ step: "create-pr-failed", message: `Auto-PR failed (HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ""}); falling back to compare URL.` });
+      return null;
+    }
+    const data = await res.json();
+    if (!data || typeof data.url !== "string") {
+      onProgress?.({ step: "create-pr-failed", message: "Auto-PR failed (unexpected worker response); falling back to compare URL." });
+      return null;
+    }
+    return { number: data.number, url: data.url };
+  } catch (err) {
+    onProgress?.({ step: "create-pr-failed", message: `Auto-PR failed (${err.message}); falling back to compare URL.` });
+    return null;
+  }
 }
 
 /**
@@ -286,7 +332,8 @@ function buildCompareUrl({ registryOwner, registryRepo, base, head, title, body 
  * 10. Sync fork with upstream.
  * 11. Create a branch in the fork from upstream's latest main.
  * 12. Write the mod file (`mods/<mod-id>.json`) to the branch.
- * 13. Check for existing PR or build a compare URL for the user to open.
+ * 13. Check for an existing PR; if none, ask the GitHub App worker to open one,
+ *     falling back to a compare URL when the worker is unreachable.
  *
  * The registry fork is assumed to already exist (set up during `ebr setup`).
  *
@@ -295,12 +342,13 @@ function buildCompareUrl({ registryOwner, registryRepo, base, head, title, body 
  * @param {string} options.token - GitHub personal access token.
  * @param {string} [options.registryOwner] - Upstream registry repo owner.
  * @param {string} [options.registryRepo] - Upstream registry repo name.
+ * @param {string|null} [options.prWorkerUrl] - GitHub App PR worker endpoint. Pass null to skip the worker and always use the compare URL.
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress] - Progress callback ({ step, message }).
- * @returns {Promise<{existingPr: {number, url}|null, compareUrl: string, entry: object, commitHash: string, isUpdate: boolean, includedModWarnings: Array}>}
+ * @returns {Promise<{existingPr: {number, url}|null, createdPr: {number, url}|null, compareUrl: string, entry: object, commitHash: string, isUpdate: boolean, includedModWarnings: Array}>}
  */
 export async function publishMod(
-  { dir, token, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO },
+  { dir, token, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO, prWorkerUrl = DEFAULT_PR_WORKER_URL },
   { onProgress } = {},
 ) {
   // 1. Read and validate manifest
@@ -486,14 +534,26 @@ export async function publishMod(
   const prTitle = isUpdate
     ? `Update: ${manifest.name} v${manifest.version}`
     : `New mod: ${manifest.name} v${manifest.version}`;
+  const prBody = buildPrBody(manifest, commitHash, isUpdate);
 
   const compareUrl = buildCompareUrl({
     registryOwner, registryRepo, base: REGISTRY_BASE_BRANCH,
     head: `${forkOwner}:${branchName}`,
-    title: prTitle, body: buildPrBody(manifest, commitHash, isUpdate),
+    title: prTitle, body: prBody,
   });
 
-  return { existingPr, compareUrl, entry, commitHash, isUpdate, includedModWarnings };
+  // 15. Try the GitHub App worker to open the PR automatically. Skip if a PR
+  // already exists or no worker is configured.
+  let createdPr = null;
+  if (!existingPr && prWorkerUrl) {
+    onProgress?.({ step: "create-pr", message: "Opening pull request..." });
+    createdPr = await requestPrViaWorker({
+      workerUrl: prWorkerUrl, token, forkOwner, branch: branchName,
+      title: prTitle, body: prBody,
+    }, onProgress);
+  }
+
+  return { existingPr, createdPr, compareUrl, entry, commitHash, isUpdate, includedModWarnings };
 }
 
 // --- Base-content update workflows ---

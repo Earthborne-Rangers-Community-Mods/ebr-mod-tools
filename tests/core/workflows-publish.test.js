@@ -90,6 +90,8 @@ function setupGithubMocks({ registry = emptyRegistry(), modFileExists = false, e
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: PR worker unreachable, so publish falls back to the compare URL.
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
 });
 
 // --- publishMod ---
@@ -311,22 +313,26 @@ describe("publishMod", () => {
     expect(progress.steps()).toContain("build");
     expect(progress.steps()).toContain("branch");
     expect(progress.steps()).toContain("write");
+    expect(progress.steps()).toContain("create-pr");
     expect(progress.steps()).toContain("pr");
     progress.assertValid();
   });
 
-  it("includes commit link in compare URL body", async () => {
+  it("includes the full body in the compare URL with asterisks encoded", async () => {
     const dir = await createTempDir();
     await writeManifestFile(dir, validManifest());
     setupGithubMocks();
 
     const result = await publishMod({ dir, token: TOKEN });
 
-    // The body is URL-encoded inside the compare URL
     const url = new URL(result.compareUrl);
     const body = url.searchParams.get("body");
-    expect(body).toContain(`${COMMIT_SHA.slice(0, 7)}`);
-    expect(body).toContain("https://github.com/test/ebr-test-mod/commit/");
+    expect(body).toBeTruthy();
+    expect(body).toContain(COMMIT_SHA.slice(0, 7));
+    // Literal asterisks break terminal linkification, so they must be encoded.
+    expect(result.compareUrl).not.toContain("*");
+    expect(result.compareUrl).toContain("%2A");
+    expect(url.searchParams.get("title")).toBeTruthy();
   });
 
   it("throws UnpushedChangesError when working tree is dirty", async () => {
@@ -414,5 +420,137 @@ describe("publishMod", () => {
 
     const err = await publishMod({ dir, token: TOKEN }).catch((e) => e);
     expect(err).toBeInstanceOf(InsufficientScopeError);
+  });
+});
+
+// --- Automated PR creation via worker ---
+
+describe("publishMod PR worker", () => {
+  function mockWorker(response) {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+  }
+
+  it("includes commit link in the worker PR body", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    mockWorker({ ok: true, json: async () => ({ number: 42, url: "https://github.com/x/y/pull/42" }) });
+
+    await publishMod({ dir, token: TOKEN });
+
+    // The full body is sent to the worker, not stuffed into the compare URL.
+    const [, opts] = fetch.mock.calls[0];
+    const sent = JSON.parse(opts.body);
+    expect(sent.body).toContain(`${COMMIT_SHA.slice(0, 7)}`);
+    expect(sent.body).toContain("https://github.com/test/ebr-test-mod/commit/");
+  });
+
+  it("returns createdPr when the worker opens the PR", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    mockWorker({
+      ok: true,
+      json: async () => ({ number: 42, url: "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pull/42" }),
+    });
+
+    const result = await publishMod({ dir, token: TOKEN });
+
+    expect(result.createdPr).toEqual({
+      number: 42,
+      url: "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pull/42",
+    });
+    expect(result.existingPr).toBeNull();
+    // compareUrl is still provided as a fallback regardless.
+    expect(result.compareUrl).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith(
+      "https://ebr-mod-pr.ebr-mods.workers.dev/create-pr",
+      expect.objectContaining({ method: "POST" }),
+    );
+    // The POST body is the security-relevant contract with the worker.
+    const [, opts] = fetch.mock.calls[0];
+    expect(opts.headers.Authorization).toBe(`Bearer ${TOKEN}`);
+    const sent = JSON.parse(opts.body);
+    expect(sent.forkOwner).toBe("test-user");
+    expect(sent.branch).toBe("publish/test-mod");
+    expect(sent.title).toContain("New mod");
+  });
+
+  it("falls back to compareUrl when the worker is unreachable", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    // beforeEach already stubs fetch to reject.
+
+    const result = await publishMod({ dir, token: TOKEN });
+
+    expect(result.createdPr).toBeNull();
+    expect(result.compareUrl).toBeTruthy();
+  });
+
+  it("falls back to compareUrl when the worker returns non-2xx", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    mockWorker({ ok: false, json: async () => ({ error: "boom" }) });
+
+    const result = await publishMod({ dir, token: TOKEN });
+
+    expect(result.createdPr).toBeNull();
+    expect(result.compareUrl).toBeTruthy();
+  });
+
+  it("reports the worker failure reason via onProgress", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    mockWorker({ ok: false, status: 404, text: async () => "Fork branch not found", json: async () => ({}) });
+    const progress = { fn: vi.fn() };
+
+    const result = await publishMod({ dir, token: TOKEN }, { onProgress: progress.fn });
+
+    expect(result.createdPr).toBeNull();
+    const failed = progress.fn.mock.calls.find((c) => c[0].step === "create-pr-failed");
+    expect(failed).toBeTruthy();
+    expect(failed[0].message).toContain("404");
+    expect(failed[0].message).toContain("Fork branch not found");
+  });
+
+  it("falls back when the worker returns a malformed body", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    mockWorker({ ok: true, json: async () => ({ unexpected: true }) });
+
+    const result = await publishMod({ dir, token: TOKEN });
+
+    expect(result.createdPr).toBeNull();
+  });
+
+  it("skips the worker when prWorkerUrl is null", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+
+    const result = await publishMod({ dir, token: TOKEN, prWorkerUrl: null });
+
+    expect(result.createdPr).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("skips the worker when a PR already exists", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGithubMocks();
+    githubMocks.listPullRequests.mockResolvedValue([
+      { number: 7, url: "https://github.com/x/pull/7", state: "open" },
+    ]);
+    vi.stubGlobal("fetch", vi.fn());
+
+    const result = await publishMod({ dir, token: TOKEN });
+
+    expect(result.createdPr).toBeNull();
+    expect(result.existingPr).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
