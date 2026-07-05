@@ -15,7 +15,7 @@ Requires: **Node.js** (LTS), **git**, **GitHub account** (for publishing).
 
 ## How it works
 
-Under the hood, mods are just git **branches** off of the `ebr-mod-base-content` repository. Each mod creator forks `ebr-mod-base-content` once - this is their **mod workspace**. A fork of `ebr-mod-registry` is used for publishing. One fine-grained PAT scoped to both forks covers all current and future mods.
+Under the hood, mods are just git **branches** off of the `ebr-mod-base-content` repository. Each mod creator forks `ebr-mod-base-content` once - this is their **mod workspace**. A fork of `ebr-mod-registry` is used for publishing. The tool uses your existing git credentials on your machine for all content operations.
 
 Mods are published with a manifest file which describes which commit the mod manager should download, along with all the other metadata needed to show the mod details.
 
@@ -23,7 +23,7 @@ Mods are published with a manifest file which describes which commit the mod man
 
 | Command | Description |
 |---|---|
-| `ebr setup` | Set up GitHub forks and fine-grained PAT for publishing |
+| `ebr setup` | Verify your git credentials and set up your creator forks |
 | `ebr new` | Create a new mod as a branch in your fork of `ebr-mod-base-content` |
 | `ebr save` | Bump version, stage allowed files, commit, and push. Auto-sets upstream tracking branch on first push. |
 | `ebr publish` | Validate manifest, check mod ID ownership against the registry, and open a PR. |
@@ -47,7 +47,7 @@ src/
     git.js          # Git operations wrapper (simple-git)
     github.js       # GitHub API wrapper (@octokit/rest)
     manifest.js     # Read/write/validate ebr-mod.json
-    config.js       # Token, fork URL, and author defaults storage (~/.ebr/)
+    config.js       # Fork URLs and author defaults storage (~/.ebr/)
     catalogs.js     # Official campaign and product catalogs
     registry.js     # Registry entry building and validation
     errors.js       # Typed error classes
@@ -90,7 +90,7 @@ src/
    - `winget install Git.Git`
    - After install, restart your terminal and verify: `git --version`
 
-3. **GitHub account** - required for `ebr publish` (token-based auth, guided on first run)
+3. **GitHub account** - required for `ebr publish`
 
 ### Build & Run
 

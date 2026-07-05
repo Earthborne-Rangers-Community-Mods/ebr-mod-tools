@@ -11,31 +11,27 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { listFilesRecursive, sanitizePathSegment, realPathSafe, realPathOfDestination, isPathInside } from "./filesystem.js";
 import { readManifest, writeManifest, validateManifest, formatValidationErrors, updateManifest, compareVersions } from "./manifest.js";
-import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase } from "./git.js";
-import {
-  getFileContent,
-  createOrUpdateFileContent,
-  createBranch,
-  updateBranchRef,
-  getRefSha,
-  listPullRequests,
-  getAuthenticatedUser,
-  syncFork,
-  normalizeGithubUrl,
-} from "./github.js";
-import { ManifestError, GithubError, GithubFileNotFoundError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, InsufficientScopeError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";
+import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase } from "./git.js";
+import { getAuthenticatedUser, forkRepo, normalizeGithubUrl, borrowCredentialToken } from "./github.js";
+import { ManifestError, GithubError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry, fetchRegistry } from "./registry.js";
 import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
+import { CONFIG_DIR } from "./config.js";
 
 // --- Constants ---
 
 const BASE_REPO_URL = "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-base-content.git";
 const DEFAULT_REGISTRY_OWNER = "Earthborne-Rangers-Community-Mods";
 const DEFAULT_REGISTRY_REPO = "ebr-mod-registry";
-const REGISTRY_FILE = "registry.json";
 const MODS_DIR = "mods";
 const REGISTRY_BASE_BRANCH = "main";
 const DEFAULT_PR_WORKER_URL = "https://ebr-mod-pr.ebr-mods.workers.dev/create-pr";
+/** Upstream registry clone URL (git remote target for the tokenless publish). */
+const REGISTRY_UPSTREAM_URL = `https://github.com/${DEFAULT_REGISTRY_OWNER}/${DEFAULT_REGISTRY_REPO}.git`;
+/** Default local working clone of the user's registry fork. */
+const DEFAULT_REGISTRY_CLONE_DIR = join(CONFIG_DIR, "registry-clone");
+/** Anonymous CDN base for reading a single mod entry from the upstream registry. */
+const RAW_CONTENT_BASE = "https://raw.githubusercontent.com";
 
 /**
  * Derive the git branch name for a mod from its ID.
@@ -279,26 +275,35 @@ function buildCompareUrl({ registryOwner, registryRepo, base, head, title, body 
 /**
  * Ask the GitHub App worker to open the registry PR on the user's behalf.
  *
- * Returns the created PR on success, or null on any failure (worker down,
- * non-2xx, malformed response, fetch threw). Returning null lets the caller
- * fall back to the browser compare-URL flow so `ebr publish` always works.
+ * The request is tokenless: it carries only the fork owner and branch. The
+ * worker verifies the fork branch exists (a public, readable head) and opens
+ * the cross-fork PR with its own installation token.
+ *
+ * Returns:
+ * - `{ number, url }` on success (HTTP 201).
+ * - `{ alreadyExists: true }` when a PR is already open for this branch (409).
+ * - `null` on any other failure (worker down, non-2xx, malformed response),
+ *   so the caller can fall back to the browser compare-URL flow.
  *
  * @param {object} options
  * @param {string} options.workerUrl - POST /create-pr endpoint.
- * @param {string} options.token - Caller's GitHub token (worker verifies it owns the fork).
  * @param {string} options.forkOwner
  * @param {string} options.branch
  * @param {string} options.title
  * @param {string} options.body
- * @returns {Promise<{number: number, url: string}|null>}
+ * @param {typeof fetch} [options.fetchImpl]
+ * @returns {Promise<{number: number, url: string}|{alreadyExists: true}|null>}
  */
-async function requestPrViaWorker({ workerUrl, token, forkOwner, branch, title, body }, onProgress) {
+async function requestPrViaWorker({ workerUrl, forkOwner, branch, title, body, fetchImpl = fetch }, onProgress) {
   try {
-    const res = await fetch(workerUrl, {
+    const res = await fetchImpl(workerUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ forkOwner, branch, title, body }),
     });
+    if (res.status === 409) {
+      return { alreadyExists: true };
+    }
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       onProgress?.({ step: "create-pr-failed", message: `Auto-PR failed (HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ""}); falling back to compare URL.` });
@@ -317,40 +322,199 @@ async function requestPrViaWorker({ workerUrl, token, forkOwner, branch, title, 
 }
 
 /**
+ * Derive the fork owner (GitHub login) from a registry fork URL.
+ * @param {string} forkUrl - e.g. "https://github.com/user/ebr-mod-registry"
+ * @returns {string|null}
+ */
+export function forkOwnerFromUrl(forkUrl) {
+  const normalized = normalizeGithubUrl(forkUrl);
+  if (!normalized) return null;
+  const match = normalized.match(/^https:\/\/github\.com\/([^/]+)\//);
+  return match ? match[1] : null;
+}
+
+/**
+ * Read a single mod's published registry entry over anonymous HTTPS.
+ *
+ * Mirrors the app's CDN read path (`raw.githubusercontent.com`). Used by the
+ * publish ownership preflight so it needs no token. Returns the parsed entry,
+ * or `null` when the file does not exist yet (a new submission).
+ *
+ * @param {object} options
+ * @param {string} options.registryOwner
+ * @param {string} options.registryRepo
+ * @param {string} options.modId
+ * @param {typeof fetch} [options.fetchImpl]
+ * @returns {Promise<object|null>}
+ * @throws {GithubError} On a non-404 HTTP failure or invalid JSON.
+ */
+async function fetchPublishedModEntry({ registryOwner, registryRepo, modId, fetchImpl = fetch }) {
+  const url = `${RAW_CONTENT_BASE}/${registryOwner}/${registryRepo}/${REGISTRY_BASE_BRANCH}/${MODS_DIR}/${modId}.json`;
+  let res;
+  try {
+    res = await fetchImpl(url);
+  } catch (err) {
+    throw new GithubError("publish", `Could not reach the registry: ${err.message}`);
+  }
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new GithubError("publish", `Registry read failed with status ${res.status}.`, res.status);
+  }
+  try {
+    return await res.json();
+  } catch {
+    throw new GithubError("publish", "Existing registry entry is not valid JSON.");
+  }
+}
+
+/**
+ * Discard whatever is at `cloneDir` and clone the fork fresh.
+ * @param {string} cloneDir
+ * @param {string} forkCloneUrl
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ */
+async function discardAndClone(cloneDir, forkCloneUrl, { onProgress } = {}) {
+  onProgress?.({ step: "clone", message: "Cloning your copy of the mod registry..." });
+  await rm(cloneDir, { recursive: true, force: true });
+  await mkdir(dirname(cloneDir), { recursive: true });
+  await cloneRepo(forkCloneUrl, cloneDir, { onProgress });
+}
+
+/**
+ * Bring an existing clone to a clean `publish/<id>` branch based on the
+ * freshly-fetched upstream tip: point `origin` at the fork, ensure the
+ * `upstream` remote, fetch it, scrub the working tree, and check out the
+ * publish branch. Throws if the clone is not healthy enough to do this - the
+ * caller uses that as the signal to discard and re-clone.
+ * @param {string} cloneDir
+ * @param {string} forkCloneUrl
+ * @param {string} branchName
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ */
+async function prepareCloneForPublish(cloneDir, forkCloneUrl, branchName, { onProgress } = {}) {
+  await setRemoteUrl(cloneDir, "origin", forkCloneUrl);
+
+  // Point the upstream remote at the canonical registry and fetch it, so the
+  // publish branch is based on the latest reviewed main - not the fork's
+  // possibly-stale default branch.
+  if (await hasRemote(cloneDir, "upstream")) {
+    await setRemoteUrl(cloneDir, "upstream", REGISTRY_UPSTREAM_URL);
+  } else {
+    await addRemote(cloneDir, "upstream", REGISTRY_UPSTREAM_URL);
+  }
+  onProgress?.({ step: "sync-fork", message: "Fetching upstream registry..." });
+  await fetchRemote(cloneDir, "upstream");
+
+  // Return the working tree to a pristine state before switching branches. The
+  // clone is persistent and reused across publishes, so stale staged edits or
+  // leftover untracked files from an aborted run must not leak into this commit
+  // (and would otherwise make `checkout -B` fail nondeterministically).
+  await resetHardAndClean(cloneDir);
+
+  onProgress?.({ step: "branch", message: "Creating publish branch..." });
+  await checkoutResetBranch(cloneDir, branchName, `upstream/${REGISTRY_BASE_BRANCH}`);
+}
+
+/**
+ * Write a single mod entry into the user's registry fork via git and push it.
+ *
+ * The `cloneDir` is treated as a disposable cache: a healthy existing clone is
+ * reused, but if it is missing, not a repo, or fails to prepare for any reason
+ * (a partial clone from an interrupted publish, a wrong or corrupt origin), it
+ * is discarded and re-cloned once. Once a clean `publish/<id>` branch is checked
+ * out from the freshly-fetched upstream tip, writes `mods/<id>.json`, commits,
+ * and force-pushes the branch to `origin` (the fork) using the user's local git
+ * credentials.
+ *
+ * @param {object} params
+ * @param {string} params.cloneDir - Local working clone directory.
+ * @param {string} params.registryForkUrl - HTTPS URL of the user's registry fork.
+ * @param {string} params.branchName - Publish branch (e.g. "publish/my-mod").
+ * @param {string} params.modId
+ * @param {string} params.entryJson - Serialized registry entry (with trailing newline).
+ * @param {string} params.message - Commit message.
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ */
+async function writeRegistryEntry(
+  { cloneDir, registryForkUrl, branchName, modId, entryJson, message },
+  { onProgress } = {},
+) {
+  const forkCloneUrl = registryForkUrl.endsWith(".git") ? registryForkUrl : `${registryForkUrl}.git`;
+
+  const reusable = await isRepo(cloneDir).catch(() => false);
+  if (reusable) {
+    try {
+      onProgress?.({ step: "clone", message: "Refreshing your copy of the mod registry..." });
+      await prepareCloneForPublish(cloneDir, forkCloneUrl, branchName, { onProgress });
+    } catch (reuseErr) {
+      // The cached clone is unusable (partial, corrupt, or wrong origin).
+      // Discard it and clone fresh - once. A second failure propagates, with
+      // the original reuse failure preserved as `cause` for diagnosis.
+      onProgress?.({ step: "clone", message: "Your copy of the mod registry is unusable; re-creating it..." });
+      try {
+        await discardAndClone(cloneDir, forkCloneUrl, { onProgress });
+        await prepareCloneForPublish(cloneDir, forkCloneUrl, branchName, { onProgress });
+      } catch (reclErr) {
+        if (reclErr && reclErr.cause === undefined) reclErr.cause = reuseErr;
+        throw reclErr;
+      }
+    }
+  } else {
+    await discardAndClone(cloneDir, forkCloneUrl, { onProgress });
+    await prepareCloneForPublish(cloneDir, forkCloneUrl, branchName, { onProgress });
+  }
+
+  onProgress?.({ step: "write", message: "Writing mod entry..." });
+  const modsDir = join(cloneDir, MODS_DIR);
+  await mkdir(modsDir, { recursive: true });
+  await writeFile(join(modsDir, `${modId}.json`), entryJson, "utf-8");
+  await stageFile(cloneDir, `${MODS_DIR}/${modId}.json`);
+  await commit(cloneDir, message);
+
+  onProgress?.({ step: "push", message: "Pushing to your fork..." });
+  await push(cloneDir, { remote: "origin", branch: branchName, force: true });
+}
+
+/**
  * Publish or update a mod in the registry.
  *
  * 1. Read and validate ebr-mod.json.
- * 2. Check for uncommitted/unpushed changes.
- * 3. Capture the current git HEAD commit hash.
- * 4. Verify authentication and get username.
- * 5. Read registry.json for includedMods validation.
- * 6. Check includedMods against the registry (warn for delisted mods).
- * 7. Check if mod file already exists (determines new vs update).
- * 8. **Mod ID ownership check:** If the mod file exists and belongs to a
- *    different author/repoUrl, abort with ModIdConflictError. If it belongs to
- *    the same author, abort with VersionNotHigherError unless the manifest
- *    version is strictly higher than the published version.
- * 9. Build the registry entry.
- * 10. Sync fork with upstream.
- * 11. Create a branch in the fork from upstream's latest main.
- * 12. Write the mod file (`mods/<mod-id>.json`) to the branch.
- * 13. Check for an existing PR; if none, ask the GitHub App worker to open one,
+ * 2. Derive the fork owner from the registry fork URL.
+ * 3. Check for uncommitted/unpushed changes on the mod repo.
+ * 4. Capture the current git HEAD commit hash.
+ * 5. Ownership + version preflight: read the published `mods/<id>.json` entry
+ *    over anonymous HTTPS. Abort on a foreign author/repoUrl (ModIdConflictError)
+ *    or a non-higher version (VersionNotHigherError).
+ * 6. Read the browse-tier registry.json anonymously and warn for delisted
+ *    includedMods.
+ * 7. Build the registry entry.
+ * 8. Write `mods/<id>.json` into a local clone of the registry fork on a
+ *    `publish/<id>` branch (based on freshly-fetched upstream/main) and push it
+ *    with the user's local git credentials.
+ * 9. Create a convenience tag on the local mod repo.
+ * 10. Ask the GitHub App worker to open the PR with a tokenless payload,
  *     falling back to a compare URL when the worker is unreachable.
  *
  * The registry fork is assumed to already exist (set up during `ebr setup`).
  *
  * @param {object} options
  * @param {string} options.dir - Mod directory containing ebr-mod.json.
- * @param {string} options.token - GitHub personal access token.
+ * @param {string} options.registryForkUrl - HTTPS URL of the user's ebr-mod-registry fork.
+ * @param {boolean} [options.force] - Skip the unpushed-changes check.
  * @param {string} [options.registryOwner] - Upstream registry repo owner.
  * @param {string} [options.registryRepo] - Upstream registry repo name.
+ * @param {string} [options.cloneDir] - Local working clone of the registry fork.
  * @param {string|null} [options.prWorkerUrl] - GitHub App PR worker endpoint. Pass null to skip the worker and always use the compare URL.
+ * @param {typeof fetch} [options.fetchImpl] - Injected fetch (tests).
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress] - Progress callback ({ step, message }).
- * @returns {Promise<{existingPr: {number, url}|null, createdPr: {number, url}|null, compareUrl: string, entry: object, commitHash: string, isUpdate: boolean, includedModWarnings: Array}>}
+ * @returns {Promise<{createdPr: {number, url}|null, prAlreadyExists: boolean, compareUrl: string, entry: object, commitHash: string, isUpdate: boolean, includedModWarnings: Array}>}
  */
 export async function publishMod(
-  { dir, token, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO, prWorkerUrl = DEFAULT_PR_WORKER_URL },
+  { dir, registryForkUrl, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO, cloneDir = DEFAULT_REGISTRY_CLONE_DIR, prWorkerUrl = DEFAULT_PR_WORKER_URL, fetchImpl = fetch },
   { onProgress } = {},
 ) {
   // 1. Read and validate manifest
@@ -373,7 +537,16 @@ export async function publishMod(
     );
   }
 
-  // 2. Check for uncommitted or unpushed changes
+  // 2. Derive the fork owner from the stored registry fork URL.
+  const forkOwner = forkOwnerFromUrl(registryForkUrl);
+  if (!forkOwner) {
+    throw new GithubError(
+      "publish",
+      "No registry fork URL is configured. Run `ebr setup` first.",
+    );
+  }
+
+  // 3. Check for uncommitted or unpushed changes on the mod repo
   if (!force) {
     onProgress?.({ step: "check", message: "Checking for unpushed changes..." });
     const status = await getStatus(dir);
@@ -387,67 +560,23 @@ export async function publishMod(
     }
   }
 
-  // 3. Get HEAD commit hash
+  // 4. Get HEAD commit hash
   onProgress?.({ step: "commit", message: "Getting current commit hash..." });
   const commitHash = await getHeadCommit(dir);
 
-  // 4. Verify authentication and get username (needed for cross-repo PR head ref)
-  onProgress?.({ step: "auth", message: "Verifying authentication..." });
-  const user = await getAuthenticatedUser(token);
-  const forkOwner = user.login;
-
-  // 5. Get upstream main SHA and read registry.json (for includedMods validation)
+  // 5. Ownership + version preflight - read the published entry anonymously.
   onProgress?.({ step: "sync", message: "Reading current registry..." });
-  const upstreamSha = await getRefSha(token, {
-    owner: registryOwner, repo: registryRepo, ref: REGISTRY_BASE_BRANCH,
+  const existingEntry = await fetchPublishedModEntry({
+    registryOwner, registryRepo, modId: manifest.id, fetchImpl,
   });
+  const isUpdate = existingEntry !== null;
 
-  const { content: registryRaw } = await getFileContent(token, {
-    owner: registryOwner, repo: registryRepo, path: REGISTRY_FILE,
-  });
-
-  let registry;
-  try {
-    registry = JSON.parse(registryRaw);
-  } catch {
-    throw new GithubError("publish", "Registry contains invalid JSON.");
-  }
-
-  // 6. Check includedMods against registry
-  const includedModWarnings = checkIncludedMods(manifest.includedMods, registry);
-
-  // 7. Check if mod file already exists (determines new vs update)
-  const modFilePath = `${MODS_DIR}/${manifest.id}.json`;
-  let existingFileSha = null;
-  let isUpdate = false;
-  let existingEntry = null;
-
-  try {
-    const { content: existingContent, sha } = await getFileContent(token, {
-      owner: registryOwner, repo: registryRepo, path: modFilePath,
-    });
-    existingFileSha = sha;
-    isUpdate = true;
-    try {
-      existingEntry = JSON.parse(existingContent);
-    } catch {
-      // Existing file has invalid JSON - treat as new (overwrite)
-    }
-  } catch (err) {
-    // 404 means the file doesn't exist yet - this is a new mod submission.
-    if (!(err instanceof GithubFileNotFoundError)) {
-      throw err;
-    }
-  }
-
-  // 8. Mod ID ownership check - abort if the ID is claimed by a different author
   if (existingEntry) {
     const sameAuthor = existingEntry.author === manifest.author;
     const sameRepo = existingEntry.repoUrl === manifest.repoUrl;
     if (!sameAuthor || !sameRepo) {
       throw new ModIdConflictError(manifest.id, existingEntry.author, existingEntry.repoUrl);
     }
-
     // Version gate - the new version must be strictly higher than the one
     // already published. compareVersions returns null when either value is
     // unparseable; treat that as "cannot compare" and skip rather than block.
@@ -459,90 +588,40 @@ export async function publishMod(
     }
   }
 
-  // 9. Build entry
+  // 6. Check includedMods against the browse-tier registry (anonymous).
+  let includedModWarnings = [];
+  if (manifest.includedMods?.length) {
+    try {
+      const registry = await fetchRegistry({ fetchImpl });
+      includedModWarnings = checkIncludedMods(manifest.includedMods, registry);
+    } catch {
+      // A registry read failure here is non-fatal: it only downgrades the
+      // delisted-mod warning. The publish itself proceeds.
+    }
+  }
+
+  // 7. Build entry
   onProgress?.({ step: "build", message: "Building registry entry..." });
   const entry = buildRegistryEntry(manifest, commitHash);
   const entryJson = JSON.stringify(entry, null, 2) + "\n";
 
-  // 10. Sync fork with upstream so the SHA exists in the fork
-  onProgress?.({ step: "sync-fork", message: "Syncing fork with upstream..." });
-  try {
-    await syncFork(token, { owner: forkOwner, repo: registryRepo, branch: REGISTRY_BASE_BRANCH });
-  } catch (err) {
-    // 422 "without `workflow` scope" = PAT lacks Workflows permission (upstream
-    // has a .github/workflows/ file). The same permission block applies to all write paths.
-    if (err instanceof GithubError && err.httpStatus === 422 &&
-        /without `workflow` scope/i.test(err.message)) {
-      throw new InsufficientScopeError("syncFork");
-    }
-    // 409 = merge conflict, 422 = fork diverged (other reasons).
-    // Force-reset the fork's default branch to upstream.
-    if (err instanceof GithubError && (err.httpStatus === 409 || err.httpStatus === 422)) {
-      await updateBranchRef(token, {
-        owner: forkOwner, repo: registryRepo,
-        branch: REGISTRY_BASE_BRANCH, sha: upstreamSha,
-      });
-    } else {
-      throw err;
-    }
-  }
-
-  // 11. Create branch in fork from upstream's main
-  onProgress?.({ step: "branch", message: "Creating publish branch..." });
+  // 8. Write the entry into a local clone of the fork and push it.
   const branchName = `publish/${manifest.id}`;
-
-  try {
-    await createBranch(token, {
-      owner: forkOwner, repo: registryRepo,
-      branch: branchName, sha: upstreamSha,
-    });
-  } catch (err) {
-    // Branch exists from a previous publish attempt - force-update to latest upstream
-    if (err instanceof GithubError && err.message.includes("already exists")) {
-      await updateBranchRef(token, {
-        owner: forkOwner, repo: registryRepo,
-        branch: branchName, sha: upstreamSha,
-      });
-    } else {
-      throw err;
-    }
-  }
-
-  // 12. Write mod file to the branch
-  onProgress?.({ step: "write", message: "Writing mod entry..." });
-  await createOrUpdateFileContent(token, {
-    owner: forkOwner, repo: registryRepo, path: modFilePath,
-    content: entryJson,
+  await writeRegistryEntry({
+    cloneDir, registryForkUrl, branchName, modId: manifest.id, entryJson,
     message: isUpdate
       ? `Update ${manifest.name} to v${manifest.version}`
       : `Add ${manifest.name} v${manifest.version}`,
-    ...(existingFileSha && { sha: existingFileSha }),
-    branch: branchName,
-  });
+  }, { onProgress });
 
-  // 13. Convenience tag on the local mod repo
+  // 9. Convenience tag on the local mod repo
   try {
     await createTag(dir, `v${manifest.version}`);
   } catch {
     onProgress?.({ step: "tag-warning", message: `Could not create tag v${manifest.version} (it may already exist).` });
   }
 
-  // 14. Check for existing PR or build compare URL for the user to open
-  onProgress?.({ step: "pr", message: "Checking for existing pull request..." });
-  const head = `${forkOwner}:${branchName}`;
-
-  let existingPr = null;
-  try {
-    const existingPRs = await listPullRequests(token, {
-      owner: registryOwner, repo: registryRepo, head, state: "open",
-    });
-    if (existingPRs.length > 0) {
-      existingPr = existingPRs[0];
-    }
-  } catch {
-    // Listing PRs on upstream may fail with fine-grained PATs - not critical
-  }
-
+  // 10. Build the compare URL and ask the worker to open the PR (tokenless).
   const prTitle = isUpdate
     ? `Update: ${manifest.name} v${manifest.version}`
     : `New mod: ${manifest.name} v${manifest.version}`;
@@ -554,19 +633,120 @@ export async function publishMod(
     title: prTitle, body: prBody,
   });
 
-  // 15. Try the GitHub App worker to open the PR automatically. Skip if a PR
-  // already exists or no worker is configured.
   let createdPr = null;
-  if (!existingPr && prWorkerUrl) {
+  let prAlreadyExists = false;
+  if (prWorkerUrl) {
     onProgress?.({ step: "create-pr", message: "Opening pull request..." });
-    createdPr = await requestPrViaWorker({
-      workerUrl: prWorkerUrl, token, forkOwner, branch: branchName,
-      title: prTitle, body: prBody,
+    const workerResult = await requestPrViaWorker({
+      workerUrl: prWorkerUrl, forkOwner, branch: branchName,
+      title: prTitle, body: prBody, fetchImpl,
     }, onProgress);
+    if (workerResult?.url) {
+      createdPr = workerResult;
+    } else if (workerResult?.alreadyExists) {
+      prAlreadyExists = true;
+    }
   }
 
-  return { existingPr, createdPr, compareUrl, entry, commitHash, isUpdate, includedModWarnings };
+  return { createdPr, prAlreadyExists, compareUrl, entry, commitHash, isUpdate, includedModWarnings };
 }
+
+// --- setup / credential workflows ---
+
+/**
+ * Build the HTTPS URL of a user's fork of an org repo.
+ * @param {string} login - GitHub login.
+ * @param {string} repo - Repo name.
+ * @returns {string}
+ */
+export function forkUrlFor(login, repo) {
+  return `https://github.com/${login}/${repo}`;
+}
+
+/**
+ * Resolve the GitHub login that the user's git credential authenticates as -
+ * the account `git push` (and therefore `ebr publish`) will act under, and so
+ * the account the user's forks must live under.
+ *
+ * Borrows the GCM-cached token in memory for a single `GET /user` and drops it.
+ * Returns `null` when no HTTPS credential is available (SSH-only users, or a
+ * store that returns nothing), so the caller can prompt for the username.
+ *
+ * By default this is a passive probe - it never prompts, returning null when no
+ * credential is cached. Pass `interactive: true` (first-time `ebr setup`) to let
+ * the credential helper prompt for a sign-in when nothing is cached yet.
+ *
+ * @param {object} [options]
+ * @param {function} [options.runImpl] - Injected command runner (tests).
+ * @param {boolean} [options.interactive] - When true, allow the helper to prompt for a sign-in.
+ * @param {(token: string) => Promise<{login: string}>} [options.getUserImpl]
+ * @param {(opts?: object) => Promise<string|null>} [options.borrowTokenImpl]
+ * @returns {Promise<string|null>}
+ */
+export async function resolveCredentialLogin({ runImpl, interactive = false, getUserImpl = getAuthenticatedUser, borrowTokenImpl = borrowCredentialToken } = {}) {
+  const token = await borrowTokenImpl({ runImpl, interactive });
+  if (!token) return null;
+  try {
+    const user = await getUserImpl(token);
+    return user?.login ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ensure a fork of `owner/repo` exists for `login`, creating it if needed.
+ *
+ * An existing fork short-circuits. Otherwise borrow the GCM token in memory for
+ * a single `POST /forks` call: the git credential is what `ebr publish` pushes
+ * with, so a fork it creates is guaranteed to be the one the user can push to.
+ * When no HTTPS credential is available, report that the browser fallback is
+ * required.
+ *
+ * @param {object} params
+ * @param {string} params.owner - Upstream repo owner.
+ * @param {string} params.repo - Upstream repo name.
+ * @param {string} params.login - The user's GitHub login.
+ * @param {object} [params.deps] - Injected implementations (tests).
+ * @param {object} [callbacks]
+ * @param {function} [callbacks.onProgress]
+ * @returns {Promise<{forkUrl: string, status: "exists"|"created"|"manual"}>}
+ */
+export async function ensureFork(
+  { owner, repo, login, deps = {} },
+  { onProgress } = {},
+) {
+  const {
+    runImpl,
+    remoteExistsImpl = remoteExists,
+    borrowTokenImpl = borrowCredentialToken,
+    forkRepoImpl = forkRepo,
+  } = deps;
+
+  const forkUrl = forkUrlFor(login, repo);
+
+  onProgress?.({ step: "check-fork", message: `Checking for ${login}/${repo}...` });
+  if (await remoteExistsImpl(forkUrl)) {
+    return { forkUrl, status: "exists" };
+  }
+
+  // Borrow the git credential's token in memory for a single fork request. The
+  // credential is what `git push` (and so `ebr publish`) uses, so a fork it
+  // creates is guaranteed to be the one the user can push to.
+  const token = await borrowTokenImpl({ runImpl });
+  if (token) {
+    onProgress?.({ step: "fork-api", message: `Creating fork of ${owner}/${repo}...` });
+    try {
+      await forkRepoImpl(token, { owner, repo });
+      return { forkUrl, status: "created" };
+    } catch {
+      // Borrowed token could not create the fork - fall through to the browser.
+    }
+  }
+
+  return { forkUrl, status: "manual" };
+}
+
 
 // --- Base-content update workflows ---
 

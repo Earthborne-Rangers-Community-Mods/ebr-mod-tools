@@ -1,5 +1,5 @@
 /**
- * User configuration and token storage (~/.ebr/).
+ * User configuration storage (~/.ebr/).
  * Shared by CLI and Creator GUI.
  *
  * All functions accept an optional `{ configDir }` parameter
@@ -63,48 +63,6 @@ export async function setConfig(key, value, { configDir = CONFIG_DIR } = {}) {
   }
   await writeConfigFile(configDir, config);
 }
-
-/**
- * Get the stored GitHub personal access token.
- * @param {{ configDir?: string }} [options]
- * @returns {Promise<string|null>} The token, or `null` if not stored.
- */
-export async function getGithubToken({ configDir = CONFIG_DIR } = {}) {
-  const config = await getConfig({ configDir });
-  return config.githubToken ?? null;
-}
-
-/**
- * Store a GitHub personal access token.
- * @param {string} token
- * @param {{ configDir?: string }} [options]
- * @returns {Promise<void>}
- * @throws {ConfigError} If token is not a non-empty string.
- */
-export async function setGithubToken(token, { configDir = CONFIG_DIR } = {}) {
-  if (typeof token !== "string" || token === "") {
-    throw new ConfigError(
-      "setGithubToken",
-      "Token must be a non-empty string.",
-    );
-  }
-  await setConfig("githubToken", token, { configDir });
-}
-
-/**
- * Remove the stored GitHub token.
- * No-op if no token is stored or config does not exist.
- * @param {{ configDir?: string }} [options]
- * @returns {Promise<void>}
- */
-export async function clearGithubToken({ configDir = CONFIG_DIR } = {}) {
-  const config = await getConfig({ configDir });
-  if (!("githubToken" in config)) return;
-  delete config.githubToken;
-  await writeConfigFile(configDir, config);
-}
-
-// --- Fork URL storage ---
 
 /**
  * Get the stored fork URLs (base-content and registry).

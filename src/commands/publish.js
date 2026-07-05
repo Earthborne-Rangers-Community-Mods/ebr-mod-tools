@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import { confirm, select } from "@inquirer/prompts";
 import open from "open";
-import { getGithubToken } from "../core/config.js";
+import { getForkUrls } from "../core/config.js";
 import { publishMod } from "../core/workflows.js";
 import { readManifest, writeManifest, validateManifest, formatValidationError, applyMissingProductFix, VALIDATION_CODES } from "../core/manifest.js";
 import { OFFICIAL_PRODUCTS } from "../core/catalogs.js";
 import { renderCliError } from "./render-error.js";
-import { GithubError, AuthenticationError, InsufficientScopeError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "../core/errors.js";
+import { GithubError, GitError, GitAuthenticationError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "../core/errors.js";
 
 export const publishCommand = new Command("publish")
   .description("Submit or update the mod in the registry via GitHub PR")
@@ -17,10 +17,9 @@ async function publishAction(opts) {
     const dir = process.cwd();
 
     try {
-      // Check for stored token
-      const token = await getGithubToken();
-      if (!token) {
-        console.error("No GitHub token found. Run `ebr setup` first.");
+      const forks = await getForkUrls();
+      if (!forks.registry) {
+        console.error("Your copy of the mod registry isn't set up yet. Run `ebr setup` first.");
         process.exitCode = 1;
         return;
       }
@@ -40,7 +39,7 @@ async function publishAction(opts) {
       }
 
       const result = await publishMod(
-        { dir, token, force: opts.force },
+        { dir, registryForkUrl: forks.registry, force: opts.force },
         {
           onProgress: (p) =>
             p.step === "create-pr-failed"
@@ -58,14 +57,16 @@ async function publishAction(opts) {
       }
 
       // Report result
-      if (result.existingPr) {
-        console.log(`\nExisting PR updated: ${result.existingPr.url}`);
-        console.log("The branch has been refreshed with your latest changes.");
-      } else if (result.createdPr) {
+      if (result.createdPr) {
         console.log(`\nPull request opened: ${result.createdPr.url}`);
       } else {
-        console.log("\nWe'll open GitHub so you can create a pull request.");
-        console.log("Click \"Create pull request\" on the page that opens.");
+        if (result.prAlreadyExists) {
+          console.log("\nA pull request is already open for this mod.");
+          console.log("Your fork branch has been updated with the latest changes.");
+        } else {
+          console.log("\nWe'll open GitHub so you can create a pull request.");
+          console.log("Click \"Create pull request\" on the page that opens.");
+        }
         console.log(`\n  ${result.compareUrl}\n`);
         const openPr = await confirm({ message: "Ready to open the compare page?" });
         if (openPr) {
@@ -84,21 +85,6 @@ async function publishAction(opts) {
       console.log(`\nCommit: ${result.commitHash.slice(0, 7)}`);
       console.log("A registry maintainer will review and merge your PR.");
     } catch (err) {
-      if (err instanceof AuthenticationError) {
-        console.error("GitHub authentication failed. Run `ebr setup` to update your token.");
-        process.exitCode = 1;
-        return;
-      }
-      if (err instanceof InsufficientScopeError) {
-        console.error("Your GitHub token is missing one or more required permissions.");
-        console.error("Publishing requires all of the following (Read and write):");
-        console.error("  - Contents");
-        console.error("  - Pull requests");
-        console.error("  - Workflows  (because the registry contains a GitHub Actions workflow file)");
-        console.error("Run `ebr setup --token` to create a new token with the correct settings.");
-        process.exitCode = 1;
-        return;
-      }
       if (err instanceof ModIdConflictError) {
         console.error(`\nMod ID conflict: ${err.message}`);
         process.exitCode = 1;
@@ -126,6 +112,19 @@ async function publishAction(opts) {
           return publishAction({ ...opts, force: true });
         }
 
+        process.exitCode = 1;
+        return;
+      }
+      if (err instanceof GitAuthenticationError) {
+        console.error("\nGitHub authentication failed while pushing to your copy of the mod registry.");
+        console.error("Your saved git credentials are missing or expired - make sure `git push` works for your fork.");
+        console.error("Run `ebr setup --status` to check your setup.");
+        process.exitCode = 1;
+        return;
+      }
+      if (err instanceof GitError) {
+        console.error(`\nGit error while publishing: ${err.message}`);
+        console.error("Run `ebr setup --status` to check your setup.");
         process.exitCode = 1;
         return;
       }

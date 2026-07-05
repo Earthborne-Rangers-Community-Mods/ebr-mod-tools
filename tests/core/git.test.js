@@ -20,6 +20,8 @@ import {
   getStatus,
   fetchRemote,
   getRemoteUrl,
+  remoteExists,
+  isGitAuthError,
 } from "../../src/core/git.js";
 import {
   GitError,
@@ -457,5 +459,60 @@ describe("getRemoteUrl", () => {
   it("returns null for a remote that does not exist", async () => {
     const url = await getRemoteUrl(tmpDir, "nonexistent");
     expect(url).toBeNull();
+  });
+});
+
+// --- remoteExists ---
+
+describe("remoteExists", () => {
+  let tmpDir;
+  beforeEach(async () => { tmpDir = await createTempDir(); });
+  afterEach(async () => { await rm(tmpDir, { recursive: true, force: true }); });
+
+  it("returns true for a reachable repo (local path acts as a remote)", async () => {
+    await initTestRepo(tmpDir);
+    await commitFile(tmpDir, "test.txt", "hello", "initial commit");
+    expect(await remoteExists(tmpDir)).toBe(true);
+  });
+
+  it("returns true for a reachable bare repo", async () => {
+    const bare = await createBareRemote();
+    try {
+      expect(await remoteExists(bare)).toBe(true);
+    } finally {
+      await rm(bare, { recursive: true, force: true });
+    }
+  });
+
+  it("returns false for an unreachable / nonexistent remote", async () => {
+    expect(await remoteExists(join(tmpDir, "does-not-exist"))).toBe(false);
+  });
+});
+
+// --- isGitAuthError ---
+
+describe("isGitAuthError", () => {
+  it.each([
+    "fatal: Authentication failed for 'https://github.com/user/repo.git/'",
+    "remote: Invalid username or password.",
+    "remote: Support for password authentication was removed on August 13, 2021.",
+    "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+    "git@github.com: Permission denied (publickey).",
+    "remote: Permission to user/repo.git denied to someone.",
+    "fatal: unable to access 'https://github.com/...': The requested URL returned error: 403",
+    "error: The requested URL returned error: 401",
+  ])("recognizes an auth failure: %s", (msg) => {
+    expect(isGitAuthError(msg)).toBe(true);
+  });
+
+  it.each([
+    "nothing to commit, working tree clean",
+    "CONFLICT (content): Merge conflict in file.md",
+    "fatal: not a git repository",
+    "fatal: couldn't find remote ref main",
+    "",
+    undefined,
+  ])("does not misclassify a non-auth message: %s", (msg) => {
+    expect(isGitAuthError(msg)).toBe(false);
   });
 });

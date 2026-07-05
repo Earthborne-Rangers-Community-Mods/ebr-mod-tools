@@ -7,10 +7,9 @@ import { isRepo, getRemotes } from "../core/git.js";
 import { buildManifest, toId, deriveOptionalProducts } from "../core/manifest.js";
 import { readManifest, writeManifest, validateNonEmpty, validateName, validateIcon, validateLanguage } from "../core/manifest.js";
 import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS, KNOWN_SCAFFOLDS } from "../core/catalogs.js";
-import { getGithubToken, getForkUrls, getAuthorDefaults } from "../core/config.js";
-import { getAuthenticatedUser } from "../core/github.js";
+import { getForkUrls, getAuthorDefaults } from "../core/config.js";
 import { checkModIdAvailability } from "../core/registry.js";
-import { AuthenticationError, ManifestNotFoundError, GitError, ValidationError } from "../core/errors.js";
+import { ManifestNotFoundError, GitError, ValidationError } from "../core/errors.js";
 
 const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
 
@@ -64,29 +63,11 @@ export const newCommand = new Command("new")
 
       let forkUrl = null;
 
-      // Auth & fork URL check (skip for manifest-only - that's a local-only operation)
+      // Fork URL check (skip for manifest-only - that's a local-only operation).
       if (!opts.manifestOnly) {
-        const token = await getGithubToken();
-        if (!token) {
-          console.error("Not authenticated. Run `ebr setup` first.");
-          process.exitCode = 1;
-          return;
-        }
-        try {
-          const user = await getAuthenticatedUser(token);
-          console.log(`Authenticated as ${user.login}.`);
-        } catch (err) {
-          if (err instanceof AuthenticationError) {
-            console.error("Stored token is invalid or expired. Run `ebr setup` to fix it.");
-            process.exitCode = 1;
-            return;
-          }
-          throw err;
-        }
-
         const forks = await getForkUrls();
         if (!forks.baseContent) {
-          console.error("No base content fork URL found. Run `ebr setup` to set up your forks.");
+          console.error("Your copy of the mod project isn't set up yet. Run `ebr setup` first.");
           process.exitCode = 1;
           return;
         }

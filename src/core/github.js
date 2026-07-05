@@ -1,9 +1,25 @@
 /**
- * GitHub API wrapper using @octokit/rest.
+ * GitHub integration: a thin `@octokit/rest` wrapper for the two REST calls
+ * that have no git equivalent (resolving the authenticated login and creating a
+ * fork), plus local git credential helpers.
+ *
+ * Trust boundary - the local machine: this module never mints or stores a
+ * GitHub user token. Content and registry operations use the user's existing
+ * git credentials (Git Credential Manager or SSH). Fork creation borrows the
+ * OAuth token Git Credential Manager already caches, holds it in memory for a
+ * single request, and drops it. The store is read with `git credential fill`
+ * (never `approve`); the only write is `clearCredential`, which calls
+ * `git credential reject` to forget a stored credential - only ever on an
+ * explicit user request (e.g. `ebr setup` offering to clear a wrong account),
+ * never automatically.
+ *
+ * Every helper that shells out accepts an injectable `runImpl` so the
+ * orchestration can be unit-tested without spawning `git`.
  */
 
+import { spawn } from "node:child_process";
 import { Octokit } from "@octokit/rest";
-import { GithubError, AuthenticationError, GithubFileNotFoundError, InsufficientScopeError } from "./errors.js";
+import { GithubError, AuthenticationError } from "./errors.js";
 
 /**
  * Normalize a git remote URL to a GitHub HTTPS URL.
@@ -30,7 +46,7 @@ const noopLog = { debug: () => {}, info: () => {}, warn: () => {}, error: () => 
 
 /**
  * Create an authenticated Octokit instance.
- * @param {string} token - GitHub personal access token.
+ * @param {string} token - GitHub token borrowed in memory for a single request.
  */
 function octokit(token) {
   return new Octokit({ auth: token, log: noopLog });
@@ -40,79 +56,16 @@ function octokit(token) {
  * Wrap an Octokit error into a typed GithubError (or subclass).
  * Checks HTTP status for known failure modes.
  */
-function wrapError(operation, err, context) {
+function wrapError(operation, err) {
   if (err instanceof GithubError) return err;
   if (err.status === 401) {
     return new AuthenticationError();
-  }
-  if (err.status === 403 && /resource not accessible by personal access token/i.test(err.message)) {
-    return new InsufficientScopeError(operation);
-  }
-  if (err.status === 404 && context?.path) {
-    return new GithubFileNotFoundError(operation, context.path);
   }
   return new GithubError(operation, err.message || String(err), err.status);
 }
 
 /**
- * Get a repository's metadata.
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner - Repo owner.
- * @param {string} options.repo - Repo name.
- * @returns {Promise<{owner: string, repo: string, cloneUrl: string, isFork: boolean, parentOwner: string|null, parentRepo: string|null, permissions: {admin: boolean, push: boolean, pull: boolean}}>}
- */
-export async function getRepo(token, { owner, repo }) {
-  try {
-    const { data } = await octokit(token).rest.repos.get({ owner, repo });
-    return {
-      owner: data.owner.login,
-      repo: data.name,
-      cloneUrl: data.clone_url,
-      isFork: data.fork,
-      parentOwner: data.parent?.owner?.login ?? null,
-      parentRepo: data.parent?.name ?? null,
-      permissions: {
-        admin: data.permissions?.admin ?? false,
-        push: data.permissions?.push ?? false,
-        pull: data.permissions?.pull ?? false,
-      },
-    };
-  } catch (err) {
-    throw wrapError("getRepo", err);
-  }
-}
-
-/**
- * Compare two refs across forks via the GitHub compare API.
- * Returns the merge-base SHA, or `null` if the refs share no common
- * ancestor (GitHub returns 404 in that case).
- *
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner - Repo whose API hosts the compare (the upstream).
- * @param {string} options.repo
- * @param {string} options.base - Base ref, optionally cross-fork (e.g. "main" or "owner:main").
- * @param {string} options.head - Head ref, optionally cross-fork (e.g. "user:main").
- * @returns {Promise<{mergeBase: string|null}>}
- */
-export async function compareCommits(token, { owner, repo, base, head }) {
-  try {
-    const { data } = await octokit(token).rest.repos.compareCommitsWithBasehead({
-      owner, repo, basehead: `${base}...${head}`,
-    });
-    return { mergeBase: data.merge_base_commit?.sha ?? null };
-  } catch (err) {
-    if (err.status === 404) {
-      // GitHub returns 404 when the two histories don't share a common ancestor.
-      return { mergeBase: null };
-    }
-    throw wrapError("compareCommits", err);
-  }
-}
-
-/**
- * Verify the token and return the authenticated user's info.
+ * Verify a token and return the authenticated user's info.
  * @param {string} token
  * @returns {Promise<{login: string, name: string|null}>}
  */
@@ -126,20 +79,16 @@ export async function getAuthenticatedUser(token) {
 }
 
 /**
- * Fork a repository. Idempotent - returns the existing fork if one exists
- * (unless a custom `name` is provided, which allows multiple forks per account).
- * @param {string} token
+ * Fork a repository. Idempotent - returns the existing fork if one exists.
+ * @param {string} token - Token borrowed in memory for this single request.
  * @param {object} options
  * @param {string} options.owner - Upstream repo owner.
  * @param {string} options.repo - Upstream repo name.
- * @param {string} [options.name] - Custom name for the fork (allows multiple forks of the same repo).
  * @returns {Promise<{owner: string, repo: string, cloneUrl: string}>}
  */
-export async function forkRepo(token, { owner, repo, name }) {
+export async function forkRepo(token, { owner, repo }) {
   try {
-    const params = { owner, repo };
-    if (name) params.name = name;
-    const { data } = await octokit(token).rest.repos.createFork(params);
+    const { data } = await octokit(token).rest.repos.createFork({ owner, repo });
     return {
       owner: data.owner.login,
       repo: data.name,
@@ -150,222 +99,119 @@ export async function forkRepo(token, { owner, repo, name }) {
   }
 }
 
+// --- Local git credential helpers ---
+
 /**
- * Sync a fork's branch with its upstream parent.
- * Uses GitHub's merge-upstream API endpoint.
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner - Fork owner.
- * @param {string} options.repo - Fork repo name.
- * @param {string} options.branch - Branch to sync (e.g., "main").
+ * Run a command, optionally feeding stdin, capturing stdout/stderr.
+ * Resolves with `{ code, stdout, stderr }`; never rejects on a non-zero exit.
+ * Rejects only if the process cannot be spawned at all.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @param {object} [options]
+ * @param {string} [options.input] - Text written to stdin then closed.
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
  */
-export async function syncFork(token, { owner, repo, branch }) {
+export function runCommand(command, args, { input } = {}) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => { stdout += d.toString(); });
+    child.stderr.on("data", (d) => { stderr += d.toString(); });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr }));
+    if (input !== undefined) {
+      child.stdin.write(input);
+    }
+    child.stdin.end();
+  });
+}
+
+/**
+ * Parse the `key=value` lines emitted by `git credential fill`.
+ * @param {string} stdout
+ * @returns {Record<string, string>}
+ */
+export function parseCredentialFill(stdout) {
+  const result = {};
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    result[line.slice(0, eq)] = line.slice(eq + 1);
+  }
+  return result;
+}
+
+/**
+ * Borrow the OAuth token Git Credential Manager has cached for a host.
+ *
+ * Reads the credential store only (`git credential fill`). The returned token
+ * is the same one git already uses on every push; callers must hold it in
+ * memory for a single request and drop it - never write it to disk, log it, or
+ * pass it as a subprocess argument.
+ *
+ * By default this is interactive: `git credential fill` lets the credential
+ * helper prompt (e.g. a GCM sign-in window) when nothing is cached yet. Pass
+ * `interactive: false` for a passive probe that returns only an already-cached
+ * credential and never prompts - `git -c credential.interactive=false` tells the
+ * helper not to open a sign-in dialog. Use passive mode for status/probe paths
+ * where an unexpected sign-in window would be wrong.
+ *
+ * Returns `null` when no usable HTTPS password credential is available (SSH
+ * users, a store that returns nothing, or - in passive mode - nothing cached).
+ *
+ * @param {object} [options]
+ * @param {string} [options.host]
+ * @param {boolean} [options.interactive] - When false, never prompt; return a cached credential or null.
+ * @param {(command: string, args: string[], opts?: object) => Promise<{code: number, stdout: string, stderr: string}>} [options.runImpl]
+ * @returns {Promise<string|null>}
+ */
+export async function borrowCredentialToken({ host = "github.com", interactive = true, runImpl = runCommand } = {}) {
+  const args = interactive
+    ? ["credential", "fill"]
+    : ["-c", "credential.interactive=false", "credential", "fill"];
+  let res;
   try {
-    await octokit(token).request("POST /repos/{owner}/{repo}/merge-upstream", {
-      owner,
-      repo,
-      branch,
+    res = await runImpl("git", args, {
+      input: `protocol=https\nhost=${host}\n\n`,
     });
-  } catch (err) {
-    throw wrapError("syncFork", err);
+  } catch {
+    return null;
   }
+  if (res.code !== 0) return null;
+  const fields = parseCredentialFill(res.stdout);
+  return fields.password || null;
 }
 
 /**
- * Get a file's content and SHA from a repository.
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner
- * @param {string} options.repo
- * @param {string} options.path - File path within the repo.
- * @param {string} [options.ref] - Branch, tag, or commit SHA to read from.
- * @returns {Promise<{content: string, sha: string}>}
+ * Erase the cached GitHub credential for a host (`git credential reject`).
+ *
+ * This is the module's one write to the credential store: it tells the helper
+ * to forget the stored credential so the next operation re-authenticates. It
+ * retrieves nothing (unlike `borrowCredentialToken`), and callers must only
+ * invoke it on an explicit user request.
+ *
+ * @param {object} [options]
+ * @param {string} [options.host]
+ * @param {(command: string, args: string[], opts?: object) => Promise<{code: number, stdout: string, stderr: string}>} [options.runImpl]
+ * @returns {Promise<boolean>} true if `git credential reject` exited cleanly.
  */
-export async function getFileContent(token, { owner, repo, path, ref }) {
+export async function clearCredential({ host = "github.com", runImpl = runCommand } = {}) {
   try {
-    const params = { owner, repo, path };
-    if (ref) params.ref = ref;
-    const { data } = await octokit(token).rest.repos.getContent(params);
-    return {
-      content: Buffer.from(data.content, "base64").toString("utf-8"),
-      sha: data.sha,
-    };
-  } catch (err) {
-    throw wrapError("getFileContent", err, { path });
-  }
-}
-
-/**
- * Create or update a file via the Contents API (creates a commit).
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner
- * @param {string} options.repo
- * @param {string} options.path
- * @param {string} options.content - UTF-8 file content (will be base64-encoded).
- * @param {string} options.message - Commit message.
- * @param {string} [options.sha] - Current file SHA (required for updates, omit for creates).
- * @param {string} [options.branch] - Target branch (defaults to repo's default branch).
- * @returns {Promise<{commitSha: string}>}
- */
-export async function createOrUpdateFileContent(token, { owner, repo, path, content, message, sha, branch }) {
-  try {
-    const params = {
-      owner,
-      repo,
-      path,
-      message,
-      content: Buffer.from(content).toString("base64"),
-    };
-    if (sha) params.sha = sha;
-    if (branch) params.branch = branch;
-    const { data } = await octokit(token).rest.repos.createOrUpdateFileContents(params);
-    return { commitSha: data.commit.sha };
-  } catch (err) {
-    throw wrapError("createOrUpdateFileContent", err);
-  }
-}
-
-/**
- * Create a branch (git ref) from a SHA.
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner
- * @param {string} options.repo
- * @param {string} options.branch - New branch name (without refs/heads/ prefix).
- * @param {string} options.sha - Commit SHA to branch from.
- */
-export async function createBranch(token, { owner, repo, branch, sha }) {
-  try {
-    await octokit(token).rest.git.createRef({
-      owner,
-      repo,
-      ref: `refs/heads/${branch}`,
-      sha,
+    const res = await runImpl("git", ["credential", "reject"], {
+      input: `protocol=https\nhost=${host}\n\n`,
     });
-  } catch (err) {
-    throw wrapError("createBranch", err);
+    return res.code === 0;
+  } catch {
+    return false;
   }
 }
 
-/**
- * Get the SHA for a branch ref.
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner
- * @param {string} options.repo
- * @param {string} options.ref - Branch name (without refs/heads/ prefix).
- * @returns {Promise<string>} Commit SHA.
- */
-export async function getRefSha(token, { owner, repo, ref }) {
-  try {
-    // Embed "heads/" in the URL template so only the branch name is a
-    // parameter. Octokit encodes all {param} values with encodeURIComponent,
-    // which turns "heads/main" into "heads%2Fmain" and causes a 404.
-    const { data } = await octokit(token).request(
-      "GET /repos/{owner}/{repo}/git/ref/heads/{branch}",
-      { owner, repo, branch: ref },
-    );
-    return data.object.sha;
-  } catch (err) {
-    throw wrapError("getRefSha", err);
-  }
-}
-
-/**
- * Create a pull request.
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner - Base repo owner.
- * @param {string} options.repo - Base repo name.
- * @param {string} options.title
- * @param {string} options.body
- * @param {string} options.head - Source (e.g., "username:branch-name" for cross-repo PRs).
- * @param {string} options.base - Target branch (e.g., "main").
- * @returns {Promise<{number: number, url: string}>}
- */
-export async function createPullRequest(token, { owner, repo, title, body, head, base }) {
-  try {
-    const { data } = await octokit(token).rest.pulls.create({
-      owner,
-      repo,
-      title,
-      body,
-      head,
-      base,
-    });
-    return { number: data.number, url: data.html_url };
-  } catch (err) {
-    throw wrapError("createPullRequest", err);
-  }
-}
-
-/**
- * Delete a branch (git ref).
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner
- * @param {string} options.repo
- * @param {string} options.branch - Branch name (without refs/heads/ prefix).
- */
-export async function deleteBranch(token, { owner, repo, branch }) {
-  try {
-    await octokit(token).request("DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}", {
-      owner,
-      repo,
-      branch,
-    });
-  } catch (err) {
-    throw wrapError("deleteBranch", err);
-  }
-}
-
-/**
- * Force-update a branch ref to a new SHA.
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner
- * @param {string} options.repo
- * @param {string} options.branch - Branch name (without refs/heads/ prefix).
- * @param {string} options.sha - New commit SHA to point the branch at.
- */
-export async function updateBranchRef(token, { owner, repo, branch, sha }) {
-  try {
-    await octokit(token).request("PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}", {
-      owner,
-      repo,
-      branch,
-      sha,
-      force: true,
-    });
-  } catch (err) {
-    throw wrapError("updateBranchRef", err);
-  }
-}
-
-/**
- * List pull requests with optional filters.
- * @param {string} token
- * @param {object} options
- * @param {string} options.owner
- * @param {string} options.repo
- * @param {string} [options.head] - Filter by head ref (e.g., "username:branch").
- * @param {string} [options.state] - Filter by state ("open", "closed", "all").
- * @returns {Promise<Array<{number: number, title: string, url: string, state: string}>>}
- */
-export async function listPullRequests(token, { owner, repo, head, state }) {
-  try {
-    const params = { owner, repo };
-    if (head) params.head = head;
-    if (state) params.state = state;
-    const { data } = await octokit(token).rest.pulls.list(params);
-    return data.map((pr) => ({
-      number: pr.number,
-      title: pr.title,
-      url: pr.html_url,
-      state: pr.state,
-    }));
-  } catch (err) {
-    throw wrapError("listPullRequests", err);
-  }
-}

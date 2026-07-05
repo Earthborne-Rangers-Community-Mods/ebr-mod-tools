@@ -5,9 +5,6 @@ import { tmpdir } from "node:os";
 import {
   getConfig,
   setConfig,
-  getGithubToken,
-  setGithubToken,
-  clearGithubToken,
   getForkUrls,
   setForkUrls,
   clearForkUrls,
@@ -70,12 +67,12 @@ describe("getConfig", () => {
   it("returns parsed config when file exists", async () => {
     await writeConfigFile(tmpDir, {
       author: "TestCreator",
-      githubToken: "ghp_test123",
+      forkRegistryUrl: "https://github.com/test/ebr-mod-registry",
     });
     const result = await getConfig({ configDir: tmpDir });
     expect(result).toEqual({
       author: "TestCreator",
-      githubToken: "ghp_test123",
+      forkRegistryUrl: "https://github.com/test/ebr-mod-registry",
     });
   });
 
@@ -174,186 +171,6 @@ describe("setConfig", () => {
     const raw = await readFile(join(tmpDir, "config.json"), "utf-8");
     expect(raw).toContain("\n"); // multi-line, not compact
     expect(raw).toMatch(/^\{\n/); // starts with {\n (indented)
-  });
-});
-
-// --- getGithubToken ---
-
-describe("getGithubToken", () => {
-  let tmpDir;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  it("returns null when no config dir exists", async () => {
-    const result = await getGithubToken({
-      configDir: join(tmpDir, "nonexistent"),
-    });
-    expect(result).toBeNull();
-  });
-
-  it("returns null when config exists but has no token", async () => {
-    await writeConfigFile(tmpDir, { author: "TestCreator" });
-    const result = await getGithubToken({ configDir: tmpDir });
-    expect(result).toBeNull();
-  });
-
-  it("returns the stored token", async () => {
-    await writeConfigFile(tmpDir, { githubToken: "ghp_test123" });
-    const result = await getGithubToken({ configDir: tmpDir });
-    expect(result).toBe("ghp_test123");
-  });
-
-  it("returns token alongside other config values", async () => {
-    await writeConfigFile(tmpDir, {
-      author: "TestCreator",
-      githubToken: "ghp_test123",
-    });
-    const result = await getGithubToken({ configDir: tmpDir });
-    expect(result).toBe("ghp_test123");
-  });
-});
-
-// --- setGithubToken ---
-
-describe("setGithubToken", () => {
-  let tmpDir;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  it("stores the token in config", async () => {
-    await setGithubToken("ghp_test123", { configDir: tmpDir });
-    const result = await readConfigFile(tmpDir);
-    expect(result.githubToken).toBe("ghp_test123");
-  });
-
-  it("preserves other config values when storing", async () => {
-    await writeConfigFile(tmpDir, { author: "TestCreator" });
-    await setGithubToken("ghp_test123", { configDir: tmpDir });
-    const result = await readConfigFile(tmpDir);
-    expect(result).toEqual({
-      author: "TestCreator",
-      githubToken: "ghp_test123",
-    });
-  });
-
-  it("overwrites an existing token", async () => {
-    await writeConfigFile(tmpDir, { githubToken: "ghp_old" });
-    await setGithubToken("ghp_new", { configDir: tmpDir });
-    const result = await readConfigFile(tmpDir);
-    expect(result.githubToken).toBe("ghp_new");
-  });
-
-  it("creates config dir and file if they do not exist", async () => {
-    const newDir = join(tmpDir, "new-config");
-    await setGithubToken("ghp_test123", { configDir: newDir });
-    const result = await readConfigFile(newDir);
-    expect(result.githubToken).toBe("ghp_test123");
-  });
-
-  it("throws ConfigError on empty string", async () => {
-    await expect(
-      setGithubToken("", { configDir: tmpDir }),
-    ).rejects.toThrow(ConfigError);
-  });
-
-  it("throws ConfigError on non-string value", async () => {
-    await expect(
-      setGithubToken(123, { configDir: tmpDir }),
-    ).rejects.toThrow(ConfigError);
-  });
-
-  it("throws ConfigError when called with undefined", async () => {
-    await expect(
-      setGithubToken(undefined, { configDir: tmpDir }),
-    ).rejects.toThrow(ConfigError);
-  });
-
-  it("throws ConfigError when called with null", async () => {
-    await expect(
-      setGithubToken(null, { configDir: tmpDir }),
-    ).rejects.toThrow(ConfigError);
-  });
-
-  it("error from invalid token has operation 'setGithubToken'", async () => {
-    try {
-      await setGithubToken("", { configDir: tmpDir });
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ConfigError);
-      expect(err.operation).toBe("setGithubToken");
-    }
-  });
-});
-
-// --- clearGithubToken ---
-
-describe("clearGithubToken", () => {
-  let tmpDir;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  it("removes the token from config", async () => {
-    await writeConfigFile(tmpDir, {
-      githubToken: "ghp_test123",
-      author: "TestCreator",
-    });
-    await clearGithubToken({ configDir: tmpDir });
-    const result = await readConfigFile(tmpDir);
-    expect(result).toEqual({ author: "TestCreator" });
-    expect(result).not.toHaveProperty("githubToken");
-  });
-
-  it("preserves all other config values", async () => {
-    await writeConfigFile(tmpDir, {
-      githubToken: "ghp_test123",
-      author: "TestCreator",
-      version: "1.0.0",
-    });
-    await clearGithubToken({ configDir: tmpDir });
-    const result = await readConfigFile(tmpDir);
-    expect(result).toEqual({ author: "TestCreator", version: "1.0.0" });
-  });
-
-  it("does not throw when config has no token", async () => {
-    await writeConfigFile(tmpDir, { author: "TestCreator" });
-    await expect(
-      clearGithubToken({ configDir: tmpDir }),
-    ).resolves.not.toThrow();
-  });
-
-  it("does not throw when config dir does not exist", async () => {
-    await expect(
-      clearGithubToken({ configDir: join(tmpDir, "nonexistent") }),
-    ).resolves.not.toThrow();
-  });
-
-  it("does not throw when config file does not exist", async () => {
-    await expect(clearGithubToken({ configDir: tmpDir })).resolves.not.toThrow();
-  });
-
-  it("does not create config dir or file when nothing to clear", async () => {
-    const missingDir = join(tmpDir, "should-not-exist");
-    await clearGithubToken({ configDir: missingDir });
-    const { access } = await import("node:fs/promises");
-    await expect(access(missingDir)).rejects.toThrow();
   });
 });
 

@@ -3,7 +3,7 @@
  */
 
 import simpleGit from "simple-git";
-import { GitError, NotARepoError, MergeConflictError, NothingToCommitError, DirtyWorkingTreeError } from "./errors.js";
+import { GitError, NotARepoError, GitAuthenticationError, MergeConflictError, NothingToCommitError, DirtyWorkingTreeError } from "./errors.js";
 
 /**
  * Build a human-readable message from a simple-git progress event.
@@ -31,6 +31,27 @@ function git(dir, { onProgress } = {}) {
 }
 
 /**
+ * Recognize whether a git error message is an authentication/authorization
+ * failure (bad or missing credentials, expired token, no push permission),
+ * across both HTTPS (Git Credential Manager) and SSH transports.
+ * @param {string} message
+ * @returns {boolean}
+ */
+export function isGitAuthError(message) {
+  if (!message) return false;
+  return [
+    /authentication failed/i,
+    /invalid username or password/i,
+    /support for password authentication was removed/i,
+    /could not read (username|password)/i,
+    /terminal prompts disabled/i,
+    /permission denied \(publickey\)/i,
+    /remote: permission to .+ denied/i,
+    /the requested url returned error: 40[13]/i,
+  ].some((re) => re.test(message));
+}
+
+/**
  * Wrap a simple-git error into a typed GitError (or subclass).
  * Checks for known error patterns and throws the appropriate subclass.
  */
@@ -39,6 +60,10 @@ function wrapError(operation, err) {
 
   if (msg.includes("not a git repository")) {
     return new NotARepoError(msg);
+  }
+
+  if (isGitAuthError(msg)) {
+    return new GitAuthenticationError(operation, msg);
   }
 
   return new GitError(operation, msg);
@@ -291,17 +316,19 @@ export async function commit(dir, message) {
  * @param {object} [options]
  * @param {string} [options.remote] - Remote name (e.g., "origin").
  * @param {string} [options.branch] - Branch name to push.
+ * @param {boolean} [options.force] - Pass `--force` (used for publish branches).
  * @param {function} [options.onProgress] - Progress callback.
  */
-export async function push(dir, { remote, branch, onProgress } = {}) {
+export async function push(dir, { remote, branch, force = false, onProgress } = {}) {
   try {
     const g = git(dir, { onProgress });
+    const opts = force ? ["--force"] : undefined;
     if (remote && branch) {
-      await g.push(remote, branch);
+      await g.push(remote, branch, opts);
     } else if (remote) {
-      await g.push(remote);
+      await g.push(remote, undefined, opts);
     } else {
-      await g.push();
+      await g.push(opts);
     }
   } catch (err) {
     throw wrapError("push", err);
@@ -551,6 +578,27 @@ export async function getRemoteUrl(dir, remoteName) {
 }
 
 /**
+ * Check whether a remote repository is reachable.
+ *
+ * Runs `git ls-remote <url> HEAD`, which reads public repositories without any
+ * credential and needs no local repo context. Returns `true` when the remote
+ * is visible, `false` on any failure (missing, private-without-auth, network,
+ * bad URL). A `true` result confirms the repo exists and is visible; it does
+ * not by itself prove push access.
+ *
+ * @param {string} url - HTTPS clone URL (or any git-reachable path).
+ * @returns {Promise<boolean>}
+ */
+export async function remoteExists(url) {
+  try {
+    await simpleGit().listRemote([url, "HEAD"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Create a lightweight tag at the current HEAD.
  * @param {string} dir
  * @param {string} tagName - Tag name (e.g. "v1.2.3").
@@ -560,5 +608,49 @@ export async function createTag(dir, tagName) {
     await git(dir).tag([tagName]);
   } catch (err) {
     throw wrapError("createTag", err);
+  }
+}
+
+/**
+ * Create or reset a branch to a start point and check it out.
+ * Equivalent to `git checkout -B <branch> <startPoint>`: creates the branch if
+ * it does not exist, or force-moves it onto `startPoint` if it does.
+ * @param {string} dir
+ * @param {string} branch - Branch name.
+ * @param {string} startPoint - Ref to point the branch at (e.g. "upstream/main").
+ */
+export async function checkoutResetBranch(dir, branch, startPoint) {
+  try {
+    await git(dir).raw(["checkout", "-B", branch, startPoint]);
+  } catch (err) {
+    throw wrapError("checkoutResetBranch", err);
+  }
+}
+
+/**
+ * Set the URL of an existing remote (`git remote set-url`).
+ * @param {string} dir
+ * @param {string} name - Remote name.
+ * @param {string} url - New URL.
+ */
+export async function setRemoteUrl(dir, name, url) {
+  try {
+    await git(dir).remote(["set-url", name, url]);
+  } catch (err) {
+    throw wrapError("setRemoteUrl", err);
+  }
+}
+
+/**
+ * Discard all local changes and untracked files, returning the working tree to
+ * a pristine state (`git reset --hard` + `git clean -fd`).
+ * @param {string} dir
+ */
+export async function resetHardAndClean(dir) {
+  try {
+    await git(dir).raw(["reset", "--hard"]);
+    await git(dir).raw(["clean", "-fd"]);
+  } catch (err) {
+    throw wrapError("resetHardAndClean", err);
   }
 }

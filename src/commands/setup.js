@@ -1,33 +1,29 @@
 import { Command } from "commander";
-import { password, confirm, input } from "@inquirer/prompts";
+import { confirm, input } from "@inquirer/prompts";
 import open from "open";
-import { getGithubToken, setGithubToken, clearGithubToken, getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults } from "../core/config.js";
-import { getAuthenticatedUser, getRepo, listPullRequests, syncFork, compareCommits } from "../core/github.js";
-import { AuthenticationError, GithubError, InsufficientScopeError } from "../core/errors.js";
+import { getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults } from "../core/config.js";
+import { resolveCredentialLogin, ensureFork, forkUrlFor, forkOwnerFromUrl } from "../core/workflows.js";
+import { remoteExists } from "../core/git.js";
+import { clearCredential } from "../core/github.js";
 
-const BASE_CONTENT_OWNER = "Earthborne-Rangers-Community-Mods";
+const ORG = "Earthborne-Rangers-Community-Mods";
 const BASE_CONTENT_REPO = "ebr-mod-base-content";
-const REGISTRY_OWNER = "Earthborne-Rangers-Community-Mods";
 const REGISTRY_REPO = "ebr-mod-registry";
 
-const FORK_BASE_URL = `https://github.com/${BASE_CONTENT_OWNER}/${BASE_CONTENT_REPO}/fork`;
-const FORK_REGISTRY_URL = `https://github.com/${REGISTRY_OWNER}/${REGISTRY_REPO}/fork`;
-const PAT_URL = "https://github.com/settings/personal-access-tokens/new";
+const FORK_BASE_URL = `https://github.com/${ORG}/${BASE_CONTENT_REPO}/fork`;
+const FORK_REGISTRY_URL = `https://github.com/${ORG}/${REGISTRY_REPO}/fork`;
 
 export const setupCommand = new Command("setup")
-  .description("Set up GitHub forks and personal access token for publishing")
-  .option("--status", "Check whether a token is stored and valid")
-  .option("--clear", "Remove the stored token, fork URLs, and author defaults")
-  .option("--token", "Replace just the stored token")
+  .description("Create your forks of the mod project on GitHub so you can publish mods")
+  .option("--status", "Check your forks of the mod project and your GitHub sign-in")
+  .option("--clear", "Clear all stored data")
   .option("--author", "Update just the author defaults")
-  .option("--skip-checks", "Skip fork-history and permission verification")
   .action(async (opts) => {
     try {
       if (opts.clear) {
-        await clearGithubToken();
         await clearForkUrls();
         await clearAuthorDefaults();
-        console.log("Token, fork URLs, and author defaults cleared.");
+        console.log("Stored data cleared.");
         return;
       }
 
@@ -36,47 +32,38 @@ export const setupCommand = new Command("setup")
         return;
       }
 
-      if (opts.token) {
-        await replaceToken();
-        return;
-      }
-
       if (opts.author) {
         await updateAuthorDefaults();
         return;
       }
 
-      await interactive(opts);
+      await interactive();
     } catch (err) {
       console.error(err.message);
       process.exitCode = 1;
     }
   });
 
+/**
+ * `--status`: passive auth probe (is a GitHub credential already cached?) plus a
+ * fork-existence check. Never prompts - the credential read runs in passive mode
+ * so a status check can't trigger a sign-in dialog.
+ */
 async function status() {
-  const token = await getGithubToken();
-  if (!token) {
-    console.log("No token stored. Run `ebr setup` to set one up.");
-    process.exitCode = 1;
-    return;
-  }
-  try {
-    const user = await getAuthenticatedUser(token);
-    console.log(`Authenticated as ${user.login}.`);
-  } catch (err) {
-    if (err instanceof AuthenticationError) {
-      console.log("Stored token is invalid or expired.");
-      process.exitCode = 1;
-      return;
-    }
-    throw err;
+  const login = await resolveCredentialLogin({ interactive: false });
+
+  if (login) {
+    console.log(`GitHub login detected: ${login}.`);
+  } else {
+    console.log("No saved GitHub credential found.");
   }
 
   const forks = await getForkUrls();
-  if (forks.baseContent) console.log(`Base content fork: ${forks.baseContent}`);
-  if (forks.registry) console.log(`Registry fork: ${forks.registry}`);
+  await reportForkStatus("Your fork of the mod project", forks.baseContent);
+  await reportForkStatus("Your fork of the mod registry", forks.registry);
   if (!forks.baseContent || !forks.registry) {
-    console.log("Fork URLs incomplete. Run `ebr setup` to set them up.");
+    console.log("Your forks aren't set up yet. Run `ebr setup` to create them.");
+    process.exitCode = 1;
   }
 
   const defaults = await getAuthorDefaults();
@@ -84,90 +71,241 @@ async function status() {
   if (defaults.authorDiscord) console.log(`Default Discord: ${defaults.authorDiscord}`);
 }
 
-async function interactive(opts = {}) {
-  const skipChecks = !!opts.skipChecks;
+/**
+ * Print whether a stored fork URL resolves to an existing, reachable repo.
+ * @param {string} label
+ * @param {string|null} url
+ */
+async function reportForkStatus(label, url) {
+  if (!url) {
+    console.log(`${label}: not configured.`);
+    return;
+  }
+  const exists = await remoteExists(url);
+  console.log(`${label}: ${url} ${exists ? "(found)" : "(NOT found)"}`);
+}
 
-  // Check existing state to decide which steps to run
-  let token = await getGithubToken();
-  let user = null;
+/**
+ * Interactive first-time setup. Asks permission before touching the GitHub
+ * sign-in, reads the account git is signed in as (prompting a sign-in if
+ * needed), explains and confirms the two forks, creates them, stores their
+ * URLs, and collects author defaults.
+ */
+async function interactive() {
+  console.log("Checking your setup...\n");
 
-  if (token) {
-    try {
-      user = await getAuthenticatedUser(token);
-    } catch (err) {
-      if (!(err instanceof AuthenticationError)) throw err;
+  // If both forks already exist and are reachable, show the current setup and
+  // offer to stop rather than re-running everything. The username is read from
+  // the stored fork URL, so this needs no credential probe (and no sign-in
+  // dialog). Unreachable forks (deleted, renamed) fall through to a real setup.
+  const existingForks = await getForkUrls();
+  if (existingForks.baseContent && existingForks.registry) {
+    const [baseReachable, registryReachable] = await Promise.all([
+      remoteExists(existingForks.baseContent),
+      remoteExists(existingForks.registry),
+    ]);
+    if (baseReachable && registryReachable) {
+      const username = forkOwnerFromUrl(existingForks.baseContent) ?? forkOwnerFromUrl(existingForks.registry);
+      console.log("You're already set up:");
+      if (username) console.log(`  GitHub account:    ${username}`);
+      console.log(`  Mod project fork:  ${existingForks.baseContent}`);
+      console.log(`  Mod registry fork: ${existingForks.registry}`);
+      if (!(await confirm({ message: "Run setup again anyway?", default: false }))) {
+        console.log("Leaving your setup as-is.");
+        return;
+      }
+      console.log("");
+    } else {
+      // Both forks are configured but at least one no longer resolves - the
+      // saved setup is stale. Say so, then fall through to a real setup.
+      console.log(
+        "Found saved forks, but at least one is no longer reachable on GitHub\n" +
+        "(it may have been deleted or renamed).\n",
+      );
     }
   }
 
-  // --- Token + fork setup (always re-verify permissions) ---
-  if (user) {
-    const forks = await getForkUrls();
-    if (forks.baseContent && forks.registry) {
-      console.log(`Authenticated as ${user.login}. Verifying permissions...`);
-      const forksOk = await verifyForks(token, user, skipChecks);
-      if (forksOk) {
-        console.log("Forks and permissions verified.\n");
-      }
-    } else {
-      // Token works but forks aren't recorded - verify them
-      console.log(`Authenticated as ${user.login}, but fork URLs are incomplete.`);
-      await verifyForks(token, user, skipChecks);
+  // 1. Ask permission before we touch the GitHub sign-in.
+  console.log(
+    "Setup checks which GitHub account your git is signed in to, or helps you\n" +
+    "sign in if it isn't set up yet. The tools reuse the sign-in git already\n" +
+    "uses; there's no separate password to create, and these tools never\n" +
+    "keep a copy themselves.\n",
+  );
+  if (!(await confirm({ message: "Check your GitHub sign-in now?", default: true }))) {
+    console.log("Run `ebr setup` again when you're ready.");
+    process.exitCode = 1;
+    return;
+  }
+
+  // 2. A sign-in window may open; read the account git is signed in as.
+  console.log("\nA GitHub sign-in window may open - complete it to continue.");
+  const detectedLogin = await resolveCredentialLogin({ interactive: true });
+
+  const login = await resolveAccount(detectedLogin);
+  if (!login) return;
+
+  // 3. Explain forks and ask before creating them.
+  console.log(
+    "\nTo build and publish mods you need your own copy of two projects on\n" +
+    "GitHub. A \"fork\" is your personal copy of a project. Two forks will be\n" +
+    `created under your account, "${login}":\n` +
+    "  - the mod base project, where you build your mods, and\n" +
+    "  - the mod registry, where you publish them.\n",
+  );
+  if (!(await confirm({ message: "Create these two forks now?", default: true }))) {
+    console.log("Run `ebr setup` again when you're ready.");
+    process.exitCode = 1;
+    return;
+  }
+
+  // 4. Create the forks.
+  const baseOk = await ensureForkForRepo(login, BASE_CONTENT_REPO, FORK_BASE_URL, "where you build your mods");
+  if (!baseOk) return;
+  const registryOk = await ensureForkForRepo(login, REGISTRY_REPO, FORK_REGISTRY_URL, "where you publish mods");
+  if (!registryOk) return;
+
+  await setForkUrls({
+    baseContent: forkUrlFor(login, BASE_CONTENT_REPO),
+    registry: forkUrlFor(login, REGISTRY_REPO),
+  });
+
+  // 5. Author defaults - offer to update them if they're already set.
+  const existingDefaults = await getAuthorDefaults();
+  if (existingDefaults.author) {
+    console.log("\nAuthor details are already set:");
+    console.log(`  Author:  ${existingDefaults.author}`);
+    if (existingDefaults.authorDiscord) console.log(`  Discord: ${existingDefaults.authorDiscord}`);
+    if (await confirm({ message: "Update your author details?", default: false })) {
+      await promptAuthorDefaults(login);
     }
   } else {
-    // No valid token - full setup
-    if (token) {
-      console.log("Stored token is invalid or expired.\n");
-    }
-    ({ token, user } = await setupTokenAndForks());
-    if (!token) return; // user cancelled or error
+    await promptAuthorDefaults(login);
   }
 
-  // --- Author defaults (skip if already set) ---
-  const existingDefaults = await getAuthorDefaults();
-  if (!existingDefaults.author) {
-    await promptAuthorDefaults(user);
-  }
-
-  // --- Summary ---
   const forks = await getForkUrls();
   const defaults = await getAuthorDefaults();
-  console.log(`\nAuthenticated as ${user.login}. Setup complete.`);
-  if (forks.baseContent) console.log(`  Base content fork: ${forks.baseContent}`);
-  if (forks.registry) console.log(`  Registry fork:     ${forks.registry}`);
+  console.log("\nSetup complete.");
+  if (forks.baseContent) console.log(`  Mod project fork: ${forks.baseContent}`);
+  if (forks.registry) console.log(`  Mod registry fork:    ${forks.registry}`);
   if (defaults.author) console.log(`  Default author:    ${defaults.author}`);
   if (defaults.authorDiscord) console.log(`  Default Discord:   ${defaults.authorDiscord}`);
 }
 
 /**
- * Replace the token.
+ * Resolve and confirm the GitHub account the forks will be created under.
+ *
+ * The login comes from the git credential - the account `git push` (and so
+ * `ebr publish`) acts as, so the forks must live under it. The tools push over
+ * HTTPS, so an HTTPS credential is required: with none available, setup stops.
+ * With one, the account is confirmed with the user; declining offers to clear
+ * the saved credential so a re-run can sign in as a different account.
+ *
+ * @param {string|null} detectedLogin
+ * @returns {Promise<string|null>} the confirmed login, or null to abort setup.
  */
-async function replaceToken() {
-  const { token, user } = await promptForToken();
-  if (!token) return;
+async function resolveAccount(detectedLogin) {
+  if (!detectedLogin) {
+    console.error(
+      "Could not detect a GitHub sign-in, so setup can't continue. The tools push\n" +
+      "to GitHub over HTTPS, so an HTTPS sign-in is required. If a sign-in window\n" +
+      "opened and you closed it, re-run `ebr setup` and complete it. If git has no\n" +
+      "HTTPS credential set up yet, configure one (Git Credential Manager will\n" +
+      "prompt you), then re-run `ebr setup`.",
+    );
+    process.exitCode = 1;
+    return null;
+  }
 
-  await setGithubToken(token);
-  await verifyForks(token, user, false);
+  console.log(`Signed in to GitHub as "${detectedLogin}".`);
+  if (await confirm({ message: `Use the GitHub account "${detectedLogin}"?`, default: true })) {
+    return detectedLogin;
+  }
 
-  console.log(`\nToken updated. Authenticated as ${user.login}.`);
+  // Not the account they want - offer to clear the saved credential so a re-run
+  // can sign in as a different account.
+  await offerToClearCredential(detectedLogin);
+  return null;
+}
+
+/**
+ * On declining the detected account, explain that switching accounts means
+ * clearing the saved GitHub credential, and - only with explicit permission -
+ * offer to run `git credential reject` (a fiddly command to type by hand). On
+ * decline or failure, print the manual steps and leave the credential untouched.
+ * @param {string} login
+ */
+async function offerToClearCredential(login) {
+  console.log(
+    `These tools use your saved git credentials, so setup can only\n` +
+    `create forks under "${login}". To use a different account, the saved GitHub\n` +
+    `credential has to be cleared so the next sign-in can pick another account.`,
+  );
+  const manualSteps =
+    "Clear it yourself by running `git credential reject`, then typing\n" +
+    "`protocol=https` and `host=github.com` on separate lines followed by a\n" +
+    "blank line. Then re-run `ebr setup`.";
+
+  if (!(await confirm({ message: "Clear your saved GitHub credential now? (You'll sign in again next time you run `ebr setup`.)", default: false }))) {
+    console.log(`Left as-is. ${manualSteps}`);
+    return;
+  }
+
+  if (await clearCredential()) {
+    console.log("Cleared. Run `ebr setup` again and sign in with the account you want.");
+  } else {
+    console.log(`Could not clear it automatically. ${manualSteps}`);
+  }
+}
+
+/**
+ * Ensure a single fork exists, falling back to a guided browser flow when it
+ * cannot be created automatically.
+ * @returns {Promise<boolean>} true when the fork exists at the end.
+ */
+async function ensureForkForRepo(login, repo, browserForkUrl, purpose) {
+  console.log(`\n--- Your fork of ${repo} (${purpose}) ---`);
+  const result = await ensureFork(
+    { owner: ORG, repo, login },
+    { onProgress: (p) => console.log(p.message) },
+  );
+
+  if (result.status === "exists") {
+    console.log(`Found your fork: ${result.forkUrl}`);
+    return true;
+  }
+  if (result.status === "created") {
+    console.log(`Created your fork: ${result.forkUrl}`);
+    return true;
+  }
+
+  // Manual browser fallback.
+  console.log("Could not create your fork automatically.");
+  console.log(`\n  ${browserForkUrl}\n`);
+  console.log("This will create your own fork of the project. On the page that opens, click the green \"Create fork\" button (keep the default name).");
+  const openPage = await confirm({ message: "Ready to open the page to create your fork?" });
+  if (openPage) {
+    await open(browserForkUrl);
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  await confirm({ message: "Done creating your fork?" });
+
+  const exists = await remoteExists(result.forkUrl);
+  if (!exists) {
+    console.error(`Still could not find ${result.forkUrl}. Re-run \`ebr setup\` once the fork exists.`);
+    process.exitCode = 1;
+    return false;
+  }
+  console.log(`Found your fork: ${result.forkUrl}`);
+  return true;
 }
 
 /**
  * Update the author defaults.
  */
 async function updateAuthorDefaults() {
-  // Try to get the username for a sensible default
-  let username;
-  const token = await getGithubToken();
-  if (token) {
-    try {
-      const user = await getAuthenticatedUser(token);
-      username = user.login;
-    } catch {
-      // Ignore - just won't have a username fallback
-    }
-  }
-
-  await promptAuthorDefaults(username ? { login: username } : null);
+  const login = await resolveCredentialLogin({ interactive: false });
+  await promptAuthorDefaults(login);
 
   const defaults = await getAuthorDefaults();
   console.log("\nAuthor defaults updated.");
@@ -175,202 +313,18 @@ async function updateAuthorDefaults() {
   if (defaults.authorDiscord) console.log(`  Discord: ${defaults.authorDiscord}`);
 }
 
-// --- Shared helpers ---
-
-/**
- * Full first-time setup: guide through forks, collect token, verify forks.
- * @returns {Promise<{token: string|null, user: object|null}>}
- */
-async function setupTokenAndForks() {
-  // Step 0: Check for a GitHub account
-  const hasAccount = await confirm({
-    message: "Do you have a GitHub account?",
-    default: true,
-  });
-  if (!hasAccount) {
-    console.log("\nYou'll need a free GitHub account to publish mods.");
-    console.log("We'll open the sign-up page for you. Create an account, then re-run `ebr setup`.\n");
-    const openSignup = await confirm({ message: "Ready to open github.com/signup?" });
-    if (openSignup) {
-      await open("https://github.com/signup");
-      // No prompt follows, so give the OS opener a moment to hand off to the
-      // browser before we return and the process exits.
-      await new Promise((r) => setTimeout(r, 1500));
-    }
-    return { token: null, user: null };
-  }
-
-  // Step 1: Fork base-content
-  console.log("\n--- Step 1: Fork ebr-mod-base-content ---");
-  console.log("This is your mod workspace. All your mods live here as branches.");
-  console.log(`\n  ${FORK_BASE_URL}\n`);
-  console.log("We'll open that page. Click \"Create fork\" (keep the default name).");
-  const openBase = await confirm({ message: "Ready to open the ebr-mod-base-content fork page?" });
-  if (openBase) await open(FORK_BASE_URL);
-  await confirm({ message: "Done forking ebr-mod-base-content?" });
-
-  // Step 2: Fork registry
-  console.log("\n--- Step 2: Fork ebr-mod-registry ---");
-  console.log("This is where `ebr publish` pushes registry entries.");
-  console.log(`\n  ${FORK_REGISTRY_URL}\n`);
-  console.log("We'll open that page. Click \"Create fork\" (keep the default name).");
-  const openRegistry = await confirm({ message: "Ready to open the ebr-mod-registry fork page?" });
-  if (openRegistry) await open(FORK_REGISTRY_URL);
-  await confirm({ message: "Done forking ebr-mod-registry?" });
-
-  // Step 3: Create fine-grained PAT
-  const { token, user } = await promptForToken();
-  if (!token) return { token: null, user: null };
-
-  // Verify forks
-  const forksOk = await verifyForks(token, user, false);
-  if (!forksOk) return { token: null, user: null };
-
-  await setGithubToken(token);
-  return { token, user };
-}
-
-/**
- * Prompt for a PAT and validate it.
- * @returns {Promise<{token: string|null, user: object|null}>}
- */
-async function promptForToken() {
-  console.log("\n--- Create a Personal Access Token ---");
-  console.log(`\n  ${PAT_URL}\n`);
-  console.log("We'll open GitHub's token creation page. Use these settings:");
-  console.log("  - Token name: ebr-mod-tools (or anything you like)");
-  console.log("  - Resource owner: Your personal account");
-  console.log("  - Expiration: 90 days or longer");
-  console.log("  - Repository access: \"Only select repositories\"");
-  console.log("    Select your fork of ebr-mod-registry");
-  console.log("  - Permissions:");
-  console.log("    - Contents: Read and write");
-  console.log("    - Pull requests: Read and write");
-  console.log("    - Workflows: Read and write\n");
-  const openToken = await confirm({ message: "Ready to open the token page?" });
-  if (openToken) await open(PAT_URL);
-
-  const token = await password({ message: "Paste your token:", mask: "*" });
-  if (!token) {
-    console.error("No token provided.");
-    process.exitCode = 1;
-    return { token: null, user: null };
-  }
-
-  let user;
-  try {
-    user = await getAuthenticatedUser(token);
-  } catch (err) {
-    if (err instanceof AuthenticationError) {
-      console.error("Token is invalid. Check that you copied it correctly.");
-      process.exitCode = 1;
-      return { token: null, user: null };
-    }
-    throw err;
-  }
-
-  return { token, user };
-}
-
-/**
- * Verify that the user's forks exist and are forks of the right parents.
- * Saves fork URLs on success.
- * @returns {Promise<boolean>} true if forks are valid
- */
-async function verifyForks(token, user, skipChecks = false) {
-  const baseContentUrl = `https://github.com/${user.login}/${BASE_CONTENT_REPO}`;
-  const registryUrl = `https://github.com/${user.login}/${REGISTRY_REPO}`;
-
-  let baseContentFork;
-  try {
-    baseContentFork = await getRepo(token, { owner: user.login, repo: BASE_CONTENT_REPO });
-  } catch {
-    console.error(`Could not find fork: ${baseContentUrl}`);
-    console.error(`Make sure you forked ${BASE_CONTENT_OWNER}/${BASE_CONTENT_REPO} and kept the default name.`);
-    process.exitCode = 1;
-    return false;
-  }
-
-  if (!baseContentFork.isFork || baseContentFork.parentOwner !== BASE_CONTENT_OWNER) {
-    console.error(`${baseContentUrl} exists but is not a fork of ${BASE_CONTENT_OWNER}/${BASE_CONTENT_REPO}.`);
-    process.exitCode = 1;
-    return false;
-  }
-
-  // Confirm the fork still shares history with upstream. If upstream rewrote
-  // its main branch after the user forked, every later `ebr include` would
-  // fail with "unrelated histories"; flag it now so they can reset the fork.
-  if (skipChecks) {
-    console.log("Skipping fork-history verification (--skip-checks).");
-  } else {
-    const { mergeBase: sharedBase } = await compareCommits(token, {
-      owner: BASE_CONTENT_OWNER,
-      repo: BASE_CONTENT_REPO,
-      base: "main",
-      head: `${user.login}:main`,
-    });
-    if (!sharedBase) {
-      console.error(
-        `\nYour base-content fork (${baseContentUrl}) does not share any commit history with upstream.`,
-      );
-      console.error("This usually means upstream rewrote its main branch after you forked.");
-      console.error("Reset your fork's main branch to match upstream:");
-      console.error("  1. On GitHub, go to your fork's main branch.");
-      console.error("  2. Use \"Sync fork\" -> \"Discard commits\" (or run a force-reset locally).");
-      console.error("  3. Re-run `ebr setup`.");
-      console.error("\nTo skip this check, run `ebr setup --skip-checks`.");
-      process.exitCode = 1;
-      return false;
-    }
-  }
-
-  let registryFork;
-  try {
-    registryFork = await getRepo(token, { owner: user.login, repo: REGISTRY_REPO });
-  } catch {
-    console.error(`Could not find fork: ${registryUrl}`);
-    console.error(`Make sure you forked ${REGISTRY_OWNER}/${REGISTRY_REPO} and kept the default name.`);
-    process.exitCode = 1;
-    return false;
-  }
-
-  if (!registryFork.isFork || registryFork.parentOwner !== REGISTRY_OWNER) {
-    console.error(`${registryUrl} exists but is not a fork of ${REGISTRY_OWNER}/${REGISTRY_REPO}.`);
-    process.exitCode = 1;
-    return false;
-  }
-
-  // Probe token permissions on the registry fork (the only one this tool
-  // accesses via the PAT; base-content is accessed via git only).
-  if (!skipChecks) {
-    const permissionIssues = await checkTokenPermissions(token, user.login);
-    if (permissionIssues.length > 0) {
-      console.error("\nToken is missing required permissions:");
-      for (const issue of permissionIssues) {
-        console.error(`  - ${issue}`);
-      }
-      console.error("\nRecreate the token with Contents (read+write), Pull requests (read+write), and Workflows (read+write) for your ebr-mod-registry fork.");
-      process.exitCode = 1;
-      return false;
-    }
-  }
-
-  await setForkUrls({ baseContent: baseContentUrl, registry: registryUrl });
-  return true;
-}
-
 /**
  * Prompt for author name and Discord handle, save to config.
- * @param {object|null} user - GitHub user object (for login fallback), or null.
+ * @param {string|null} login - GitHub login (for the display-name default).
  */
-async function promptAuthorDefaults(user) {
-  console.log("--- Author defaults ---");
+async function promptAuthorDefaults(login) {
+  console.log("\n--- Author defaults ---");
   console.log("These will be pre-filled when you create a new mod.\n");
 
   const existing = await getAuthorDefaults();
   const authorName = await input({
     message: "Author display name:",
-    default: existing.author || user?.login || "",
+    default: existing.author || login || "",
   });
   const authorDiscord = await input({
     message: "Discord handle (optional):",
@@ -383,69 +337,3 @@ async function promptAuthorDefaults(user) {
   });
 }
 
-/**
- * Check that the PAT has the permissions `ebr publish` needs on the
- * registry fork.
- *
- * The base-content fork is intentionally not probed here: this tool only
- * uses the PAT against the registry (via Octokit). All base-content
- * operations (`ebr new`, `ebr save`, `ebr update`) go through `git`, which
- * authenticates via the system credential helper, not this token.
- *
- * We use `syncFork` (POST merge-upstream) instead of relying on
- * `permissions.push` from GET /repos, because syncFork also surfaces a
- * missing Workflows permission via a distinct 422 response ("without
- * `workflow` scope") that metadata cannot detect. It's idempotent on an
- * already-synced fork, and exercises the same write path that `ebr publish`
- * uses.
- *
- * @param {string} token
- * @param {string} login
- * @returns {Promise<string[]>} Human-readable issue strings (empty = all good).
- */
-async function checkTokenPermissions(token, login) {
-  const issues = [];
-
-  // Write probe: syncFork is idempotent (merge-upstream on an already-synced
-  // fork is a no-op). A 403 means the PAT can't write to the fork.
-  // A 422 mentioning "workflow scope" means the upstream has a GitHub Actions
-  // workflow file and the PAT is missing the Workflows permission.
-  try {
-    await syncFork(token, { owner: login, repo: REGISTRY_REPO, branch: "main" });
-  } catch (err) {
-    if (err instanceof GithubError && err.httpStatus === 422 &&
-        /without `workflow` scope/i.test(err.message)) {
-      issues.push(
-        `Workflows permission missing for ebr-mod-registry fork. ` +
-        `The registry contains a GitHub Actions workflow file, so the token needs ` +
-        `Workflows permission set to "Read and write".`,
-      );
-    } else if (err instanceof InsufficientScopeError ||
-        (err instanceof GithubError && err.httpStatus === 403)) {
-      issues.push(
-        `Write access missing for ebr-mod-registry fork. ` +
-        `Make sure the token's "Resource owner" is your personal account ` +
-        `and its repository access includes ${login}/${REGISTRY_REPO} ` +
-        `with Contents permission set to "Read and write".`,
-      );
-    } else if (err instanceof GithubError && err.httpStatus === 404) {
-      issues.push(
-        `Cannot access ${login}/${REGISTRY_REPO}. The token may not include this repository. ` +
-        `Fine-grained tokens must use your personal account as "Resource owner" ` +
-        `and explicitly select your fork in the repository list.`,
-      );
-    }
-    // Other 409/422 = fork diverged, which is fine — publish handles it.
-  }
-
-  // Pull requests permission: try listing PRs on the registry fork.
-  try {
-    await listPullRequests(token, { owner: login, repo: REGISTRY_REPO, state: "closed" });
-  } catch (err) {
-    if (err instanceof GithubError && err.httpStatus === 403) {
-      issues.push(`Pull requests permission missing for ebr-mod-registry fork`);
-    }
-  }
-
-  return issues;
-}

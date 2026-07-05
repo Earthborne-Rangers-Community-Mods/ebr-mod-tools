@@ -44,6 +44,13 @@ export class NotARepoError extends GitError {
   }
 }
 
+export class GitAuthenticationError extends GitError {
+  constructor(operation, message) {
+    super(operation, message || "Git authentication failed.");
+    this.name = "GitAuthenticationError";
+  }
+}
+
 export class MergeConflictError extends GitError {
   constructor(conflictedFiles) {
     super("merge", "Merge resulted in conflicts that must be resolved manually.");
@@ -218,27 +225,12 @@ export class GithubError extends Error {
 
 export class AuthenticationError extends GithubError {
   constructor() {
-    super("auth", "GitHub authentication failed. Check your token.", 401);
-    this.name = "AuthenticationError";
-  }
-}
-
-export class InsufficientScopeError extends GithubError {
-  constructor(operation) {
     super(
-      operation,
-      "Your GitHub token does not have the required permissions for this operation.",
-      403,
+      "auth",
+      "GitHub authentication failed. The tools use your local git credentials - make sure you're signed in to GitHub.",
+      401,
     );
-    this.name = "InsufficientScopeError";
-  }
-}
-
-export class GithubFileNotFoundError extends GithubError {
-  constructor(operation, path) {
-    super(operation, `File not found: ${path}`, 404);
-    this.name = "GithubFileNotFoundError";
-    this.path = path;
+    this.name = "AuthenticationError";
   }
 }
 
