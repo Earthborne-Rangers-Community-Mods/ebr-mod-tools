@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix } from "../../src/core/manifest.js";
-import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../../src/core/catalogs.js";
-import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../../src/core/errors.js";
+import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix } from "../src/manifest.js";
+import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../src/catalogs.js";
+import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../src/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "../helpers.js";
+import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "./helpers.js";
 
 // --- Helpers ---
 

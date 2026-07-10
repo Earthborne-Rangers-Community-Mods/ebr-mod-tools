@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import simpleGit from "simple-git";
-import { scaffoldMod, scaffoldModIntoClone, saveMod, getModBranchName } from "../../src/core/workflows.js";
-import { readManifest, buildManifest, toId } from "../../src/core/manifest.js";
-import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push } from "../../src/core/git.js";
-import { ManifestError, NothingToCommitError, GitError, ValidationError, ForkOutOfSyncError } from "../../src/core/errors.js";
-import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "../helpers.js";
+import { scaffoldMod, scaffoldModIntoClone, saveMod, getModBranchName } from "../src/workflows.js";
+import { readManifest, buildManifest, toId } from "../src/manifest.js";
+import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push } from "../src/git.js";
+import { ManifestError, NothingToCommitError, GitError, ValidationError, ForkOutOfSyncError } from "../src/errors.js";
+import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "./helpers.js";
 
 // --- Helpers ---
 

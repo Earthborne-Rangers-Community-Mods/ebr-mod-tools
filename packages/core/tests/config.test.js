@@ -12,8 +12,8 @@ import {
   setAuthorDefaults,
   clearAuthorDefaults,
   CONFIG_DIR,
-} from "../../src/core/config.js";
-import { ConfigError } from "../../src/core/errors.js";
+} from "../src/config.js";
+import { ConfigError } from "../src/errors.js";
 
 // --- Helpers ---
 

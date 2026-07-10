@@ -1,0 +1,16 @@
+{
+  "name": "core",
+  "version": "0.1.0",
+  "description": "Pure business logic for ebr-mod-tools. Private workspace package; not published.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@octokit/rest": "^22.0.0",
+    "simple-git": "^3.27.0"
+  }
+}

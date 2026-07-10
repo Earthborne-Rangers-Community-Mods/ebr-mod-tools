@@ -1,6 +1,7 @@
 /**
  * Core library entry point.
- * The Creator GUI imports from 'ebr-mod-tools/core' to use these directly.
+ * Consumed within the monorepo via the `core` workspace package
+ * (the CLI and the GUI import from it directly).
  */
 
 export { scaffoldMod, scaffoldModIntoClone, saveMod, publishMod, getModBranchName, forkOwnerFromUrl, forkUrlFor, resolveCredentialLogin, ensureFork } from "./workflows.js";

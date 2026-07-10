@@ -1,0 +1,41 @@
+{
+  "name": "ebr-mod-tools",
+  "version": "0.1.0",
+  "description": "CLI tools for Earthborne Rangers mod creators. Wraps native git with EBR-specific ergonomics.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "ebr": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "release": "npm run build && npm publish ./dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-tools.git"
+  },
+  "keywords": [
+    "earthborne-rangers",
+    "mod",
+    "cli",
+    "obsidian"
+  ],
+  "author": "Sunberry Keeper",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-tools/issues"
+  },
+  "homepage": "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-tools#readme",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.4.1",
+    "commander": "^14.0.3",
+    "open": "^11.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

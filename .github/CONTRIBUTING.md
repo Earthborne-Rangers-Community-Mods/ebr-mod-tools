@@ -6,25 +6,29 @@ tooling are welcome.
 
 ## Architecture
 
-The codebase is split into two layers:
+The codebase is an npm workspaces monorepo split into two layers:
 
 ```
-src/
-  core/       # Pure business logic
-  commands/   # CLI-only layer, one file per command
-  cli.js      # Commander setup and entry point
+packages/
+  core/           # Pure business logic
+    src/
+    tests/
+  cli/            # CLI published to npm as ebr-mod-tools (the 'ebr' bin)
+    src/
+      commands/   # CLI-only layer, one file per command
+      cli.js      # Commander setup and entry point
 ```
 
-**Core functions** (`src/core/`) take an options object, do work, and return a
+**Core functions** (`packages/core/src/`) take an options object, do work, and return a
 result or throw a typed error. They never read from stdin, write to stdout, or
 call `process.exit()`.
 
-**CLI commands** (`src/commands/`) are thin wrappers that collect user input,
+**CLI commands** (`packages/cli/src/commands/`) are thin wrappers that collect user input,
 call core functions, and format terminal output.
 
 This split keeps the same business logic available to both the CLI and any
 graphical tools built on top of the library. Do not put terminal I/O in
-`src/core/`.
+`packages/core/src/`.
 
 ## How to Contribute
 
@@ -54,21 +58,21 @@ Open an issue before working on:
 
 If you're changing anything in core logic, you probably need to add or change some tests as well.
 
-- Core logic (`src/core/`) is tested with Vitest
-- Tests live in `tests/core/`
+- Core logic (`packages/core/src/`) is tested with Vitest
+- Tests live in `packages/core/tests/`
 - Run tests: `npm test`
 - Watch mode: `npm run test:watch`
 - Every core function should have corresponding test coverage
-- CLI commands (`src/commands/`) are not unit tested
+- CLI commands (`packages/cli/src/commands/`) are not unit tested
 
 ## Code Style
 
 - Plain JavaScript (ESM modules)
-- Typed errors (`src/core/errors.js`) for distinct failure modes - callers
+- Typed errors (`packages/core/src/errors.js`) for distinct failure modes - callers
   branch on error type, not message strings
 - Core functions accept an optional `{ onProgress }` callback for status
   reporting
-- No `process.exit()` in `src/core/`
+- No `process.exit()` in `packages/core/src/`
 
 ## Commit Messages
 

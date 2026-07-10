@@ -2,14 +2,14 @@ import { Command } from "commander";
 import { input, select, checkbox, confirm } from "@inquirer/prompts";
 import { mkdir, readdir } from "node:fs/promises";
 import { resolve, basename } from "node:path";
-import { scaffoldMod, scaffoldModIntoClone, includeCampaign, includeScaffold } from "../core/workflows.js";
-import { isRepo, getRemotes } from "../core/git.js";
-import { buildManifest, toId, deriveOptionalProducts } from "../core/manifest.js";
-import { readManifest, writeManifest, validateNonEmpty, validateName, validateIcon, validateLanguage } from "../core/manifest.js";
-import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS, KNOWN_SCAFFOLDS } from "../core/catalogs.js";
-import { getForkUrls, getAuthorDefaults } from "../core/config.js";
-import { checkModIdAvailability } from "../core/registry.js";
-import { ManifestNotFoundError, GitError, ValidationError } from "../core/errors.js";
+import { scaffoldMod, scaffoldModIntoClone, includeCampaign, includeScaffold } from "core/workflows.js";
+import { isRepo, getRemotes } from "core/git.js";
+import { buildManifest, toId, deriveOptionalProducts } from "core/manifest.js";
+import { readManifest, writeManifest, validateNonEmpty, validateName, validateIcon, validateLanguage } from "core/manifest.js";
+import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS, KNOWN_SCAFFOLDS } from "core/catalogs.js";
+import { getForkUrls, getAuthorDefaults } from "core/config.js";
+import { checkModIdAvailability } from "core/registry.js";
+import { ManifestNotFoundError, GitError, ValidationError } from "core/errors.js";
 
 const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
 

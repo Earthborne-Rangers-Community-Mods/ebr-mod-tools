@@ -1,48 +1,23 @@
 {
-  "name": "ebr-mod-tools",
+  "name": "ebr-mod-tools-monorepo",
   "version": "0.1.0",
-  "description": "CLI tools for Earthborne Rangers mod creators. Wraps native git with EBR-specific ergonomics.",
+  "description": "npm workspaces monorepo for ebr-mod-tools.",
   "type": "module",
-  "bin": {
-    "ebr": "./src/cli.js"
-  },
-  "exports": {
-    ".": "./src/cli.js",
-    "./core": "./src/core/index.js"
-  },
+  "private": true,
+  "workspaces": [
+    "packages/core",
+    "packages/cli"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-tools.git"
-  },
-  "keywords": [
-    "earthborne-rangers",
-    "mod",
-    "cli",
-    "obsidian"
-  ],
   "author": "Sunberry Keeper",
   "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-tools/issues"
-  },
-  "homepage": "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-tools#readme",
   "engines": {
     "node": ">=22.0.0"
   },
-  "dependencies": {
-    "@inquirer/prompts": "^8.4.1",
-    "@octokit/rest": "^22.0.0",
-    "commander": "^14.0.3",
-    "conf": "^15.1.0",
-    "open": "^11.0.0",
-    "simple-git": "^3.27.0"
-  },
   "devDependencies": {
-    "@octokit/auth-app": "^8.2.0",
     "vitest": "^4.1.4"
   }
 }

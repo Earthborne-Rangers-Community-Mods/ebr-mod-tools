@@ -9,7 +9,7 @@ import {
   realPathOfDestination,
   realPathSafe,
   sanitizePathSegment,
-} from "../../src/core/filesystem.js";
+} from "../src/filesystem.js";
 
 // --- sanitizePathSegment ---
 //

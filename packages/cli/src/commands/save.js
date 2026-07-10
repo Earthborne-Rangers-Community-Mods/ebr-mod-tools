@@ -1,9 +1,9 @@
 import { Command } from "commander";
 import { select, input } from "@inquirer/prompts";
-import { readManifest, bumpVersion } from "../core/manifest.js";
-import { saveMod } from "../core/workflows.js";
+import { readManifest, bumpVersion } from "core/manifest.js";
+import { saveMod } from "core/workflows.js";
 import { renderCliError } from "./render-error.js";
-import { ManifestNotFoundError, NothingToCommitError } from "../core/errors.js";
+import { ManifestNotFoundError, NothingToCommitError } from "core/errors.js";
 
 export const saveCommand = new Command("save")
   .description("Update manifest, stage all changes, commit, and push")

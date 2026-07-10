@@ -1,19 +1,14 @@
 import { Command } from "commander";
 import { select } from "@inquirer/prompts";
-import {
-  includeScaffold,
-  computeMissingScaffoldProduct,
-  readManifest,
-  writeManifest,
-  stageFile,
-  commit,
-} from "../core/index.js";
-import { KNOWN_SCAFFOLDS, SCAFFOLD_TYPES } from "../core/catalogs.js";
+import { includeScaffold, computeMissingScaffoldProduct } from "core/workflows.js";
+import { readManifest, writeManifest } from "core/manifest.js";
+import { stageFile, commit } from "core/git.js";
+import { KNOWN_SCAFFOLDS, SCAFFOLD_TYPES } from "core/catalogs.js";
 import { renderCliError } from "./render-error.js";
 import {
   NothingToCommitError,
   ScaffoldRefNotFoundError,
-} from "../core/errors.js";
+} from "core/errors.js";
 
 export const scaffoldCommand = new Command("scaffold")
   .description("Stamp a scaffold template into the current mod")

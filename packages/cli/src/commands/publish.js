@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import { confirm, select } from "@inquirer/prompts";
 import open from "open";
-import { getForkUrls } from "../core/config.js";
-import { publishMod } from "../core/workflows.js";
-import { readManifest, writeManifest, validateManifest, formatValidationError, applyMissingProductFix, VALIDATION_CODES } from "../core/manifest.js";
-import { OFFICIAL_PRODUCTS } from "../core/catalogs.js";
+import { getForkUrls } from "core/config.js";
+import { publishMod } from "core/workflows.js";
+import { readManifest, writeManifest, validateManifest, formatValidationError, applyMissingProductFix, VALIDATION_CODES } from "core/manifest.js";
+import { OFFICIAL_PRODUCTS } from "core/catalogs.js";
 import { renderCliError } from "./render-error.js";
-import { GithubError, GitError, GitAuthenticationError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "../core/errors.js";
+import { GithubError, GitError, GitAuthenticationError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "core/errors.js";
 
 export const publishCommand = new Command("publish")
   .description("Submit or update the mod in the registry via GitHub PR")

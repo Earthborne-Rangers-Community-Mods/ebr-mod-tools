@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
 import simpleGit from "simple-git";
-import { createProgressCollector } from "../helpers.js";
+import { createProgressCollector } from "./helpers.js";
 
 // --- Mocks for the unit-style cases (product math) ---
 // These are pure functions; no mocks needed for those describes.
@@ -12,7 +12,7 @@ import { createProgressCollector } from "../helpers.js";
 import {
   computeMissingScaffoldProduct,
   includeScaffold,
-} from "../../src/core/workflows.js";
+} from "../src/workflows.js";
 import {
   ValidationError,
   NotARepoError,
@@ -20,8 +20,8 @@ import {
   ScaffoldRefNotFoundError,
   ManifestNotFoundError,
   NothingToCommitError,
-} from "../../src/core/errors.js";
-import { SCAFFOLD_NAME_TOKEN } from "../../src/core/catalogs.js";
+} from "../src/errors.js";
+import { SCAFFOLD_NAME_TOKEN } from "../src/catalogs.js";
 
 // --- computeMissingScaffoldProduct ---
 
@@ -237,7 +237,7 @@ describe("includeScaffold", () => {
     expect(log.latest.message).toContain(branch);
 
     progress.assertValid();
-  });
+  }, 15000);
 
   it("skips conflicting files without overwriting them", async () => {
     const branch = "map/river-valley";

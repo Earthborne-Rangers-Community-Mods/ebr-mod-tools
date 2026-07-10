@@ -79,7 +79,7 @@ A mod can target multiple campaigns - for example, a mod that adds content to tw
 
 **Known one-day missions** (treated as campaigns): `"animal-rescue"`, `"missing-person"`, `"predatory-instincts"`, `"incandescent-sky"`
 
-The canonical list lives in [`src/core/catalogs.js`](../src/core/catalogs.js). Custom campaign mods define their own new identifier.
+The canonical list lives in [`packages/core/src/catalogs.js`](../packages/core/src/catalogs.js). Custom campaign mods define their own new identifier.
 
 **Special cases:**
 - `theme` type: use `["any"]`
@@ -100,7 +100,7 @@ Array of product identifiers the player **must own** to play this mod. This can'
 - `"ranger-card-doubler"`
 - `"incandescent-sky"`
 
-The canonical list lives in [`src/core/catalogs.js`](../src/core/catalogs.js).
+The canonical list lives in [`packages/core/src/catalogs.js`](../packages/core/src/catalogs.js).
 
 ### `safeToAddMidCampaign`
 

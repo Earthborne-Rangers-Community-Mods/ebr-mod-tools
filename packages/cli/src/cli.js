@@ -16,16 +16,18 @@ import { publishCommand } from "./commands/publish.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const pkg = JSON.parse(
-  readFileSync(join(__dirname, "..", "package.json"), "utf-8"),
-);
+// Version is injected at build time by scripts/build.mjs. Running the unbundled
+// source in development falls back to reading the package manifest.
+const version =
+  process.env.EBR_CLI_VERSION ??
+  JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")).version;
 
 const program = new Command();
 
 program
   .name("ebr")
   .description("CLI tools for Earthborne Rangers mod creators")
-  .version(pkg.version);
+  .version(version);
 
 program.addCommand(setupCommand);
 program.addCommand(newCommand);

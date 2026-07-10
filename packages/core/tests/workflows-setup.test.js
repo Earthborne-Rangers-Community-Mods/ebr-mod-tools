@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { forkOwnerFromUrl, forkUrlFor, resolveCredentialLogin, ensureFork } from "../../src/core/workflows.js";
+import { forkOwnerFromUrl, forkUrlFor, resolveCredentialLogin, ensureFork } from "../src/workflows.js";
 
 // --- forkOwnerFromUrl ---
 

@@ -23,11 +23,11 @@ import {
   parseCredentialFill,
   borrowCredentialToken,
   clearCredential,
-} from "../../src/core/github.js";
+} from "../src/github.js";
 import {
   GithubError,
   AuthenticationError,
-} from "../../src/core/errors.js";
+} from "../src/errors.js";
 
 // --- Helpers ---
 

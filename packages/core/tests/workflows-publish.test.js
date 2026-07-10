@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "../helpers.js";
+import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "./helpers.js";
 
 // git.js is fully mocked so the git-based registry write performs no real git
 // operations. The filesystem writes in writeRegistryEntry still run, so
@@ -22,14 +22,14 @@ const gitMocks = vi.hoisted(() => ({
   push: vi.fn(),
 }));
 
-vi.mock("../../src/core/git.js", () => gitMocks);
+vi.mock("../src/git.js", () => gitMocks);
 
 // Import AFTER mocks are set up
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { publishMod } from "../../src/core/workflows.js";
-import { buildRegistryEntry } from "../../src/core/registry.js";
-import { ManifestError, GithubError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "../../src/core/errors.js";
+import { publishMod } from "../src/workflows.js";
+import { buildRegistryEntry } from "../src/registry.js";
+import { ManifestError, GithubError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "../src/errors.js";
 
 // --- Constants ---
 

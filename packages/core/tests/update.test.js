@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createProgressCollector } from "../helpers.js";
+import { createProgressCollector } from "./helpers.js";
 
 // --- Mock git.js at the module level ---
 
@@ -20,16 +20,16 @@ const manifestMocks = vi.hoisted(() => ({
   updateManifest: vi.fn(),
 }));
 
-vi.mock("../../src/core/git.js", () => gitMocks);
-vi.mock("../../src/core/manifest.js", () => manifestMocks);
+vi.mock("../src/git.js", () => gitMocks);
+vi.mock("../src/manifest.js", () => manifestMocks);
 
 // Import AFTER mocks are set up
 import {
   checkBaseUpdate,
   applyBaseUpdate,
   checkIncludedCampaignsUpdates,
-} from "../../src/core/workflows.js";
-import { NotARepoError, BaseRemoteMissingError, ManifestNotFoundError } from "../../src/core/errors.js";
+} from "../src/workflows.js";
+import { NotARepoError, BaseRemoteMissingError, ManifestNotFoundError } from "../src/errors.js";
 
 // --- Helpers ---
 

@@ -1,10 +1,10 @@
 import { Command } from "commander";
 import { confirm, input } from "@inquirer/prompts";
 import open from "open";
-import { getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults } from "../core/config.js";
-import { resolveCredentialLogin, ensureFork, forkUrlFor, forkOwnerFromUrl } from "../core/workflows.js";
-import { remoteExists } from "../core/git.js";
-import { clearCredential } from "../core/github.js";
+import { getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults } from "core/config.js";
+import { resolveCredentialLogin, ensureFork, forkUrlFor, forkOwnerFromUrl } from "core/workflows.js";
+import { remoteExists } from "core/git.js";
+import { clearCredential } from "core/github.js";
 
 const ORG = "Earthborne-Rangers-Community-Mods";
 const BASE_CONTENT_REPO = "ebr-mod-base-content";

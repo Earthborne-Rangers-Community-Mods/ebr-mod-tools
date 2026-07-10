@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { checkIncludedMods, buildRegistryEntry, fetchRegistry, checkModIdAvailability, REGISTRY_RAW_URL } from "../../src/core/registry.js";
-import { GithubError } from "../../src/core/errors.js";
-import { validManifest } from "../helpers.js";
+import { checkIncludedMods, buildRegistryEntry, fetchRegistry, checkModIdAvailability, REGISTRY_RAW_URL } from "../src/registry.js";
+import { GithubError } from "../src/errors.js";
+import { validManifest } from "./helpers.js";
 
 const COMMIT_SHA = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
 

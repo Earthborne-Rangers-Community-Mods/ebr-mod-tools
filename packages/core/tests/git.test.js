@@ -22,14 +22,14 @@ import {
   getRemoteUrl,
   remoteExists,
   isGitAuthError,
-} from "../../src/core/git.js";
+} from "../src/git.js";
 import {
   GitError,
   NotARepoError,
   MergeConflictError,
   NothingToCommitError,
   DirtyWorkingTreeError,
-} from "../../src/core/errors.js";
+} from "../src/errors.js";
 
 // --- Helpers ---
 

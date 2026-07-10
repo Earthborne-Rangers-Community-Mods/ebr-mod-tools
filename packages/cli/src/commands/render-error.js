@@ -9,7 +9,7 @@ import {
   DirtyWorkingTreeError,
   ValidationError,
   GithubError,
-} from "../core/errors.js";
+} from "core/errors.js";
 
 /**
  * Render a shared core typed error to stderr and set process.exitCode.

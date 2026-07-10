@@ -8,7 +8,8 @@ This documentation is primarily for folks interested in the *codebase* for the E
 
 ```bash
 npm install
-npm link
+npm run build --workspace packages/cli
+npm link --workspace packages/cli
 ```
 
 Requires: **Node.js** (LTS), **git**, **GitHub account** (for publishing).
@@ -38,34 +39,45 @@ The docs on the [Mod Manifest (`ebr-mod.json`)](docs/manifest.md) for details.
 
 ## Architecture
 
-The codebase is split into two layers: pure core logic and a CLI wrapper. Some day we may have a GUI layer, which will interact with the core logic directly.
+`ebr-mod-tools` is an npm workspaces monorepo holding three packages:
+
+- **`packages/core`** - pure business logic (private, never published to npm on its own)
+- **`packages/cli`** - the CLI published to npm as `ebr-mod-tools` (the `ebr` bin); esbuild inlines `core` code into `dist/cli.js`, propagates `core`'s dependencies into a generated `dist/package.json`, and publishes from `dist/`
+- **`packages/gui`** - the Electron desktop app; imports the workspace `core` package directly
 
 ```
-src/
-  core/             # Pure business logic
-    workflows.js    # High-level mod lifecycle workflows (scaffold, save, publish)
-    git.js          # Git operations wrapper (simple-git)
-    github.js       # GitHub API wrapper (@octokit/rest)
-    manifest.js     # Read/write/validate ebr-mod.json
-    config.js       # Fork URLs and author defaults storage (~/.ebr/)
-    catalogs.js     # Official campaign and product catalogs
-    registry.js     # Registry entry building and validation
-    errors.js       # Typed error classes
-    index.js        # Barrel export for all core functions
-  commands/         # CLI-only layer, one script per command
-    setup.js
-    new.js
-    save.js
-    publish.js
-    include.js
-    validate.js
-    update.js
-  cli.js            # Commander setup and entry point
+packages/
+  core/             # Pure business logic - no process.exit, no console.log, no prompts
+    src/
+      workflows.js  # High-level mod lifecycle workflows (scaffold, save, publish)
+      git.js        # Git operations wrapper (simple-git)
+      github.js     # GitHub API wrapper (@octokit/rest)
+      manifest.js   # Read/write/validate ebr-mod.json
+      config.js     # Fork URLs and author defaults storage (~/.ebr/)
+      catalogs.js   # Official campaign and product catalogs
+      registry.js   # Registry entry building and validation
+      errors.js     # Typed error classes
+      index.js      # Barrel export for all core functions
+  cli/              # CLI-only layer, one script per command
+    src/
+      commands/
+        setup.js
+        new.js
+        save.js
+        publish.js
+        include.js
+        validate.js
+        update.js
+      cli.js        # Commander setup and entry point
+  gui/              # Electron desktop app (Phase 3)
+    src/            # Plain Svelte SPA renderer
 ```
 
 **Core functions** accept an options object and return results or throw typed errors. They never prompt for input, write to stdout, or call `process.exit()`. They accept an optional `onProgress` callback.
 
 **CLI commands** collect input via prompts, call core functions, and format output.
+
+**The GUI** imports the workspace `core` package directly in the Electron main process.
 
 ## Tech stack
 
@@ -98,11 +110,12 @@ src/
 # Install dependencies
 npm install
 
-# Run any command directly
-node src/cli.js --help
+# Run any command directly from source (no build needed)
+node packages/cli/src/cli.js --help
 
-# Or link globally for the 'ebr' command
-npm link
+# Or build the self-contained bundle and link the 'ebr' command globally
+npm run build --workspace packages/cli
+npm link --workspace packages/cli
 ebr --help
 ```
 
@@ -114,7 +127,7 @@ npm unlink -g ebr-mod-tools
 
 ### Testing
 
-Tests use [Vitest](https://vitest.dev/). Test driven development recommended for core files. Every `src/core/` module has a corresponding test in `tests/core/`.
+Tests use [Vitest](https://vitest.dev/). Test driven development recommended for core files. Every `packages/core/src/` module has a corresponding test in `packages/core/tests/`.
 
 ```powershell
 # Run all tests once

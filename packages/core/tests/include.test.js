@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createProgressCollector } from "../helpers.js";
+import { createProgressCollector } from "./helpers.js";
 
 // --- Mock git.js (full), manifest.js (partial), and registry.js (partial) ---
 
@@ -26,16 +26,16 @@ const registryMocks = vi.hoisted(() => ({
   fetchRegistry: vi.fn(),
 }));
 
-vi.mock("../../src/core/git.js", () => gitMocks);
+vi.mock("../src/git.js", () => gitMocks);
 
 // Keep compareVersions (and the rest) real; only readManifest/writeManifest are mocked.
-vi.mock("../../src/core/manifest.js", async (importOriginal) => {
+vi.mock("../src/manifest.js", async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, readManifest: manifestMocks.readManifest, writeManifest: manifestMocks.writeManifest };
 });
 
 // Keep checkIncludedMods/buildRegistryEntry real; only fetchRegistry is mocked.
-vi.mock("../../src/core/registry.js", async (importOriginal) => {
+vi.mock("../src/registry.js", async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, fetchRegistry: registryMocks.fetchRegistry };
 });
@@ -51,7 +51,7 @@ import {
   upsertIncludedMod,
   includeMod,
   checkIncludedModsUpdates,
-} from "../../src/core/workflows.js";
+} from "../src/workflows.js";
 import {
   NotARepoError,
   BaseRemoteMissingError,
@@ -62,7 +62,7 @@ import {
   ManifestNotFoundError,
   NothingToCommitError,
   IncludeModNotFoundError,
-} from "../../src/core/errors.js";
+} from "../src/errors.js";
 
 const DIR = "/tmp/some-mod";
 const SHA = "a".repeat(40);

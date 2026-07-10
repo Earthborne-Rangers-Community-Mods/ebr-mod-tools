@@ -4,7 +4,7 @@ import {
   OFFICIAL_CAMPAIGNS,
   OFFICIAL_PRODUCTS,
   MOD_TYPES,
-} from "../../src/core/catalogs.js";
+} from "../src/catalogs.js";
 
 // --- KNOWN_SCAFFOLDS structural integrity ---
 

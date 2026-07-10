@@ -7,13 +7,13 @@ import {
   includeCampaign,
   checkIncludedModsUpdates,
   includeMod,
-} from "../core/workflows.js";
+} from "core/workflows.js";
 import { renderCliError } from "./render-error.js";
 import {
   MergeConflictError,
   IncludeRefNotFoundError,
   GithubError,
-} from "../core/errors.js";
+} from "core/errors.js";
 
 export const updateCommand = new Command("update")
   .description("Check for and merge updates from base content, included campaigns, and included mods")

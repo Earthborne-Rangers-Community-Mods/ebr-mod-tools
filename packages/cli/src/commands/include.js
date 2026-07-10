@@ -1,13 +1,13 @@
 import { Command } from "commander";
 import { checkbox } from "@inquirer/prompts";
-import { includeCampaign, includeMod, classifyIncludeSource } from "../core/workflows.js";
-import { fetchRegistry } from "../core/registry.js";
-import { OFFICIAL_CAMPAIGNS } from "../core/catalogs.js";
+import { includeCampaign, includeMod, classifyIncludeSource } from "core/workflows.js";
+import { fetchRegistry } from "core/registry.js";
+import { OFFICIAL_CAMPAIGNS } from "core/catalogs.js";
 import { renderCliError } from "./render-error.js";
 import {
   IncludeRefNotFoundError,
   IncludeModNotFoundError,
-} from "../core/errors.js";
+} from "core/errors.js";
 
 export const includeCommand = new Command("include")
   .description("Include an official campaign branch or another mod into the current mod")
