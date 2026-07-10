@@ -1,0 +1,35 @@
+# electron-builder packaging configuration.
+#
+# Consumed by the `package` scripts after `electron-vite build` produces out/.
+# Targets Windows (NSIS installer) and macOS (dmg). App icons and other build
+# resources are read from build/.
+#
+# Dependency propagation: the GUI declares a runtime dependency on the private
+# `core` workspace package (see package.json). electron-builder's standard
+# production-dependency collection walks that graph - core and its transitive
+# runtime deps (simple-git, @octokit/rest) - and copies them into the packaged
+# app. No manifest-generation step is needed; the declared dependency is the seam.
+
+appId: com.earthborne-rangers-community.ebr-mod-tools
+productName: EBR Mod Tools
+
+directories:
+  output: release/${version}
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+
+win:
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg

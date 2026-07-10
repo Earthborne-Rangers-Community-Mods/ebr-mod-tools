@@ -6,7 +6,8 @@
   "private": true,
   "workspaces": [
     "packages/core",
-    "packages/cli"
+    "packages/cli",
+    "packages/gui"
   ],
   "scripts": {
     "test": "vitest run",

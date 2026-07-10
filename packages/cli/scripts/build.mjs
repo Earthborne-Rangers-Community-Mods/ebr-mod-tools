@@ -7,8 +7,7 @@
  * merged with the CLI's own.
  *
  * The publishable artifact is dist/ (bundle + generated manifest); publish with
- * `npm run release`. The GUI follows the same model: its electron-vite build
- * inlines core and declares core's deps in its own packaged manifest.
+ * `npm run release`.
  */
 import { build } from "esbuild";
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";

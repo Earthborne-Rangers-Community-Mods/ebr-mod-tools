@@ -4,6 +4,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# electron-vite / electron-builder output (packages/gui)
+out/
+release/
+
 # Logs
 *.log
 npm-debug.log*
