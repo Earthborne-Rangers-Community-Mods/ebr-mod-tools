@@ -36,7 +36,17 @@ packages/gui/
       index.html             # Renderer entry (SPA)
       src/
         main.js              # Svelte mount
-        App.svelte           # Root component
+        App.svelte           # Shell: renders the active page full-width
+        components/          # Shared controls used by multiple pages
+        lib/
+          navigation.svelte.js  # In-memory route state
+          placeholder.js        # Sample data for the blockout pages
+        pages/
+          MyMods.svelte           # Mod list + account header
+          Setup.svelte            # Credential/fork/author setup
+          NewMod.svelte           # New-mod creation form
+          ModDetails.svelte       # Manifest field editor
+          ConflictResolution.svelte  # Per-file merge resolver
 ```
 
 ## Commands
