@@ -5,26 +5,33 @@ end over the workspace `core` package.
 
 ## Architecture
 
-- **Build tool:** electron-vite (main, preload, and renderer built to `out/`).
-- **Renderer:** a plain Svelte SPA. Runs with `contextIsolation: true`,
-  `nodeIntegration: false`, and `sandbox: true`.
-- **Main process:** creates the hardened application window (context isolation,
-  sandbox, external-link and navigation guards).
-- **IPC:** a preload `contextBridge` exposes the renderer-facing API surface on
-  `window.ebr`.
+- **Build tool:** electron-vite (main and renderer built to `out/`).
+- **Renderer:** a plain Svelte SPA. Runs with `nodeIntegration: true`,
+  `contextIsolation: false`, and `sandbox: false`, so it shares a Node.js
+  context and imports the workspace `core` package directly, calling core
+  functions inline. There is no preload bridge. This is safe because the window
+  loads only first-party, bundled content and blocks navigation; external or
+  untrusted markup must never be rendered here without sanitization and
+  isolation.
+- **Main process:** creates the window and handles window creation, navigation
+  blocking, and external-link-to-shell handling only - no core logic.
+- **Renderer dependency interop:** electron-vite inlines core's source into the
+  renderer bundle, but core's Node runtime deps and Node built-ins stay external.
+  Because Chromium's module loader cannot resolve bare specifiers from an ES
+  module, `vite-plugin-electron-renderer` rewrites those external imports into
+  CommonJS `require()` calls, which the node-integrated renderer resolves at runtime.
 - **Packaging:** electron-builder targets Windows (NSIS) and macOS (dmg). The
   GUI declares a runtime dependency on the private `core` workspace package, so
   electron-builder's production-dependency collection copies core and its
-  transitive runtime deps into the packaged app, so the main process resolves
-  them at runtime.
+  transitive runtime deps into the packaged app, where the renderer's `require()`
+  calls resolve them.
 
 ```
 packages/gui/
   electron.vite.config.mjs   # electron-vite build config (+ renderer CSP)
   electron-builder.yml       # Windows + macOS packaging config
   src/
-    main/index.js            # Electron main process entry (hardened window)
-    preload/index.js         # contextBridge bridge (renderer <-> main)
+    main/index.js            # Electron main process entry (window + guards)
     renderer/
       index.html             # Renderer entry (SPA)
       src/
@@ -40,7 +47,7 @@ Run from the repo root or with `-w packages/gui`.
 # Run the app in development (HMR)
 npm run dev --workspace packages/gui
 
-# Build main, preload, and renderer into out/
+# Build main and renderer into out/
 npm run build --workspace packages/gui
 
 # Preview the production build

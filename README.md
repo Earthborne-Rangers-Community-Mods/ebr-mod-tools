@@ -77,7 +77,7 @@ packages/
 
 **CLI commands** collect input via prompts, call core functions, and format output.
 
-**The GUI** imports the workspace `core` package directly in the Electron main process.
+**The GUI** imports the workspace `core` package directly in the Svelte renderer.
 
 ## Tech stack
 

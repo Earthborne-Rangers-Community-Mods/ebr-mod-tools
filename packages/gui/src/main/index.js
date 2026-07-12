@@ -2,9 +2,13 @@ import { app, BrowserWindow, session, shell } from "electron";
 import { join } from "node:path";
 
 /**
- * Create the main application window with a hardened webPreferences profile:
- * context isolation on, node integration off, sandbox on. The renderer reaches
- * the main process only through the preload contextBridge.
+ * Create the main application window. The renderer runs with nodeIntegration on,
+ * contextIsolation off, and sandbox off so it shares a Node.js context and can
+ * import the workspace `core` package directly. This is safe because the window
+ * loads only first-party, bundled content and blocks navigation; external or
+ * untrusted markup must never be rendered here without sanitization and
+ * isolation. The main process handles window creation, navigation blocking, and
+ * external-link-to-shell handling only.
  */
 function createWindow() {
   const window = new BrowserWindow({
@@ -13,11 +17,9 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
+      contextIsolation: false,
+      nodeIntegration: true,
+      sandbox: false,
     },
   });
 

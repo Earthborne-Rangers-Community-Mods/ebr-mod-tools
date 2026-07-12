@@ -1,15 +1,19 @@
 <script>
-  // Confirms the preload contextBridge reached the renderer.
-  const bridgeConnected =
-    typeof window !== "undefined" && window.ebr?.isDesktop === true;
+  import { MOD_TYPES, validateName } from "core";
+
+  const nameProbe = validateName("Sample Mod");
+  const coreConnected = nameProbe === true && MOD_TYPES.length > 0;
 </script>
 
 <main>
   <h1>EBR Mod Tools</h1>
   <p>Desktop app scaffold. Nothing to see here yet.</p>
-  <p class="status" class:ok={bridgeConnected}>
-    Preload bridge: {bridgeConnected ? "connected" : "unavailable"}
+  <p class="status" class:ok={coreConnected}>
+    Core package: {coreConnected ? "loaded" : "unavailable"}
   </p>
+  {#if coreConnected}
+    <p class="detail">Mod types: {MOD_TYPES.map((t) => t.name).join(", ")}</p>
+  {/if}
 </main>
 
 <style>
