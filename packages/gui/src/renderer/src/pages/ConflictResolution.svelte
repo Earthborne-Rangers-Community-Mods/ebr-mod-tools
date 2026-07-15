@@ -51,11 +51,11 @@
   .page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
+    gap: var(--spacing-md);
   }
 
   .lead {
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
     max-width: 44rem;
   }
 
@@ -65,17 +65,17 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 
   .conflict {
-    padding: var(--space-md);
-    border: 1px solid var(--border);
+    padding: var(--spacing-md);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: var(--surface);
+    background: var(--color-surface);
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 
   .path {
@@ -88,13 +88,13 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-md);
+    gap: var(--spacing-md);
   }
 
   .choice {
     display: flex;
     align-items: center;
-    gap: var(--space-xs);
+    gap: var(--spacing-xs);
     font-size: 0.9rem;
   }
 
@@ -102,18 +102,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-top: 1px solid var(--border);
-    padding-top: var(--space-md);
+    border-top: 1px solid var(--color-border);
+    padding-top: var(--spacing-md);
   }
 
   .footer-right {
     display: flex;
-    gap: var(--space-sm);
-  }
-
-  .danger {
-    background: var(--danger-soft);
-    color: var(--danger-strong);
-    border-color: transparent;
+    gap: var(--spacing-sm);
   }
 </style>

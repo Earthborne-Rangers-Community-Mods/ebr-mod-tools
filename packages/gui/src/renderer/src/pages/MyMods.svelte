@@ -76,16 +76,16 @@
   .page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-lg);
+    gap: var(--spacing-lg);
   }
 
   .account {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-md);
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
+    padding: var(--spacing-md);
+    background: var(--color-surface-hover);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
   }
 
@@ -93,7 +93,7 @@
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
   }
 
   .account-login {
@@ -102,7 +102,7 @@
   }
 
   .account-author {
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
   }
 
   .toolbar {
@@ -113,7 +113,7 @@
 
   .toolbar-actions {
     display: flex;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 
   .mod-list {
@@ -122,24 +122,24 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 
   .mod-card {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-md);
-    padding: var(--space-sm) var(--space-md);
-    border: 1px solid var(--border);
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: var(--surface);
+    background: var(--color-surface);
   }
 
   .mod-open {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
+    gap: var(--spacing-md);
     flex: 1;
     background: none;
     border: none;
@@ -169,8 +169,8 @@
   .mod-meta {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
-    color: var(--text-secondary);
+    gap: var(--spacing-sm);
+    color: var(--color-text-muted);
     font-size: 0.875rem;
   }
 
@@ -182,17 +182,19 @@
   }
 
   .badge.dirty {
-    background: var(--accent-soft);
-    color: var(--accent-strong);
+    background: var(--color-surface);
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
   }
 
   .badge.published {
-    background: var(--success-soft);
-    color: var(--success-strong);
+    background: var(--color-surface);
+    color: var(--color-success);
+    border: 1px solid var(--color-success);
   }
 
   .mod-actions {
     display: flex;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 </style>

@@ -141,13 +141,13 @@
   .page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
+    gap: var(--spacing-md);
   }
 
   .mod-header {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
+    gap: var(--spacing-md);
   }
 
   .mod-icon {
@@ -158,7 +158,7 @@
   .actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 
   .link-button {
@@ -170,7 +170,7 @@
   .fields {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-sm) var(--space-md);
+    gap: var(--spacing-sm) var(--spacing-md);
   }
 
   .field {
@@ -185,33 +185,33 @@
 
   .field span {
     font-size: 0.8rem;
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
   }
 
   .group {
-    border: 1px solid var(--border);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    padding: var(--space-md);
+    padding: var(--spacing-md);
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 
   .group legend {
     font-weight: 600;
-    padding: 0 var(--space-xs);
+    padding: 0 var(--spacing-xs);
   }
 
   .checks {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-    gap: var(--space-xs);
+    gap: var(--spacing-xs);
   }
 
   .check {
     display: flex;
     align-items: center;
-    gap: var(--space-xs);
+    gap: var(--spacing-xs);
     font-size: 0.9rem;
   }
 </style>

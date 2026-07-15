@@ -1,0 +1,322 @@
+/* Portable design system for the EBR creator GUI.
+ *
+ * Design tokens, self-hosted fonts, and base component styles ported from
+ * ebr-mod-manager so the two apps share one visual language. Assets are bundled
+ * relative to this file (Vite fingerprints the woff2 files and rewrites the
+ * url() references for file:// loading in the packaged app). */
+
+/* --- Self-hosted fonts --- */
+
+@font-face {
+  font-family: 'Josefin Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/josefin-sans-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* --- Design tokens --- */
+
+:root {
+  /* Typography */
+  --font-display: 'Josefin Sans', sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Type scale */
+  --font-size-xs: 0.75rem;   /* 12px */
+  --font-size-sm: 0.875rem;  /* 14px */
+  --font-size-base: 1rem;    /* 16px */
+  --font-size-md: 1.125rem;  /* 18px */
+  --font-size-lg: 1.5rem;    /* 24px */
+  --font-size-xl: 2rem;      /* 32px */
+
+  /* Line heights */
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+
+  /* Spacing scale */
+  --spacing-xs: 0.25rem;   /* 4px */
+  --spacing-sm: 0.5rem;    /* 8px */
+  --spacing-md: 1rem;      /* 16px */
+  --spacing-lg: 1.5rem;    /* 24px */
+  --spacing-xl: 2rem;      /* 32px */
+
+  /* Radii */
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-full: 999px;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+  /* Motion */
+  --transition-fast: 150ms ease;
+  --transition-normal: 300ms ease;
+  --transition-slow: 500ms ease;
+
+  /* Layout */
+  --max-width: 960px;
+}
+
+/* --- Light theme (default) --- */
+/* Palette: warm parchment + deep forest + terracotta + sage accent. */
+
+:root,
+:root[data-theme="light"] {
+  --color-bg: #f5ecd6;
+  --color-surface: #fdf7e3;
+  --color-surface-hover: #ebe0c2;
+  --color-text: #1f2e25;
+  --color-text-muted: #5a6b5f;
+  --color-primary: #a8462e;
+  --color-primary-hover: #8b3823;
+  --color-primary-text: #fdf7e3;
+  --color-accent: #3a5e3f;
+  --color-accent-hover: #2d4a32;
+  --color-border: #d4c69f;
+  --color-error: #b91c1c;
+  --color-success: #3a5e3f;
+  --color-focus: #a8462e;
+}
+
+/* --- Dark palette (single source of truth) --- */
+/* Private tokens with leading underscore. Both the explicit
+   [data-theme="dark"] block and the @media (prefers-color-scheme: dark)
+   fallback remap public --color-* tokens to these. Edit values here. */
+
+:root {
+  --_dark-bg: #18241e;
+  --_dark-surface: #243029;
+  --_dark-surface-hover: #2e3b34;
+  --_dark-text: #ede2c8;
+  --_dark-text-muted: #a8a08c;
+  --_dark-primary: #b85d40;
+  --_dark-primary-hover: #c97a5e;
+  --_dark-primary-text: #fdf7e3;
+  --_dark-accent: #7ba87f;
+  --_dark-accent-hover: #94c198;
+  --_dark-border: #3a4a40;
+  --_dark-error: #ef6c5e;
+  --_dark-success: #7ba87f;
+  --_dark-focus: #c97a5e;
+}
+
+:root[data-theme="dark"] {
+  --color-bg: var(--_dark-bg);
+  --color-surface: var(--_dark-surface);
+  --color-surface-hover: var(--_dark-surface-hover);
+  --color-text: var(--_dark-text);
+  --color-text-muted: var(--_dark-text-muted);
+  --color-primary: var(--_dark-primary);
+  --color-primary-hover: var(--_dark-primary-hover);
+  --color-primary-text: var(--_dark-primary-text);
+  --color-accent: var(--_dark-accent);
+  --color-accent-hover: var(--_dark-accent-hover);
+  --color-border: var(--_dark-border);
+  --color-error: var(--_dark-error);
+  --color-success: var(--_dark-success);
+  --color-focus: var(--_dark-focus);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --color-bg: var(--_dark-bg);
+    --color-surface: var(--_dark-surface);
+    --color-surface-hover: var(--_dark-surface-hover);
+    --color-text: var(--_dark-text);
+    --color-text-muted: var(--_dark-text-muted);
+    --color-primary: var(--_dark-primary);
+    --color-primary-hover: var(--_dark-primary-hover);
+    --color-primary-text: var(--_dark-primary-text);
+    --color-accent: var(--_dark-accent);
+    --color-accent-hover: var(--_dark-accent-hover);
+    --color-border: var(--_dark-border);
+    --color-error: var(--_dark-error);
+    --color-success: var(--_dark-success);
+    --color-focus: var(--_dark-focus);
+  }
+}
+
+/* --- Reset & base --- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: var(--line-height-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  min-height: 100vh;
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+}
+
+/* --- Typography --- */
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  line-height: var(--line-height-tight);
+}
+
+h1 {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+}
+
+h2 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+code {
+  font-family: ui-monospace, monospace;
+  background: var(--color-surface-hover);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- Form controls --- */
+
+input,
+textarea,
+select {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: inherit;
+}
+
+/* --- Buttons --- */
+
+button {
+  font: inherit;
+}
+
+.primary,
+.secondary,
+.ghost,
+.danger {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  background: var(--color-surface);
+  color: inherit;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-text);
+  font-weight: 600;
+}
+
+.primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.secondary {
+  background: var(--color-surface);
+}
+
+.secondary:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-primary);
+}
+
+.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+
+.ghost:hover {
+  background: var(--color-surface-hover);
+}
+
+.danger {
+  background: var(--color-error);
+  border-color: var(--color-error);
+  color: var(--color-primary-text);
+  font-weight: 600;
+}
+
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-primary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+/* --- Badges --- */
+
+.badge {
+  display: inline-block;
+  font-size: var(--font-size-xs);
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+/* --- Focus visible for interactive elements --- */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* --- Reduced motion --- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

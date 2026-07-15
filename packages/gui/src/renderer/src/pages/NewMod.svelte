@@ -70,17 +70,17 @@
   .page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
+    gap: var(--spacing-md);
   }
 
   .lead {
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
   }
 
   .form {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-sm) var(--space-md);
+    gap: var(--spacing-sm) var(--spacing-md);
   }
 
   .field {
@@ -95,21 +95,21 @@
 
   .field span {
     font-size: 0.8rem;
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
   }
 
   .hint {
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
     font-size: 0.75rem;
   }
 
   .note {
     grid-column: 1 / -1;
-    padding: var(--space-sm) var(--space-md);
-    background: var(--surface-alt);
-    border: 1px dashed var(--border);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-surface-hover);
+    border: 1px dashed var(--color-border);
     border-radius: var(--radius);
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
     font-size: 0.85rem;
   }
 
@@ -117,6 +117,6 @@
     grid-column: 1 / -1;
     display: flex;
     justify-content: flex-end;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 </style>

@@ -64,21 +64,21 @@
   .page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
+    gap: var(--spacing-md);
   }
 
   .lead {
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
   }
 
   .card {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
-    padding: var(--space-md);
-    border: 1px solid var(--border);
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
-    background: var(--surface);
+    background: var(--color-surface);
   }
 
   .card h2 {
@@ -88,36 +88,36 @@
   .status-row {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 
   .dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: var(--text-secondary);
+    background: var(--color-text-muted);
   }
 
   .dot.ok {
-    background: var(--success-strong);
+    background: var(--color-success);
   }
 
   .detail {
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
     font-size: 0.875rem;
   }
 
   .fork-list {
     display: flex;
     flex-direction: column;
-    gap: var(--space-xs);
+    gap: var(--spacing-xs);
   }
 
   .fork-list dt {
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
   }
 
   .fork-list dd {
@@ -134,11 +134,11 @@
 
   .field span {
     font-size: 0.8rem;
-    color: var(--text-secondary);
+    color: var(--color-text-muted);
   }
 
   .card-actions {
     display: flex;
-    gap: var(--space-sm);
+    gap: var(--spacing-sm);
   }
 </style>

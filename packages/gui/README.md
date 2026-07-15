@@ -15,6 +15,12 @@ end over the workspace `core` package.
   isolation.
 - **Main process:** creates the window and handles window creation, navigation
   blocking, and external-link-to-shell handling only - no core logic.
+- **Design system:** `src/renderer/src/app.css` holds the shared visual language
+  ported from `ebr-mod-manager` - CSS design tokens, the light and dark palettes
+  (`data-theme` plus a `prefers-color-scheme` fallback), and base component
+  styles. The self-hosted fonts (Josefin Sans, Inter) and icon set live under
+  `src/renderer/src/assets/` and are bundled by Vite (fingerprinted, referenced
+  with relative paths so they resolve under `file://` in the packaged app).
 - **Renderer dependency interop:** electron-vite inlines core's source into the
   renderer bundle, but core's Node runtime deps and Node built-ins stay external.
   Because Chromium's module loader cannot resolve bare specifiers from an ES
@@ -35,8 +41,12 @@ packages/gui/
     renderer/
       index.html             # Renderer entry (SPA)
       src/
-        main.js              # Svelte mount
+        main.js              # Svelte mount (imports app.css)
+        app.css              # Portable design system: tokens, fonts, base styles
         App.svelte           # Shell: renders the active page full-width
+        assets/
+          fonts/             # Self-hosted Josefin Sans + Inter (woff2)
+          icons/             # Shared icon set (app icon, favicon, logos)
         components/          # Shared controls used by multiple pages
         lib/
           navigation.svelte.js  # In-memory route state
