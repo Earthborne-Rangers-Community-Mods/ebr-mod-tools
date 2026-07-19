@@ -3,5 +3,6 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
 	test: {
 		include: ['packages/*/tests/**/*.test.js'],
+		setupFiles: ['./packages/core/tests/temp-cleanup.js'],
 	},
 });

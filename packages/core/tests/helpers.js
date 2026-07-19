@@ -2,18 +2,56 @@
  * Shared test helpers used across multiple test files.
  */
 
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import simpleGit from "simple-git";
 
+// --- Temp directory management ---
+//
+// Every test temp dir is created inside a single per-file "run root" so the
+// whole tree can be removed in one shot after the file finishes (registered as
+// an afterAll hook by tests/temp-cleanup.js).
+//
+// Vitest isolates modules per test file, so this state (and the run root) is
+// scoped to a single test file.
+
+let runRootPromise = null;
+
+function getRunRoot() {
+  if (!runRootPromise) {
+    runRootPromise = mkdtemp(join(tmpdir(), "ebr-test-run-"));
+  }
+  return runRootPromise;
+}
+
 /**
- * Create a temporary directory for testing.
+ * Create a temporary directory for testing, nested inside the per-file run
+ * root so it is cleaned up automatically after the test file finishes.
  * @param {string} [prefix="ebr-test-"] - Temp dir name prefix.
  * @returns {Promise<string>}
  */
 export async function createTempDir(prefix = "ebr-test-") {
-  return mkdtemp(join(tmpdir(), prefix));
+  const root = await getRunRoot();
+  return mkdtemp(join(root, prefix));
+}
+
+/**
+ * Remove the per-file run root and everything created under it. Registered as
+ * an afterAll hook via tests/temp-cleanup.js. This is a best-effort backstop:
+ * a leftover temp dir is a nuisance, not a test failure, so a removal failure
+ * warns rather than throws.
+ */
+export async function cleanupTempRoot() {
+  if (!runRootPromise) return;
+  const root = await runRootPromise.catch(() => null);
+  runRootPromise = null;
+  if (!root) return;
+  try {
+    await rm(root, { recursive: true, force: true });
+  } catch (err) {
+    console.warn(`[tests] could not remove temp root ${root}: ${err?.message ?? err}`);
+  }
 }
 
 /**

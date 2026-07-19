@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import simpleGit from "simple-git";
+import { createTempDir } from "./helpers.js";
 import {
   isRepo,
   initRepo,
@@ -31,11 +31,12 @@ import {
   DirtyWorkingTreeError,
 } from "../src/errors.js";
 
-// --- Helpers ---
+// Real git subprocess spawns are slow on some machines so the default 5s
+// test / 10s hook timeouts cause spurious failures. This is an
+// integration suite where slowness is expected; give it generous headroom.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
-async function createTempDir() {
-  return mkdtemp(join(tmpdir(), "ebr-git-test-"));
-}
+// --- Helpers ---
 
 /** Initialize a repo with user config so commits work. */
 async function initTestRepo(dir) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import simpleGit from "simple-git";
@@ -7,6 +7,11 @@ import { readManifest, buildManifest, toId } from "../src/manifest.js";
 import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push } from "../src/git.js";
 import { ManifestError, NothingToCommitError, GitError, ValidationError, ForkOutOfSyncError } from "../src/errors.js";
 import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "./helpers.js";
+
+// Real git subprocess spawns are slow on some machines so the default 5s
+// test / 10s hook timeouts cause spurious failures. This is an
+// integration suite where slowness is expected; give it generous headroom.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 // --- Helpers ---
 
@@ -137,12 +142,15 @@ describe("modBranchName", () => {
 
 describe("scaffoldMod", () => {
   let tmpDir;
-  let forkDir;  // Bare repo simulating the user's fork
+  let forkDir;  // Bare repo simulating the user's fork (shared, immutable)
   let baseDir;  // Bare repo simulating upstream base-content; shares root with forkDir
 
-  beforeEach(async () => {
-    tmpDir = await createTempDir();
-
+  // The fork + upstream fixture is built once for the whole describe. scaffoldMod
+  // only reads these bare repos (clone + fetch), never writes to them, so they are
+  // safe to share across tests - building them per-test cost ~1.5s each. The one
+  // test that needs an upstream ahead of the fork builds its own base locally so it
+  // does not mutate the shared fixture.
+  beforeAll(async () => {
     // Create a working repo with one commit; clone twice as bare so the
     // fork and upstream share the same root commit (i.e. the fork is in
     // sync with upstream).
@@ -166,10 +174,17 @@ describe("scaffoldMod", () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+  afterAll(async () => {
     await rm(forkDir, { recursive: true, force: true });
     await rm(baseDir, { recursive: true, force: true });
+  });
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir();
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
   });
 
   it("clones the fork and writes manifest to disk", async () => {
@@ -299,27 +314,35 @@ describe("scaffoldMod", () => {
   });
 
   it("branches from base/main when fork main is behind upstream", async () => {
-    // Push a new commit to baseDir (upstream) so it's ahead of forkDir.
+    // Build a private upstream base one commit ahead of the shared fork, without
+    // mutating the shared baseDir fixture. Clone the fork, add a commit, and bare
+    // it - the result shares history with the fork but is one commit ahead.
     const upstreamWork = await createTempDir("ebr-upstream-work-");
-    await simpleGit().clone(baseDir, upstreamWork);
+    await simpleGit().clone(forkDir, upstreamWork);
     const ug = simpleGit(upstreamWork);
     await ug.addConfig("user.name", "Upstream");
     await ug.addConfig("user.email", "upstream@example.com");
     await writeFile(join(upstreamWork, "NEW_FILE.md"), "new upstream content\n");
     await ug.add("-A");
     await ug.commit("Add new file upstream");
-    await ug.push("origin", "main");
+    const aheadBase = await createTempDir("ebr-base-ahead-");
+    await rm(aheadBase, { recursive: true, force: true });
+    await simpleGit().clone(upstreamWork, aheadBase, ["--bare"]);
     await rm(upstreamWork, { recursive: true, force: true });
 
-    // Now scaffoldMod: fork is 1 commit behind upstream.
-    const subDir = join(tmpDir, "my-mod");
-    const manifest = buildManifest(BASE_OPTIONS);
-    await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: baseDir });
+    try {
+      // Now scaffoldMod: fork is 1 commit behind this upstream.
+      const subDir = join(tmpDir, "my-mod");
+      const manifest = buildManifest(BASE_OPTIONS);
+      await scaffoldMod({ dir: subDir, manifest, forkUrl: forkDir, baseRepoUrl: aheadBase });
 
-    // The mod branch should contain the new upstream file.
-    const g = simpleGit(subDir);
-    const files = await g.raw(["ls-tree", "--name-only", "HEAD"]);
-    expect(files).toContain("NEW_FILE.md");
+      // The mod branch should contain the new upstream file.
+      const g = simpleGit(subDir);
+      const files = await g.raw(["ls-tree", "--name-only", "HEAD"]);
+      expect(files).toContain("NEW_FILE.md");
+    } finally {
+      await rm(aheadBase, { recursive: true, force: true });
+    }
   });
 });
 
@@ -329,9 +352,9 @@ describe("scaffoldModIntoClone", () => {
   let tmpDir;
   let forkDir;
 
-  beforeEach(async () => {
-    tmpDir = await createTempDir();
-
+  // The fork bare repo is read-only for these tests (they clone from it into
+  // their own dirs), so build it once for the describe rather than per-test.
+  beforeAll(async () => {
     // Create a bare repo with a main branch to simulate the user's fork
     forkDir = await createTempDir("ebr-fork-");
     const workDir = await createTempDir("ebr-fork-work-");
@@ -348,9 +371,16 @@ describe("scaffoldModIntoClone", () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
+  afterAll(async () => {
+    await rm(forkDir, { recursive: true, force: true });
+  });
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir();
+  });
+
   afterEach(async () => {
     await rm(tmpDir, { recursive: true, force: true });
-    await rm(forkDir, { recursive: true, force: true });
   });
 
   it("fetches origin and creates branch from origin/main when no base remote", async () => {

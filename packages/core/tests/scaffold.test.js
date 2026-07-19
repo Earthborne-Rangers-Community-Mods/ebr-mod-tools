@@ -1,10 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { mkdtemp } from "node:fs/promises";
 import simpleGit from "simple-git";
-import { createProgressCollector } from "./helpers.js";
+import { createProgressCollector, createTempDir } from "./helpers.js";
 
 // --- Mocks for the unit-style cases (product math) ---
 // These are pure functions; no mocks needed for those describes.
@@ -22,6 +20,11 @@ import {
   NothingToCommitError,
 } from "../src/errors.js";
 import { SCAFFOLD_NAME_TOKEN } from "../src/catalogs.js";
+
+// Real git subprocess spawns are slow on some machines so the default 5s
+// test / 10s hook timeouts cause spurious failures. This is an
+// integration suite where slowness is expected; give it generous headroom.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 // --- computeMissingScaffoldProduct ---
 
@@ -73,7 +76,7 @@ describe("computeMissingScaffoldProduct", () => {
  * `scaffoldRepoUrl` to includeScaffold to bypass the real network call.
  */
 async function buildScaffoldRemote({ branch, files }) {
-  const dir = await mkdtemp(join(tmpdir(), "ebr-scaffold-remote-"));
+  const dir = await createTempDir("ebr-scaffold-remote-");
   const git = simpleGit(dir);
   await git.init();
   await git.addConfig("user.name", "Scaffold Bot");
@@ -101,7 +104,7 @@ async function buildScaffoldRemote({ branch, files }) {
  * Build a destination mod repo (initialized, with a manifest committed).
  */
 async function buildModRepo({ manifest }) {
-  const dir = await mkdtemp(join(tmpdir(), "ebr-mod-"));
+  const dir = await createTempDir("ebr-mod-");
   const git = simpleGit(dir);
   await git.init();
   await git.addConfig("user.name", "Mod Author");
@@ -143,7 +146,7 @@ const VALID_MANIFEST = {
 
 describe("includeScaffold", () => {
   it("throws NotARepoError when dir is not a git repo", async () => {
-    const dir = track(await mkdtemp(join(tmpdir(), "ebr-not-repo-")));
+    const dir = track(await createTempDir("ebr-not-repo-"));
     await expect(
       includeScaffold({ dir, source: "map/foo", scaffoldRepoUrl: "ignored" }),
     ).rejects.toBeInstanceOf(NotARepoError);
@@ -160,7 +163,7 @@ describe("includeScaffold", () => {
   });
 
   it("throws ManifestNotFoundError when ebr-mod.json is missing", async () => {
-    const dir = track(await mkdtemp(join(tmpdir(), "ebr-no-manifest-")));
+    const dir = track(await createTempDir("ebr-no-manifest-"));
     const git = simpleGit(dir);
     await git.init();
     await git.addConfig("user.name", "X");

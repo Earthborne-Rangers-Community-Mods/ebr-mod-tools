@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { createTempDir } from "./helpers.js";
 import {
   getConfig,
   setConfig,
@@ -47,7 +47,7 @@ describe("getConfig", () => {
   let tmpDir;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
+    tmpDir = await createTempDir("ebr-config-test-");
   });
 
   afterEach(async () => {
@@ -101,7 +101,7 @@ describe("setConfig", () => {
   let tmpDir;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
+    tmpDir = await createTempDir("ebr-config-test-");
   });
 
   afterEach(async () => {
@@ -180,7 +180,7 @@ describe("getForkUrls", () => {
   let tmpDir;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
+    tmpDir = await createTempDir("ebr-config-test-");
   });
 
   afterEach(async () => {
@@ -217,7 +217,7 @@ describe("setForkUrls", () => {
   let tmpDir;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
+    tmpDir = await createTempDir("ebr-config-test-");
   });
 
   afterEach(async () => {
@@ -274,7 +274,7 @@ describe("clearForkUrls", () => {
   let tmpDir;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
+    tmpDir = await createTempDir("ebr-config-test-");
   });
 
   afterEach(async () => {
@@ -306,7 +306,7 @@ describe("getAuthorDefaults", () => {
   let tmpDir;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
+    tmpDir = await createTempDir("ebr-config-test-");
   });
 
   afterEach(async () => {
@@ -349,7 +349,7 @@ describe("setAuthorDefaults", () => {
   let tmpDir;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
+    tmpDir = await createTempDir("ebr-config-test-");
   });
 
   afterEach(async () => {
@@ -413,7 +413,7 @@ describe("clearAuthorDefaults", () => {
   let tmpDir;
 
   beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "ebr-config-test-"));
+    tmpDir = await createTempDir("ebr-config-test-");
   });
 
   afterEach(async () => {

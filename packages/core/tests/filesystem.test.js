@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { createTempDir } from "./helpers.js";
 
 import {
   isPathInside,
@@ -162,7 +163,7 @@ describe("listFilesRecursive", () => {
   });
 
   async function makeDir() {
-    const dir = await mkdtemp(join(tmpdir(), "ebr-lfs-"));
+    const dir = await createTempDir("ebr-lfs-");
     cleanup.push(dir);
     return dir;
   }
@@ -315,7 +316,7 @@ describe("realPathOfDestination", () => {
   });
 
   it("resolves a path whose parent exists but the file itself does not", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ebr-rpd-"));
+    const dir = await createTempDir("ebr-rpd-");
     cleanup.push(dir);
     const dest = join(dir, "missing.md");
     const result = await realPathOfDestination(dest);
@@ -323,7 +324,7 @@ describe("realPathOfDestination", () => {
   });
 
   it("resolves a path whose parent directories do not yet exist", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ebr-rpd-"));
+    const dir = await createTempDir("ebr-rpd-");
     cleanup.push(dir);
     const dest = join(dir, "new", "deep", "file.md");
     const result = await realPathOfDestination(dest);
