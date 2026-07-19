@@ -1,0 +1,36 @@
+/**
+ * Thin bridge to main-process capabilities the renderer cannot reach directly.
+ */
+import { ipcRenderer } from "electron";
+
+/** Public Mod Manager website, opened in the user's external browser. */
+export const MOD_MANAGER_URL =
+  "https://earthborne-rangers-community-mods.github.io/ebr-mod-manager/";
+
+/**
+ * Open the native directory picker.
+ * @param {string} [defaultPath] - Folder to open the picker in, if it still exists.
+ * @returns {Promise<string|null>} The chosen absolute path, or null if cancelled.
+ */
+export function pickDirectory(defaultPath) {
+  return ipcRenderer.invoke("dialog:pickDirectory", defaultPath);
+}
+
+/**
+ * Hand a URL to the OS shell (browser or protocol handler). Main enforces a
+ * scheme allowlist (http, https, obsidian); anything else is dropped.
+ * @param {string} url
+ * @returns {Promise<boolean>} Whether the URL was launched.
+ */
+export function openExternal(url) {
+  return ipcRenderer.invoke("shell:openExternal", url);
+}
+
+/**
+ * Open a mod's vault folder in Obsidian by its absolute path.
+ * @param {string} dir - Absolute path to the mod directory.
+ * @returns {Promise<boolean>}
+ */
+export function openInObsidian(dir) {
+  return openExternal(`obsidian://open?path=${encodeURIComponent(dir)}`);
+}

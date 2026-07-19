@@ -1,5 +1,7 @@
 <script>
+  import { onMount } from "svelte";
   import { navigation, ROUTES } from "./lib/navigation.svelte.js";
+  import { openMods } from "./lib/mods.svelte.js";
   import MyMods from "./pages/MyMods.svelte";
   import Setup from "./pages/Setup.svelte";
   import NewMod from "./pages/NewMod.svelte";
@@ -15,6 +17,8 @@
   };
 
   const CurrentPage = $derived(PAGES[navigation.route] ?? MyMods);
+
+  onMount(() => openMods.init());
 </script>
 
 <main class="content">

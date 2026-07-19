@@ -14,7 +14,8 @@ end over the workspace `core` package.
   untrusted markup must never be rendered here without sanitization and
   isolation.
 - **Main process:** creates the window and handles window creation, navigation
-  blocking, and external-link-to-shell handling only - no core logic.
+  blocking, and external-link-to-shell handling. It also exposes a minimal IPC
+  surface for native tasks the node-integrated renderer cannot reach directly.
 - **Design system:** `src/renderer/src/app.css` holds the shared visual language
   ported from `ebr-mod-manager` - CSS design tokens, the light and dark palettes
   (`data-theme` plus a `prefers-color-scheme` fallback), and base component
@@ -26,6 +27,12 @@ end over the workspace `core` package.
   Because Chromium's module loader cannot resolve bare specifiers from an ES
   module, `vite-plugin-electron-renderer` rewrites those external imports into
   CommonJS `require()` calls, which the node-integrated renderer resolves at runtime.
+- **Localization:** user-facing strings come from `messages/en.json` (inlang
+  message format). The `@inlang/paraglide-js` Vite plugin compiles them into
+  typed message functions under `src/renderer/src/lib/paraglide/` at build and dev time.
+  Components import them as `import * as m from "../lib/paraglide/messages.js"` and call
+  `m.key()` (or `m.key({ param })` for interpolated strings). At present, the app only
+  ships the `en` locale.
 - **Packaging:** electron-builder targets Windows (NSIS) and macOS (dmg). The
   GUI declares a runtime dependency on the private `core` workspace package, so
   electron-builder's production-dependency collection copies core and its
@@ -34,8 +41,12 @@ end over the workspace `core` package.
 
 ```
 packages/gui/
-  electron.vite.config.mjs   # electron-vite build config (+ renderer CSP)
+  electron.vite.config.mjs   # electron-vite build config
   electron-builder.yml       # Windows + macOS packaging config
+  messages/
+    en.json                  # UI strings (inlang message format)
+  project.inlang/
+    settings.json            # inlang project config (baseLocale en)
   src/
     main/index.js            # Electron main process entry (window + guards)
     renderer/
@@ -50,7 +61,10 @@ packages/gui/
         components/          # Shared controls used by multiple pages
         lib/
           navigation.svelte.js  # In-memory route state
+          mods.svelte.js        # Open-mods store (localStorage + on-disk manifests)
+          platform.js           # Main-process bridge (picker, external launch)
           placeholder.js        # Sample data for the blockout pages
+          paraglide/            # Generated message functions
         pages/
           MyMods.svelte           # Mod list + account header
           Setup.svelte            # Credential/fork/author setup
@@ -87,6 +101,7 @@ npm run package:mac --workspace packages/gui     # macOS (dmg)
 | UI framework | Svelte 5 (plain SPA) |
 | Runtime | Electron |
 | Packaging | electron-builder |
+| Localization | inlang message format + `@inlang/paraglide-js` |
 
 ## Troubleshooting
 

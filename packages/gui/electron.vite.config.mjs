@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import renderer from "vite-plugin-electron-renderer";
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 
 /**
  * The renderer keeps `core`'s runtime dependencies external (loaded via
@@ -82,6 +83,11 @@ export default defineConfig({
       }),
       svelte(),
       rendererCsp(),
+      paraglideVitePlugin({
+        project: "./project.inlang",
+        outdir: "./src/renderer/src/lib/paraglide",
+        strategy: ["baseLocale"],
+      }),
     ],
   },
 });

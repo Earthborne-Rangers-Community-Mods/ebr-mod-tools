@@ -8,6 +8,9 @@ dist/
 out/
 release/
 
+# Paraglide generated messages (packages/gui)
+packages/gui/src/renderer/src/lib/paraglide/
+
 # Logs
 *.log
 npm-debug.log*

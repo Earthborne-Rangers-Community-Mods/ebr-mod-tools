@@ -1,5 +1,6 @@
-import { app, BrowserWindow, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import { join } from "node:path";
+import { isAllowedExternalUrl } from "./url-allowlist.js";
 
 /**
  * Create the main application window. The renderer runs with nodeIntegration on,
@@ -26,10 +27,8 @@ function createWindow() {
   window.once("ready-to-show", () => window.show());
 
   // Open external links in the user's browser, never inside an Electron window.
-  // Only http(s) URLs are handed to the OS shell; any other scheme is dropped so
-  // a compromised renderer cannot trigger arbitrary external protocol handlers.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https://") || url.startsWith("http://")) {
+    if (isAllowedExternalUrl(url)) {
       shell.openExternal(url);
     }
     return { action: "deny" };
@@ -63,6 +62,36 @@ function sameOrigin(a, b) {
     return false;
   }
 }
+
+// Renderer-privileged capabilities the node-integrated renderer cannot reach
+// directly.
+ipcMain.handle("dialog:pickDirectory", async (_event, defaultPath) => {
+  const parent = BrowserWindow.getFocusedWindow();
+  const options = { properties: ["openDirectory"] };
+  if (typeof defaultPath === "string" && defaultPath) {
+    options.defaultPath = defaultPath;
+  }
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+});
+
+ipcMain.handle("shell:openExternal", async (_event, url) => {
+  if (!isAllowedExternalUrl(url)) {
+    return false;
+  }
+  try {
+    await shell.openExternal(url);
+    return true;
+  } catch {
+    // No registered handler for the scheme (e.g. Obsidian not installed)
+    return false;
+  }
+});
 
 app.whenReady().then(() => {
   // Deny every renderer permission request (camera, microphone, geolocation,

@@ -1,10 +1,15 @@
 <script>
   import BackButton from "../components/BackButton.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
+  import { openMods } from "../lib/mods.svelte.js";
   import { findPlaceholderMod, PLACEHOLDER_MODS } from "../lib/placeholder.js";
   import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
 
-  const mod = $derived(findPlaceholderMod(navigation.selectedModId) ?? PLACEHOLDER_MODS[0]);
+  const mod = $derived(
+    openMods.get(navigation.selectedModId)?.manifest ??
+      findPlaceholderMod(navigation.selectedModId) ??
+      PLACEHOLDER_MODS[0],
+  );
 
   function typeLabel(typeId) {
     return MOD_TYPES.find((t) => t.id === typeId)?.name ?? typeId;
@@ -80,7 +85,7 @@
     </label>
     <label class="field wide">
       <span>Tags</span>
-      <input type="text" value={mod.tags.join(", ")} />
+      <input type="text" value={(mod.tags ?? []).join(", ")} />
     </label>
     <label class="field wide">
       <span>Repo URL</span>
@@ -93,7 +98,7 @@
     <div class="checks">
       {#each OFFICIAL_CAMPAIGNS as campaign (campaign.id)}
         <label class="check">
-          <input type="checkbox" checked={mod.campaigns.includes(campaign.id)} />
+          <input type="checkbox" checked={(mod.campaigns ?? []).includes(campaign.id)} />
           {campaign.name}
         </label>
       {/each}
@@ -105,7 +110,7 @@
     <div class="checks">
       {#each OFFICIAL_PRODUCTS as product (product.id)}
         <label class="check">
-          <input type="checkbox" checked={mod.requiredProducts.includes(product.id)} />
+          <input type="checkbox" checked={(mod.requiredProducts ?? []).includes(product.id)} />
           {product.name}
         </label>
       {/each}
@@ -117,7 +122,7 @@
     <div class="checks">
       {#each OFFICIAL_PRODUCTS as product (product.id)}
         <label class="check">
-          <input type="checkbox" checked={mod.optionalProducts.includes(product.id)} />
+          <input type="checkbox" checked={(mod.optionalProducts ?? []).includes(product.id)} />
           {product.name}
         </label>
       {/each}
