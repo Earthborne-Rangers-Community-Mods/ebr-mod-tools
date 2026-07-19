@@ -1,16 +1,15 @@
 <script>
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
-  import { PLACEHOLDER_ACCOUNT } from "../lib/placeholder.js";
   import { openMods } from "../lib/mods.svelte.js";
+  import { setupStore } from "../lib/setup.svelte.js";
   import { pickDirectory, openInObsidian, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { MOD_TYPES } from "core";
   import { basename } from "node:path";
   import * as m from "../lib/paraglide/messages.js";
   import obsidianLogo from "../assets/icons/obsidian-logo.svg";
   import discordLogo from "../assets/icons/discord-logo.svg";
+  import githubLogo from "../assets/icons/github-logo.svg";
   import gearIcon from "../assets/icons/gear.svg";
-
-  const account = PLACEHOLDER_ACCOUNT;
 
   let addError = $state(null);
   let confirmDir = $state(null);
@@ -71,10 +70,17 @@
   <header class="account">
     <div>
       <p class="account-label">{m.mymods_signed_in_as()}</p>
-      <p class="account-login">{account.login}</p>
+      <p class="account-login">
+        <span
+          class="github-logo"
+          style={`--github-mask: url("${githubLogo}")`}
+          aria-hidden="true"
+        ></span>
+        {setupStore.displayLogin ?? m.mymods_no_account()}
+      </p>
       <p class="account-author">
-        {account.author}
-        {#if account.authorDiscord}
+        {setupStore.author || setupStore.displayLogin || ""}
+        {#if setupStore.authorDiscord}
           <span class="muted discord-handle">
             &middot;
             <span
@@ -82,7 +88,7 @@
               style={`--discord-mask: url("${discordLogo}")`}
               aria-hidden="true"
             ></span>
-            {account.authorDiscord}
+            {setupStore.authorDiscord}
           </span>
         {/if}
       </p>
@@ -224,8 +230,28 @@
   }
 
   .account-login {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    color: var(--color-github-logo);
     font-weight: 700;
     font-size: 1.1rem;
+  }
+
+  .github-logo {
+    display: inline-block;
+    width: 1.1rem;
+    height: 1.1rem;
+    flex-shrink: 0;
+    background-color: var(--color-github-logo);
+    mask-image: var(--github-mask);
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+    -webkit-mask-image: var(--github-mask);
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    -webkit-mask-size: contain;
   }
 
   .account-author {

@@ -91,6 +91,9 @@
   --color-error: #b91c1c;
   --color-success: #3a5e3f;
   --color-focus: #a8462e;
+  /* GitHub Invertocat tint - a brand-permitted color so the logo is never
+     recolored to a theme hue. Flips to white in dark mode. */
+  --color-github-logo: #1b1f23;
 }
 
 /* --- Dark palette (single source of truth) --- */
@@ -113,6 +116,7 @@
   --_dark-error: #ef6c5e;
   --_dark-success: #7ba87f;
   --_dark-focus: #c97a5e;
+  --_dark-github-logo: #ffffff;
 }
 
 :root[data-theme="dark"] {
@@ -130,6 +134,7 @@
   --color-error: var(--_dark-error);
   --color-success: var(--_dark-success);
   --color-focus: var(--_dark-focus);
+  --color-github-logo: var(--_dark-github-logo);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -148,6 +153,7 @@
     --color-error: var(--_dark-error);
     --color-success: var(--_dark-success);
     --color-focus: var(--_dark-focus);
+    --color-github-logo: var(--_dark-github-logo);
   }
 }
 

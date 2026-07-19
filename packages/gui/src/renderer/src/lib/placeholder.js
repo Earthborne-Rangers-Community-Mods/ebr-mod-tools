@@ -2,17 +2,6 @@
  * Placeholder data for the nonfunctional page blockouts.
  */
 
-/** Stand-in for the active GitHub account and author defaults (see `ebr setup`). */
-export const PLACEHOLDER_ACCOUNT = Object.freeze({
-  login: "modcreator",
-  author: "ModCreatorName",
-  authorDiscord: "modcreator#1234",
-  baseContentFork: "https://github.com/modcreator/ebr-mod-base-content",
-  registryFork: "https://github.com/modcreator/ebr-mod-registry",
-  credentialsOk: true,
-  forksReady: true,
-});
-
 /** Stand-in mods for the My Mods list and Mod Details view. */
 export const PLACEHOLDER_MODS = Object.freeze([
   {

@@ -26,7 +26,13 @@ function rendererCsp() {
     name: "ebr-renderer-csp",
     transformIndexHtml(html, ctx) {
       const isDev = Boolean(ctx.server);
-      const connectSrc = isDev ? "'self' ws: wss:" : "'self'";
+      // The renderer reaches the GitHub REST API directly (Octokit) to resolve
+      // the signed-in login and create forks, so api.github.com must be an
+      // allowed connect target.
+      const githubApi = "https://api.github.com";
+      const connectSrc = isDev
+        ? `'self' ${githubApi} ws: wss:`
+        : `'self' ${githubApi}`;
       const content =
         [
           "default-src 'self'",
