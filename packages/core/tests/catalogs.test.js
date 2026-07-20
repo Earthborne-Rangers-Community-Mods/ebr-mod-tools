@@ -4,6 +4,8 @@ import {
   OFFICIAL_CAMPAIGNS,
   OFFICIAL_PRODUCTS,
   MOD_TYPES,
+  impliedProductsForCampaigns,
+  impliedProductsForScaffolds,
 } from "../src/catalogs.js";
 
 // --- KNOWN_SCAFFOLDS structural integrity ---
@@ -171,5 +173,92 @@ describe("MOD_TYPES", () => {
       expect(typeof t.description).toBe("string");
       expect(t.description.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// --- impliedProductsForCampaigns ---
+
+describe("impliedProductsForCampaigns", () => {
+  it("returns an empty Set for an empty array", () => {
+    const result = impliedProductsForCampaigns([]);
+    expect(result).toBeInstanceOf(Set);
+    expect(result.size).toBe(0);
+  });
+
+  it("returns products for a known campaign", () => {
+    // lure-of-the-valley requires only core-set
+    const result = impliedProductsForCampaigns(["lure-of-the-valley"]);
+    expect(result).toEqual(new Set(["core-set"]));
+  });
+
+  it("returns all required products for a multi-product campaign", () => {
+    // spire-in-bloom requires core-set and spire-in-bloom
+    const result = impliedProductsForCampaigns(["spire-in-bloom"]);
+    expect(result).toEqual(new Set(["core-set", "spire-in-bloom"]));
+  });
+
+  it("unions products across multiple campaigns without duplicates", () => {
+    // shadow-of-the-storm also requires core-set; union must not double-add it
+    const result = impliedProductsForCampaigns(["lure-of-the-valley", "shadow-of-the-storm"]);
+    expect(result).toEqual(new Set(["core-set", "shadow-of-the-storm"]));
+  });
+
+  it("ignores unknown (custom) campaign ids", () => {
+    const result = impliedProductsForCampaigns(["my-custom-campaign"]);
+    expect(result.size).toBe(0);
+  });
+
+  it("mixes known and unknown ids correctly", () => {
+    const result = impliedProductsForCampaigns(["lure-of-the-valley", "my-custom-campaign"]);
+    expect(result).toEqual(new Set(["core-set"]));
+  });
+
+  it("returns a fresh Set on each call", () => {
+    const a = impliedProductsForCampaigns(["lure-of-the-valley"]);
+    const b = impliedProductsForCampaigns(["lure-of-the-valley"]);
+    expect(a).not.toBe(b);
+  });
+});
+
+// --- impliedProductsForScaffolds ---
+
+describe("impliedProductsForScaffolds", () => {
+  it("returns an empty Set for an empty array", () => {
+    const result = impliedProductsForScaffolds([]);
+    expect(result).toBeInstanceOf(Set);
+    expect(result.size).toBe(0);
+  });
+
+  it("returns the product for a known scaffold branch", () => {
+    const result = impliedProductsForScaffolds(["map/lure-of-the-valley"]);
+    expect(result).toEqual(new Set(["core-set"]));
+  });
+
+  it("unions products across multiple scaffold branches without duplicates", () => {
+    // set/the-valley also requires core-set; union must not double-add it
+    const result = impliedProductsForScaffolds(["map/lure-of-the-valley", "set/the-valley"]);
+    expect(result).toEqual(new Set(["core-set"]));
+  });
+
+  it("utility scaffolds with no product field contribute nothing", () => {
+    // set/custom-campaign and set/custom-one-day-mission have no product
+    const result = impliedProductsForScaffolds(["set/custom-campaign", "set/custom-one-day-mission"]);
+    expect(result.size).toBe(0);
+  });
+
+  it("ignores unknown scaffold branch names", () => {
+    const result = impliedProductsForScaffolds(["map/nonexistent-branch"]);
+    expect(result.size).toBe(0);
+  });
+
+  it("mixes known and unknown branches correctly", () => {
+    const result = impliedProductsForScaffolds(["map/spire-in-bloom", "map/nonexistent-branch"]);
+    expect(result).toEqual(new Set(["spire-in-bloom"]));
+  });
+
+  it("returns a fresh Set on each call", () => {
+    const a = impliedProductsForScaffolds(["map/lure-of-the-valley"]);
+    const b = impliedProductsForScaffolds(["map/lure-of-the-valley"]);
+    expect(a).not.toBe(b);
   });
 });

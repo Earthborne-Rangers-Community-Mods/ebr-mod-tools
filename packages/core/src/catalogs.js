@@ -115,3 +115,37 @@ export const KNOWN_SCAFFOLDS = Object.freeze([
   { branch: "set/custom-campaign", name: "Custom Campaign"},
   { branch: "set/custom-one-day-mission", name: "One-Day Mission"},
 ]);
+
+/**
+ * Products implied by a set of target campaigns: the union of each campaign's
+ * `requiredProducts` from {@link OFFICIAL_CAMPAIGNS}. Unknown campaign ids
+ * (custom campaigns) contribute nothing. Pure; returns a fresh Set.
+ *
+ * @param {string[]} campaigns - Campaign ids.
+ * @returns {Set<string>} Implied product ids.
+ */
+export function impliedProductsForCampaigns(campaigns) {
+  const products = new Set();
+  for (const id of campaigns) {
+    const campaign = OFFICIAL_CAMPAIGNS.find((c) => c.id === id);
+    if (campaign) for (const p of campaign.requiredProducts) products.add(p);
+  }
+  return products;
+}
+
+/**
+ * Products implied by a set of scaffold branches: the union of each scaffold's
+ * `product` from {@link KNOWN_SCAFFOLDS}. Scaffolds with no product (and
+ * unknown branches) contribute nothing. Pure; returns a fresh Set.
+ *
+ * @param {string[]} branches - Scaffold branch names.
+ * @returns {Set<string>} Implied product ids.
+ */
+export function impliedProductsForScaffolds(branches) {
+  const products = new Set();
+  for (const branch of branches) {
+    const entry = KNOWN_SCAFFOLDS.find((s) => s.branch === branch);
+    if (entry?.product) products.add(entry.product);
+  }
+  return products;
+}

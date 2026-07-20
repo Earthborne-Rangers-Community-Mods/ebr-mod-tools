@@ -6,7 +6,7 @@ import { scaffoldMod, scaffoldModIntoClone, includeCampaign, includeScaffold } f
 import { isRepo, getRemotes } from "core/git.js";
 import { buildManifest, toId, deriveOptionalProducts } from "core/manifest.js";
 import { readManifest, writeManifest, validateNonEmpty, validateName, validateIcon, validateLanguage } from "core/manifest.js";
-import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS, KNOWN_SCAFFOLDS } from "core/catalogs.js";
+import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS, KNOWN_SCAFFOLDS, impliedProductsForCampaigns, impliedProductsForScaffolds } from "core/catalogs.js";
 import { getForkUrls, getAuthorDefaults } from "core/config.js";
 import { checkModIdAvailability } from "core/registry.js";
 import { ManifestNotFoundError, GitError, ValidationError } from "core/errors.js";
@@ -226,26 +226,8 @@ function printModIdWarning(modId, result) {
   }
 }
 
-function impliedProducts(campaigns) {
-  const products = new Set();
-  for (const id of campaigns) {
-    const campaign = OFFICIAL_CAMPAIGNS.find(c => c.id === id);
-    if (campaign) campaign.requiredProducts.forEach(p => products.add(p));
-  }
-  return products;
-}
-
-function scaffoldProducts(scaffoldBranches) {
-  const products = new Set();
-  for (const branch of scaffoldBranches) {
-    const entry = KNOWN_SCAFFOLDS.find(s => s.branch === branch);
-    if (entry && entry.product) products.add(entry.product);
-  }
-  return products;
-}
-
 function productChoices(campaigns, selected = []) {
-  const implied = impliedProducts(campaigns);
+  const implied = impliedProductsForCampaigns(campaigns);
   return OFFICIAL_PRODUCTS.map(p => ({
     name: p.name,
     value: p.id,
@@ -338,7 +320,7 @@ async function promptCampaignType(values) {
   const selectedSets = sets.filter(v => v !== null);
 
   const allScaffolds = ["set/custom-campaign", ...selectedMaps, ...selectedSets];
-  const products = scaffoldProducts(allScaffolds);
+  const products = impliedProductsForScaffolds(allScaffolds);
   if (!values.requiredProducts) {
     values.requiredProducts = [...products];
   }
@@ -677,7 +659,7 @@ async function editField(manifest, key, context) {
           });
           const selectedSets = sets.filter(v => v !== null);
           context.scaffoldsToStamp = ["set/custom-campaign", ...selectedMaps, ...selectedSets];
-          manifest.requiredProducts = [...scaffoldProducts(context.scaffoldsToStamp)];
+          manifest.requiredProducts = [...impliedProductsForScaffolds(context.scaffoldsToStamp)];
         } else if (manifest.type === "one-day-mission") {
           manifest.safeToAddMidCampaign = true;
           delete manifest.midCampaignNotes;

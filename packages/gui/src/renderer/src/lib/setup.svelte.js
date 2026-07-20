@@ -22,6 +22,7 @@ import {
   remoteExists,
   clearCredential,
 } from "core";
+import { runGuarded } from "./guarded.js";
 
 /** Upstream org and repos the creator forks. Mirrors the CLI `setup` command. */
 const ORG = "Earthborne-Rangers-Community-Mods";
@@ -123,27 +124,24 @@ class SetupStore {
    * each configured fork resolves on GitHub. Mirrors `ebr setup --status`.
    */
   async checkStatus() {
-    if (this.busy) return;
-    this.busy = true;
-    this.checkingStatus = true;
-    this.errorCode = null;
-    this.progress = null;
-    try {
-      this.detectedLogin = await resolveCredentialLogin({ interactive: false });
-      this.credentialsChecked = true;
-      await this.#loadConfig();
-      this.baseForkReachable = this.forks.baseContent
-        ? await remoteExists(this.forks.baseContent)
-        : null;
-      this.registryForkReachable = this.forks.registry
-        ? await remoteExists(this.forks.registry)
-        : null;
-    } catch {
-      this.errorCode = "status-failed";
-    } finally {
-      this.busy = false;
-      this.checkingStatus = false;
-    }
+    await runGuarded(
+      this,
+      "status-failed",
+      async () => {
+        this.checkingStatus = true;
+        this.progress = null;
+        this.detectedLogin = await resolveCredentialLogin({ interactive: false });
+        this.credentialsChecked = true;
+        await this.#loadConfig();
+        this.baseForkReachable = this.forks.baseContent
+          ? await remoteExists(this.forks.baseContent)
+          : null;
+        this.registryForkReachable = this.forks.registry
+          ? await remoteExists(this.forks.registry)
+          : null;
+      },
+      { finalize: () => { this.checkingStatus = false; } },
+    );
   }
 
   /**
@@ -154,73 +152,67 @@ class SetupStore {
    * Mirrors the interactive `ebr setup` flow.
    */
   async runSetup() {
-    if (this.busy) return;
-    this.busy = true;
-    this.settingUpForks = true;
-    this.errorCode = null;
-    this.progress = null;
-    this.manualForks = [];
-    try {
-      const login = await resolveCredentialLogin({ interactive: true });
-      this.credentialsChecked = true;
-      this.detectedLogin = login;
-      if (!login) {
-        this.errorCode = "no-sign-in";
-        return;
-      }
-
-      const manual = [];
-      for (const repo of [BASE_CONTENT_REPO, REGISTRY_REPO]) {
-        const result = await ensureFork(
-          { owner: ORG, repo, login },
-          { onProgress: (p) => (this.progress = p.message) },
-        );
-        if (result.status === "manual") {
-          manual.push({ repo, browserUrl: BROWSER_FORK_URLS[repo] });
-        }
-      }
-
-      // Manual forks drive their own instructional block in the UI; a re-run
-      // after the user creates them finds them via ensureFork and completes.
-      if (manual.length > 0) {
-        this.manualForks = manual;
+    await runGuarded(
+      this,
+      "setup-failed",
+      async () => {
+        this.settingUpForks = true;
         this.progress = null;
-        return;
-      }
-
-      await setForkUrls({
-        baseContent: forkUrlFor(login, BASE_CONTENT_REPO),
-        registry: forkUrlFor(login, REGISTRY_REPO),
-      });
-      await this.#loadConfig();
-      this.baseForkReachable = true;
-      this.registryForkReachable = true;
-      this.progress = null;
-
-      // Seed the author default from the login when nothing is stored yet
-      if (!this.author) {
-        this.author = login;
-        try {
-          await setAuthorDefaults({ author: login });
-          this.savedAuthor = login;
-        } catch {
-          // Non-fatal: leave the seeded name as an unsaved edit to save by hand.
+        this.manualForks = [];
+        const login = await resolveCredentialLogin({ interactive: true });
+        this.credentialsChecked = true;
+        this.detectedLogin = login;
+        if (!login) {
+          this.errorCode = "no-sign-in";
+          return;
         }
-      }
-    } catch {
-      this.errorCode = "setup-failed";
-    } finally {
-      this.busy = false;
-      this.settingUpForks = false;
-    }
+
+        const manual = [];
+        for (const repo of [BASE_CONTENT_REPO, REGISTRY_REPO]) {
+          const result = await ensureFork(
+            { owner: ORG, repo, login },
+            { onProgress: (p) => (this.progress = p.message) },
+          );
+          if (result.status === "manual") {
+            manual.push({ repo, browserUrl: BROWSER_FORK_URLS[repo] });
+          }
+        }
+
+        // Manual forks drive their own instructional block in the UI; a re-run
+        // after the user creates them finds them via ensureFork and completes.
+        if (manual.length > 0) {
+          this.manualForks = manual;
+          this.progress = null;
+          return;
+        }
+
+        await setForkUrls({
+          baseContent: forkUrlFor(login, BASE_CONTENT_REPO),
+          registry: forkUrlFor(login, REGISTRY_REPO),
+        });
+        await this.#loadConfig();
+        this.baseForkReachable = true;
+        this.registryForkReachable = true;
+        this.progress = null;
+
+        // Seed the author default from the login when nothing is stored yet
+        if (!this.author) {
+          this.author = login;
+          try {
+            await setAuthorDefaults({ author: login });
+            this.savedAuthor = login;
+          } catch {
+            // Non-fatal: leave the seeded name as an unsaved edit to save by hand.
+          }
+        }
+      },
+      { finalize: () => { this.settingUpForks = false; } },
+    );
   }
 
   /** Persist the author name and Discord handle. Mirrors `ebr setup --author`. */
   async saveAuthorDefaults() {
-    if (this.busy) return;
-    this.busy = true;
-    this.errorCode = null;
-    try {
+    await runGuarded(this, "save-failed", async () => {
       const author = this.author.trim();
       const discord = this.authorDiscord.trim();
       await setAuthorDefaults({
@@ -231,19 +223,12 @@ class SetupStore {
       this.authorDiscord = discord;
       this.savedAuthor = author;
       this.savedAuthorDiscord = discord;
-    } catch {
-      this.errorCode = "save-failed";
-    } finally {
-      this.busy = false;
-    }
+    });
   }
 
   /** Clear stored fork URLs and author defaults. Mirrors `ebr setup --clear`. */
   async clearStoredSetup() {
-    if (this.busy) return;
-    this.busy = true;
-    this.errorCode = null;
-    try {
+    await runGuarded(this, "clear-failed", async () => {
       await clearForkUrls();
       await clearAuthorDefaults();
       this.forks = { baseContent: null, registry: null };
@@ -256,11 +241,7 @@ class SetupStore {
       this.baseForkReachable = null;
       this.registryForkReachable = null;
       this.manualForks = [];
-    } catch {
-      this.errorCode = "clear-failed";
-    } finally {
-      this.busy = false;
-    }
+    });
   }
 
   /**
@@ -268,21 +249,14 @@ class SetupStore {
    * different account. Mirrors the CLI's "switch account" affordance.
    */
   async switchAccount() {
-    if (this.busy) return;
-    this.busy = true;
-    this.errorCode = null;
-    try {
+    await runGuarded(this, "switch-failed", async () => {
       const cleared = await clearCredential();
       this.detectedLogin = null;
       this.credentialsChecked = false;
       if (!cleared) {
         this.errorCode = "switch-manual";
       }
-    } catch {
-      this.errorCode = "switch-failed";
-    } finally {
-      this.busy = false;
-    }
+    });
   }
 }
 

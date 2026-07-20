@@ -9,6 +9,7 @@ import { ManifestError, ManifestNotFoundError, ManifestParseError } from "./erro
 import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "./catalogs.js";
 
 const MANIFEST_FILENAME = "ebr-mod.json";
+export const DEFAULT_MOD_ICON = "\uD83C\uDFD4\uFE0F"; // mountain
 
 const REQUIRED_FIELDS = [
   "schemaVersion",
@@ -575,7 +576,7 @@ export function buildManifest(options) {
   if (options.authorDiscord) manifest.authorDiscord = options.authorDiscord;
   if (options.optionalProducts) manifest.optionalProducts = options.optionalProducts;
   if (options.midCampaignNotes) manifest.midCampaignNotes = options.midCampaignNotes;
-  manifest.icon = options.icon || "🏔️";
+  manifest.icon = options.icon || DEFAULT_MOD_ICON;
   if (options.type === "collection") manifest.includedMods = options.includedMods || [];
 
   return manifest;

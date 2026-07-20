@@ -30,9 +30,12 @@ function rendererCsp() {
       // the signed-in login and create forks, so api.github.com must be an
       // allowed connect target.
       const githubApi = "https://api.github.com";
+      // The renderer also fetches the public registry (registry.json) anonymously
+      // over raw.githubusercontent
+      const registryHost = "https://raw.githubusercontent.com";
       const connectSrc = isDev
-        ? `'self' ${githubApi} ws: wss:`
-        : `'self' ${githubApi}`;
+        ? `'self' ${githubApi} ${registryHost} ws: wss:`
+        : `'self' ${githubApi} ${registryHost}`;
       const content =
         [
           "default-src 'self'",

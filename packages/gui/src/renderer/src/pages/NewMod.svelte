@@ -1,67 +1,295 @@
 <script>
   import BackButton from "../components/BackButton.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
-  import { MOD_TYPES } from "core";
+  import { setupStore } from "../lib/setup.svelte.js";
+  import {
+    newModForm,
+    MAP_SCAFFOLDS,
+    PATH_SET_SCAFFOLDS,
+    STORY_CAMPAIGNS,
+  } from "../lib/newmod.svelte.js";
+  import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
+  import * as m from "../lib/paraglide/messages.js";
+  import { onMount } from "svelte";
+
+  const form = newModForm;
+
+  onMount(() => form.reset());
+
+  // Localized mod type name + description, keyed off core's MOD_TYPES ids.
+  const TYPE_NAME = {
+    campaign: m.mod_type_campaign_name,
+    enhancement: m.mod_type_enhancement_name,
+    "one-day-mission": m.mod_type_one_day_mission_name,
+    expansion: m.mod_type_expansion_name,
+    collection: m.mod_type_collection_name,
+    theme: m.mod_type_theme_name,
+  };
+  const TYPE_DESC = {
+    campaign: m.mod_type_campaign_desc,
+    enhancement: m.mod_type_enhancement_desc,
+    "one-day-mission": m.mod_type_one_day_mission_desc,
+    expansion: m.mod_type_expansion_desc,
+    collection: m.mod_type_collection_desc,
+    theme: m.mod_type_theme_desc,
+  };
+
+  const ERROR_MESSAGES = {
+    "setup-required": m.newmod_error_setup_required,
+    "invalid-name": m.newmod_error_invalid_name,
+    "invalid-description": m.newmod_error_invalid_description,
+    "invalid-language": m.newmod_error_invalid_language,
+    "invalid-icon": m.newmod_error_invalid_icon,
+    "invalid-author": m.newmod_error_invalid_author,
+    "no-folder": m.newmod_error_no_folder,
+  };
+
+  // Expansions target story campaigns only; other types may target one-day
+  // missions too.
+  const campaignChoices = $derived(
+    form.type === "expansion" ? STORY_CAMPAIGNS : OFFICIAL_CAMPAIGNS,
+  );
+
+  function campaignLabel(campaign) {
+    return campaign.oneDayMission ? `${campaign.name} (${m.newmod_one_day_tag()})` : campaign.name;
+  }
+
+  // Localized inline error for a field the user has blurred (or that failed the
+  // create gate), or null when the field is currently valid.
+  function fieldError(field) {
+    const code = form.fieldErrors[field];
+    return code ? ERROR_MESSAGES[code]?.() : null;
+  }
 </script>
 
 <section class="page">
   <BackButton />
 
-  <h1>New Mod</h1>
-  <p class="lead">
-    Feature-equivalent to <code>ebr new</code>. Walks you through creating a mod
-    as a new branch in your fork.
-  </p>
+  <h1>{m.newmod_title()}</h1>
+  <p class="lead">{m.newmod_lead()}</p>
+
+  {#if !setupStore.completed}
+    <div class="banner warn" role="alert">
+      <span>{m.newmod_setup_required()}</span>
+      <button type="button" class="secondary" onclick={() => navigation.go(ROUTES.SETUP)}>
+        {m.newmod_go_setup()}
+      </button>
+    </div>
+  {/if}
+
+  {#if form.errorCode}
+    <p class="banner error" role="alert">
+      {#if form.errorCode === "create-failed"}
+        {m.newmod_error_create({ detail: form.errorDetail ?? "" })}
+      {:else}
+        {ERROR_MESSAGES[form.errorCode]?.()}
+      {/if}
+    </p>
+  {/if}
+
+  {#if form.completedWithWarnings}
+    <div class="banner warn" role="alert">
+      <p>{m.newmod_created_warnings()}</p>
+      <ul>
+        {#each form.warnings as warning, i (i)}
+          <li>
+            {#if warning.kind === "scaffold"}
+              {m.newmod_warning_scaffold({ branch: warning.ref, detail: warning.detail })}
+            {:else if warning.kind === "campaign-skipped"}
+              {m.newmod_warning_campaign_skipped({ campaign: warning.ref })}
+            {:else}
+              {m.newmod_warning_campaign({ campaign: warning.ref, detail: warning.detail })}
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      <button type="button" class="primary" onclick={() => form.finish()}>{m.newmod_done()}</button>
+    </div>
+  {/if}
 
   <form class="form" onsubmit={(e) => e.preventDefault()}>
     <label class="field">
-      <span>Name</span>
-      <input type="text" placeholder="Expanded Boulder Field" />
+      <span>{m.newmod_field_name()}</span>
+      <input
+        type="text"
+        bind:value={form.name}
+        onblur={() => { form.validateField("name"); form.checkId(); }}
+        placeholder={m.newmod_name_placeholder()}
+        disabled={form.busy}
+      />
+      {#if fieldError("name")}
+        <small class="hint error-text">{fieldError("name")}</small>
+      {/if}
     </label>
     <label class="field">
-      <span>ID</span>
-      <input type="text" placeholder="expanded-boulder-field" />
-      <small class="hint">Derived from the name; lowercase kebab-case.</small>
+      <span>{m.newmod_field_id()}</span>
+      <input type="text" value={form.id} readonly />
+      <small class="hint">{m.newmod_id_hint()}</small>
+      {#if form.idStatus?.status === "claimed"}
+        <small class="hint warn-text">
+          {m.newmod_id_claimed({ author: form.idStatus.entry?.author ?? "" })}
+        </small>
+      {/if}
     </label>
+
     <label class="field">
-      <span>Type</span>
-      <select>
+      <span>{m.newmod_field_type()}</span>
+      <select value={form.type} onchange={(e) => form.setType(e.currentTarget.value)} disabled={form.busy}>
         {#each MOD_TYPES as type (type.id)}
-          <option value={type.id}>{type.name} &mdash; {type.description}</option>
+          <option value={type.id}>
+            {TYPE_NAME[type.id]?.() ?? type.name} &mdash; {TYPE_DESC[type.id]?.() ?? type.description}
+          </option>
         {/each}
       </select>
     </label>
     <label class="field">
-      <span>Author</span>
-      <input type="text" placeholder="ModCreatorName" />
+      <span>{m.newmod_field_author()}</span>
+      <input type="text" bind:value={form.author} onblur={() => form.validateField("author")} placeholder={m.newmod_author_placeholder()} disabled={form.busy} />
+      {#if fieldError("author")}
+        <small class="hint error-text">{fieldError("author")}</small>
+      {/if}
     </label>
     <label class="field">
-      <span>Discord (optional)</span>
-      <input type="text" placeholder="modcreator#1234" />
+      <span>{m.newmod_field_discord()}</span>
+      <input type="text" bind:value={form.authorDiscord} placeholder={m.newmod_discord_placeholder()} disabled={form.busy} />
     </label>
     <label class="field">
-      <span>Icon (optional)</span>
-      <input type="text" placeholder="Emoji" />
+      <span>{m.newmod_field_icon()}</span>
+      <input type="text" bind:value={form.icon} onblur={() => form.validateField("icon")} placeholder={m.newmod_icon_placeholder()} disabled={form.busy} />
+      {#if fieldError("icon")}
+        <small class="hint error-text">{fieldError("icon")}</small>
+      {/if}
     </label>
     <label class="field">
-      <span>Language</span>
-      <input type="text" value="en" />
+      <span>{m.newmod_field_language()}</span>
+      <input type="text" bind:value={form.language} onblur={() => form.validateField("language")} disabled={form.busy} />
+      {#if fieldError("language")}
+        <small class="hint error-text">{fieldError("language")}</small>
+      {/if}
     </label>
     <label class="field wide">
-      <span>Description</span>
-      <textarea rows="2" placeholder="Short description for registry browsing."></textarea>
+      <span>{m.newmod_field_description()}</span>
+      <textarea rows="2" bind:value={form.description} onblur={() => form.validateField("description")} placeholder={m.newmod_description_placeholder()} disabled={form.busy}></textarea>
+      {#if fieldError("description")}
+        <small class="hint error-text">{fieldError("description")}</small>
+      {/if}
     </label>
 
-    <p class="note">
-      Type-specific questions (which campaigns to include, which maps and sets to
-      scaffold, mid-campaign safety) appear here once this flow is wired up.
-    </p>
+    {#if form.showCampaignsField}
+      <fieldset class="field wide check-group" disabled={form.busy}>
+        <legend>{m.newmod_field_campaigns()}</legend>
+        <div class="checks">
+          {#each campaignChoices as campaign (campaign.id)}
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={form.campaigns.includes(campaign.id)}
+                onchange={() => form.toggleCampaign(campaign.id)}
+              />
+              <span>{campaignLabel(campaign)}</span>
+            </label>
+          {/each}
+        </div>
+      </fieldset>
+    {/if}
+
+    {#if form.showScaffoldsField}
+      <fieldset class="field wide check-group" disabled={form.busy}>
+        <legend>{m.newmod_field_maps()}</legend>
+        <div class="checks">
+          {#each MAP_SCAFFOLDS as scaffold (scaffold.branch)}
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={form.selectedMaps.includes(scaffold.branch)}
+                onchange={() => form.toggleMap(scaffold.branch)}
+              />
+              <span>{scaffold.name}</span>
+            </label>
+          {/each}
+        </div>
+      </fieldset>
+      <fieldset class="field wide check-group" disabled={form.busy}>
+        <legend>{m.newmod_field_sets()}</legend>
+        <div class="checks">
+          {#each PATH_SET_SCAFFOLDS as scaffold (scaffold.branch)}
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={form.selectedSets.includes(scaffold.branch)}
+                onchange={() => form.toggleSet(scaffold.branch)}
+              />
+              <span>{scaffold.name}</span>
+            </label>
+          {/each}
+        </div>
+      </fieldset>
+    {/if}
+
+    {#if form.showProductsField}
+      <fieldset class="field wide check-group" disabled={form.busy}>
+        <legend>{m.newmod_field_products()}</legend>
+        <div class="checks">
+          {#each OFFICIAL_PRODUCTS as product (product.id)}
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={form.requiredProducts.includes(product.id)}
+                onchange={() => form.toggleProduct(product.id)}
+              />
+              <span>{product.name}</span>
+            </label>
+          {/each}
+        </div>
+      </fieldset>
+    {/if}
+
+    {#if form.showSafeField}
+      <label class="field">
+        <span>{m.newmod_safe_label()}</span>
+        <select bind:value={form.safeToAddMidCampaign} disabled={form.busy}>
+          <option value={true}>{m.newmod_safe_yes()}</option>
+          <option value={false}>{m.newmod_safe_no()}</option>
+        </select>
+      </label>
+    {/if}
+
+    {#if form.showNotesField}
+      <label class="field wide">
+        <span>{m.newmod_field_notes()}</span>
+        <textarea rows="2" bind:value={form.midCampaignNotes} placeholder={m.newmod_notes_placeholder()} disabled={form.busy}></textarea>
+      </label>
+    {/if}
+
+    <div class="field wide location">
+      <span>{m.newmod_field_location()}</span>
+      <div class="location-row">
+        <button type="button" class="secondary" onclick={() => form.pickFolder()} disabled={form.busy}>
+          {m.newmod_pick_folder()}
+        </button>
+        <code class="location-path">{form.parentDir ?? m.newmod_location_none()}</code>
+      </div>
+      {#if form.parentDir && form.id}
+        <small class="hint">{m.newmod_location_hint({ folder: form.id })}</small>
+      {/if}
+    </div>
+
+    {#if form.busy}
+      <p class="progress" aria-live="polite">{form.progress ?? m.newmod_creating()}</p>
+    {/if}
 
     <div class="form-actions">
-      <button type="button" class="ghost" onclick={() => navigation.go(ROUTES.MY_MODS)}>
-        Cancel
+      <button type="button" class="ghost" onclick={() => navigation.go(ROUTES.MY_MODS)} disabled={form.busy}>
+        {m.newmod_cancel()}
       </button>
-      <button type="submit" class="primary">Create mod</button>
+      <button
+        type="submit"
+        class="primary"
+        onclick={() => form.create()}
+        disabled={form.busy || !setupStore.completed}
+      >
+        {form.busy ? m.newmod_creating() : m.newmod_create()}
+      </button>
     </div>
   </form>
 </section>
@@ -75,6 +303,31 @@
 
   .lead {
     color: var(--color-text-muted);
+  }
+
+  .banner {
+    margin: 0;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .banner.error {
+    border-color: var(--color-error);
+    color: var(--color-error);
+  }
+
+  .banner.warn {
+    border-color: var(--color-warning, var(--color-border));
+  }
+
+  .banner ul {
+    margin: 0;
+    padding-left: var(--spacing-lg);
   }
 
   .form {
@@ -93,7 +346,8 @@
     grid-column: 1 / -1;
   }
 
-  .field span {
+  .field span,
+  .check-group legend {
     font-size: 0.8rem;
     color: var(--color-text-muted);
   }
@@ -103,12 +357,105 @@
     font-size: 0.75rem;
   }
 
-  .note {
-    grid-column: 1 / -1;
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--color-surface-hover);
-    border: 1px dashed var(--color-border);
+  .warn-text {
+    color: var(--color-warning, var(--color-error));
+  }
+
+  .error-text {
+    color: var(--color-error);
+  }
+
+  .check-group {
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
+    padding: var(--spacing-sm) var(--spacing-md);
+    min-width: 0;
+  }
+
+  .checks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--spacing-xs) var(--spacing-md);
+    margin-top: var(--spacing-xs);
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: 0.9rem;
+  }
+
+  /* Custom checkbox: a filled, rounded box with a checkmark, matching the app's
+     palette instead of the browser default. */
+  .check input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    flex-shrink: 0;
+    width: 1.15rem;
+    height: 1.15rem;
+    margin: 0;
+    display: inline-grid;
+    place-content: center;
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+  }
+
+  .check input[type="checkbox"]::before {
+    content: "";
+    width: 0.65rem;
+    height: 0.65rem;
+    transform: scale(0);
+    transition: transform var(--transition-fast);
+    background: var(--color-primary-text);
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  }
+
+  .check input[type="checkbox"]:hover:not(:disabled) {
+    border-color: var(--color-primary);
+  }
+
+  .check input[type="checkbox"]:checked {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+
+  .check input[type="checkbox"]:checked::before {
+    transform: scale(1);
+  }
+
+  .check input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  .check input[type="checkbox"]:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+
+  .location-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  .location-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+  }
+
+  .progress {
+    grid-column: 1 / -1;
+    margin: 0;
     color: var(--color-text-muted);
     font-size: 0.85rem;
   }
