@@ -1,5 +1,6 @@
 <script>
   import BackButton from "../components/BackButton.svelte";
+  import EmojiField from "../components/EmojiField.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";
   import {
@@ -153,13 +154,13 @@
       <span>{m.newmod_field_discord()}</span>
       <input type="text" bind:value={form.authorDiscord} placeholder={m.newmod_discord_placeholder()} disabled={form.busy} />
     </label>
-    <label class="field">
-      <span>{m.newmod_field_icon()}</span>
-      <input type="text" bind:value={form.icon} onblur={() => form.validateField("icon")} placeholder={m.newmod_icon_placeholder()} disabled={form.busy} />
+    <div class="field">
+      <span id="icon-field-label">{m.newmod_field_icon()}</span>
+      <EmojiField bind:value={form.icon} disabled={form.busy} labelledby="icon-field-label" />
       {#if fieldError("icon")}
         <small class="hint error-text">{fieldError("icon")}</small>
       {/if}
-    </label>
+    </div>
     <label class="field">
       <span>{m.newmod_field_language()}</span>
       <input type="text" bind:value={form.language} onblur={() => form.validateField("language")} disabled={form.busy} />

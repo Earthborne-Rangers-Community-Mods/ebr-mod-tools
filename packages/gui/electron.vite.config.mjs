@@ -33,9 +33,15 @@ function rendererCsp() {
       // The renderer also fetches the public registry (registry.json) anonymously
       // over raw.githubusercontent
       const registryHost = "https://raw.githubusercontent.com";
+      // The emoji picker loads its emoji database from a same-origin blob: URL
+      // (the data ships bundled and is handed to the picker via URL.createObjectURL,
+      // so nothing is fetched from the network). blob: URLs can only be minted by
+      // same-origin first-party script, so allowing them as a connect target does
+      // not widen the network surface.
+      const blobSrc = "blob:";
       const connectSrc = isDev
-        ? `'self' ${githubApi} ${registryHost} ws: wss:`
-        : `'self' ${githubApi} ${registryHost}`;
+        ? `'self' ${blobSrc} ${githubApi} ${registryHost} ws: wss:`
+        : `'self' ${blobSrc} ${githubApi} ${registryHost}`;
       const content =
         [
           "default-src 'self'",
