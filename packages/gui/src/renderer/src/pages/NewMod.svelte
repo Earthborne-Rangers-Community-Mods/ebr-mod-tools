@@ -1,6 +1,7 @@
 <script>
   import BackButton from "../components/BackButton.svelte";
   import EmojiField from "../components/EmojiField.svelte";
+  import LanguageField from "../components/LanguageField.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";
   import {
@@ -163,10 +164,7 @@
     </div>
     <label class="field">
       <span>{m.newmod_field_language()}</span>
-      <input type="text" bind:value={form.language} onblur={() => form.validateField("language")} disabled={form.busy} />
-      {#if fieldError("language")}
-        <small class="hint error-text">{fieldError("language")}</small>
-      {/if}
+      <LanguageField bind:value={form.language} disabled={form.busy} />
     </label>
     <label class="field wide">
       <span>{m.newmod_field_description()}</span>
