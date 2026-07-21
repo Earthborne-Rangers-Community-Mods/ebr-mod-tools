@@ -62,8 +62,7 @@ packages/gui/
         lib/
           navigation.svelte.js  # In-memory route state
           mods.svelte.js        # Open-mods store (localStorage + on-disk manifests)
-          platform.js           # Main-process bridge (picker, external launch)
-          placeholder.js        # Sample data for the blockout pages
+          platform.js           # Main-process bridge (picker, external launch, reveal folder)
           paraglide/            # Generated message functions
         pages/
           MyMods.svelte           # Mod list + account header

@@ -35,6 +35,7 @@ import { navigation, ROUTES } from "./navigation.svelte.js";
 import { pickDirectory } from "./platform.js";
 import { runGuarded } from "./guarded.js";
 import { checkModId } from "./registry.js";
+import { showSafeNotes, fixedSafety } from "./midcampaign.js";
 
 /** Map scaffold branches selectable for a `campaign` mod. */
 export const MAP_SCAFFOLDS = KNOWN_SCAFFOLDS.filter((s) => s.branch.startsWith("map/"));
@@ -115,12 +116,8 @@ class NewModForm {
     return this.type === "campaign";
   }
 
-  get showSafeField() {
-    return this.type !== "campaign" && this.type !== "one-day-mission" && this.type !== "theme";
-  }
-
   get showNotesField() {
-    return (this.type === "expansion" || this.type === "enhancement") && !this.safeToAddMidCampaign;
+    return showSafeNotes(this.type, this.safeToAddMidCampaign);
   }
 
   /** Seed the form from setup defaults and reset transient state. */
@@ -163,16 +160,9 @@ class NewModForm {
     this.type = type;
     this.selectedMaps = [];
     this.selectedSets = [];
-    if (type === "campaign") {
+    if (type === "campaign" || type === "theme") {
       this.campaigns = [];
       this.requiredProducts = [];
-      this.safeToAddMidCampaign = false;
-      this.midCampaignNotes = "";
-    } else if (type === "theme") {
-      this.campaigns = [];
-      this.requiredProducts = [];
-      this.safeToAddMidCampaign = true;
-      this.midCampaignNotes = "";
     } else if (type === "one-day-mission") {
       if (cameFromReset) {
         this.campaigns = [];
@@ -180,8 +170,6 @@ class NewModForm {
       }
       // Pre-check Lure as a convenience when nothing is selected yet
       if (this.campaigns.length === 0) this.campaigns = ["lure-of-the-valley"];
-      this.safeToAddMidCampaign = true;
-      this.midCampaignNotes = "";
     } else {
       // enhancement, expansion, collection
       if (cameFromReset) {
@@ -190,6 +178,12 @@ class NewModForm {
         this.safeToAddMidCampaign = false;
       }
       // Otherwise preserve campaigns, requiredProducts, and the safe flag
+    }
+    // Types whose safety is fixed take the canonical value and drop notes.
+    const fixed = fixedSafety(type);
+    if (fixed !== null) {
+      this.safeToAddMidCampaign = fixed;
+      this.midCampaignNotes = "";
     }
     this.#refreshImpliedProducts();
   }

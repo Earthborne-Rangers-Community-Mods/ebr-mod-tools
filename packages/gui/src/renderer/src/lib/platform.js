@@ -34,3 +34,12 @@ export function openExternal(url) {
 export function openInObsidian(dir) {
   return openExternal(`obsidian://open?path=${encodeURIComponent(dir)}`);
 }
+
+/**
+ * Reveal a folder in the OS file browser.
+ * @param {string} dir - Absolute path to the folder to open.
+ * @returns {Promise<boolean>} Whether the folder was opened.
+ */
+export function openPath(dir) {
+  return ipcRenderer.invoke("shell:openPath", dir);
+}

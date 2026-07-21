@@ -2,36 +2,17 @@
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { openMods } from "../lib/mods.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";
-  import { pickDirectory, openInObsidian, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
-  import { MOD_TYPES } from "core";
+  import { pickDirectory, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
+  import { typeName } from "../lib/modtypes.js";
+  import ObsidianButton from "../components/ObsidianButton.svelte";
   import { basename } from "node:path";
   import * as m from "../lib/paraglide/messages.js";
-  import obsidianLogo from "../assets/icons/obsidian-logo.svg";
   import discordLogo from "../assets/icons/discord-logo.svg";
   import githubLogo from "../assets/icons/github-logo.svg";
   import gearIcon from "../assets/icons/gear.svg";
 
   let addError = $state(null);
   let confirmDir = $state(null);
-
-  // Player-facing mod type names, localized. Falls back to core's English
-  // catalog name (then the raw id) for any type not yet in the message catalog.
-  const MOD_TYPE_NAME_MESSAGES = {
-    campaign: m.mod_type_campaign_name,
-    enhancement: m.mod_type_enhancement_name,
-    "one-day-mission": m.mod_type_one_day_mission_name,
-    expansion: m.mod_type_expansion_name,
-    collection: m.mod_type_collection_name,
-    theme: m.mod_type_theme_name,
-  };
-
-  function typeLabel(typeId) {
-    return (
-      MOD_TYPE_NAME_MESSAGES[typeId]?.() ??
-      MOD_TYPES.find((t) => t.id === typeId)?.name ??
-      typeId
-    );
-  }
 
   async function openExisting() {
     addError = null;
@@ -139,7 +120,7 @@
               <span class="mod-main">
                 <span class="mod-name">{mod.manifest.name}</span>
                 <span class="mod-meta">
-                  {typeLabel(mod.manifest.type)} &middot; v{mod.manifest.version}
+                  {typeName(mod.manifest.type)} &middot; v{mod.manifest.version}
                 </span>
               </span>
             </button>
@@ -172,15 +153,7 @@
               <button type="button" class="ghost" onclick={cancelClose}>{m.mymods_cancel()}</button>
             {:else}
               {#if mod.status === "ready"}
-                <button
-                  type="button"
-                  class="obsidian-button"
-                  onclick={() => openInObsidian(mod.dir)}
-                  aria-label={m.mymods_open_in_obsidian()}
-                  title={m.mymods_open_in_obsidian()}
-                >
-                  <img src={obsidianLogo} alt="" class="obsidian-logo" aria-hidden="true" />
-                </button>
+                <ObsidianButton dir={mod.dir} />
               {/if}
               <button
                 type="button"
@@ -437,31 +410,6 @@
     background: var(--color-error);
     border-color: var(--color-error);
     color: var(--color-primary-text);
-  }
-
-  .obsidian-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    cursor: pointer;
-    transition: background var(--transition-fast), border-color var(--transition-fast);
-  }
-
-  .obsidian-button:hover {
-    background: var(--color-surface-hover);
-    border-color: var(--color-primary);
-  }
-
-  .obsidian-logo {
-    width: 1.25rem;
-    height: 1.25rem;
-    display: block;
   }
 
   .close-button {

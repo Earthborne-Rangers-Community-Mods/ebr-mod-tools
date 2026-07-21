@@ -93,6 +93,18 @@ ipcMain.handle("shell:openExternal", async (_event, url) => {
   }
 });
 
+// Reveal a local folder in the OS file browser. Unlike openExternal this takes a
+// filesystem path (not a URL), so there is no scheme to allowlist; shell.openPath
+// only ever opens the given path in the platform file manager.
+ipcMain.handle("shell:openPath", async (_event, dirPath) => {
+  if (typeof dirPath !== "string" || !dirPath) {
+    return false;
+  }
+  // shell.openPath resolves to "" on success or an error message on failure.
+  const result = await shell.openPath(dirPath);
+  return result === "";
+});
+
 app.whenReady().then(() => {
   // Deny every renderer permission request (camera, microphone, geolocation,
   // notifications, etc.); the app needs none of them.

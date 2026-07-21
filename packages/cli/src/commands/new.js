@@ -328,6 +328,19 @@ async function promptCampaignType(values) {
   return { scaffoldsToStamp: allScaffolds };
 }
 
+/**
+ * Prompt for mid-campaign notes when the mod is marked unsafe and none are set
+ * yet.
+ */
+async function promptMidCampaignNotes(values) {
+  if (!values.safeToAddMidCampaign && !values.midCampaignNotes) {
+    values.midCampaignNotes = await input({
+      message: "Mid-campaign notes (guidance on when it is / isn't safe to add to an in-progress campaign):",
+      default: "",
+    }) || undefined;
+  }
+}
+
 async function promptExpansionType(values) {
   if (!values.campaigns || values.campaigns.length === 0) {
     values.campaigns = await checkbox({
@@ -361,12 +374,7 @@ async function promptExpansionType(values) {
     });
   }
 
-  if (!values.safeToAddMidCampaign && !values.midCampaignNotes) {
-    values.midCampaignNotes = await input({
-      message: "Mid-campaign notes (guidance for players on when to install):",
-      default: "",
-    }) || undefined;
-  }
+  await promptMidCampaignNotes(values);
 
   return { scaffoldsToStamp: [] };
 }
@@ -404,12 +412,7 @@ async function promptEnhancementType(values) {
     });
   }
 
-  if (!values.safeToAddMidCampaign && !values.midCampaignNotes) {
-    values.midCampaignNotes = await input({
-      message: "Mid-campaign notes (guidance for players on when to install):",
-      default: "",
-    }) || undefined;
-  }
+  await promptMidCampaignNotes(values);
 
   return { scaffoldsToStamp: [] };
 }
@@ -458,6 +461,8 @@ async function promptCollectionType(values) {
     });
   }
 
+  await promptMidCampaignNotes(values);
+
   return { scaffoldsToStamp: [] };
 }
 
@@ -494,6 +499,7 @@ async function promptGenericType(values) {
   if (values.safeToAddMidCampaign === undefined) {
     values.safeToAddMidCampaign = await confirm({ message: "Safe to add mid-campaign?", default: false });
   }
+  await promptMidCampaignNotes(values);
   return { scaffoldsToStamp: [] };
 }
 
@@ -546,7 +552,7 @@ function isFieldVisible(manifest, key) {
     case "safeToAddMidCampaign":
       return type !== "campaign" && type !== "one-day-mission" && type !== "theme";
     case "midCampaignNotes":
-      return (type === "expansion" || type === "enhancement") && !manifest.safeToAddMidCampaign;
+      return isFieldVisible(manifest, "safeToAddMidCampaign") && !manifest.safeToAddMidCampaign;
     default:
       return true;
   }

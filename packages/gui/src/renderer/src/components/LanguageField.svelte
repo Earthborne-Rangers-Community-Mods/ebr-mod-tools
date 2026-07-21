@@ -25,10 +25,10 @@
    * base ISO 639-1 codes ("en", "fr", "pt"); region variants ("pt-BR") are not
    * offered here.
    */
-  let { value = $bindable("en"), disabled = false, id = undefined } = $props();
+  let { value = $bindable("en"), disabled = false, id = undefined, onchange = undefined } = $props();
 </script>
 
-<select bind:value {disabled} {id}>
+<select bind:value {disabled} {id} onchange={() => onchange?.()}>
   {#each LANGUAGES as language (language.code)}
     <option value={language.code}>{language.label}</option>
   {/each}

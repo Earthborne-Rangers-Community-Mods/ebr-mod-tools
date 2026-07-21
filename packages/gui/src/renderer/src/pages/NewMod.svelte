@@ -1,7 +1,9 @@
 <script>
   import BackButton from "../components/BackButton.svelte";
+  import CheckGroup from "../components/CheckGroup.svelte";
   import EmojiField from "../components/EmojiField.svelte";
   import LanguageField from "../components/LanguageField.svelte";
+  import MidCampaignSafety from "../components/MidCampaignSafety.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";
   import {
@@ -10,6 +12,7 @@
     PATH_SET_SCAFFOLDS,
     STORY_CAMPAIGNS,
   } from "../lib/newmod.svelte.js";
+  import { typeName, typeDesc } from "../lib/modtypes.js";
   import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
   import * as m from "../lib/paraglide/messages.js";
   import { onMount } from "svelte";
@@ -17,24 +20,6 @@
   const form = newModForm;
 
   onMount(() => form.reset());
-
-  // Localized mod type name + description, keyed off core's MOD_TYPES ids.
-  const TYPE_NAME = {
-    campaign: m.mod_type_campaign_name,
-    enhancement: m.mod_type_enhancement_name,
-    "one-day-mission": m.mod_type_one_day_mission_name,
-    expansion: m.mod_type_expansion_name,
-    collection: m.mod_type_collection_name,
-    theme: m.mod_type_theme_name,
-  };
-  const TYPE_DESC = {
-    campaign: m.mod_type_campaign_desc,
-    enhancement: m.mod_type_enhancement_desc,
-    "one-day-mission": m.mod_type_one_day_mission_desc,
-    expansion: m.mod_type_expansion_desc,
-    collection: m.mod_type_collection_desc,
-    theme: m.mod_type_theme_desc,
-  };
 
   const ERROR_MESSAGES = {
     "setup-required": m.newmod_error_setup_required,
@@ -139,7 +124,7 @@
       <select value={form.type} onchange={(e) => form.setType(e.currentTarget.value)} disabled={form.busy}>
         {#each MOD_TYPES as type (type.id)}
           <option value={type.id}>
-            {TYPE_NAME[type.id]?.() ?? type.name} &mdash; {TYPE_DESC[type.id]?.() ?? type.description}
+            {typeName(type.id)} &mdash; {typeDesc(type.id)}
           </option>
         {/each}
       </select>
@@ -175,90 +160,61 @@
     </label>
 
     {#if form.showCampaignsField}
-      <fieldset class="field wide check-group" disabled={form.busy}>
-        <legend>{m.newmod_field_campaigns()}</legend>
-        <div class="checks">
-          {#each campaignChoices as campaign (campaign.id)}
-            <label class="check">
-              <input
-                type="checkbox"
-                checked={form.campaigns.includes(campaign.id)}
-                onchange={() => form.toggleCampaign(campaign.id)}
-              />
-              <span>{campaignLabel(campaign)}</span>
-            </label>
-          {/each}
-        </div>
-      </fieldset>
+      <CheckGroup
+        wide
+        disabled={form.busy}
+        legend={m.newmod_field_campaigns()}
+        items={campaignChoices}
+        key={(campaign) => campaign.id}
+        label={campaignLabel}
+        checked={(campaign) => form.campaigns.includes(campaign.id)}
+        onToggle={(campaign) => form.toggleCampaign(campaign.id)}
+      />
     {/if}
 
     {#if form.showScaffoldsField}
-      <fieldset class="field wide check-group" disabled={form.busy}>
-        <legend>{m.newmod_field_maps()}</legend>
-        <div class="checks">
-          {#each MAP_SCAFFOLDS as scaffold (scaffold.branch)}
-            <label class="check">
-              <input
-                type="checkbox"
-                checked={form.selectedMaps.includes(scaffold.branch)}
-                onchange={() => form.toggleMap(scaffold.branch)}
-              />
-              <span>{scaffold.name}</span>
-            </label>
-          {/each}
-        </div>
-      </fieldset>
-      <fieldset class="field wide check-group" disabled={form.busy}>
-        <legend>{m.newmod_field_sets()}</legend>
-        <div class="checks">
-          {#each PATH_SET_SCAFFOLDS as scaffold (scaffold.branch)}
-            <label class="check">
-              <input
-                type="checkbox"
-                checked={form.selectedSets.includes(scaffold.branch)}
-                onchange={() => form.toggleSet(scaffold.branch)}
-              />
-              <span>{scaffold.name}</span>
-            </label>
-          {/each}
-        </div>
-      </fieldset>
+      <CheckGroup
+        wide
+        disabled={form.busy}
+        legend={m.newmod_field_maps()}
+        items={MAP_SCAFFOLDS}
+        key={(scaffold) => scaffold.branch}
+        label={(scaffold) => scaffold.name}
+        checked={(scaffold) => form.selectedMaps.includes(scaffold.branch)}
+        onToggle={(scaffold) => form.toggleMap(scaffold.branch)}
+      />
+      <CheckGroup
+        wide
+        disabled={form.busy}
+        legend={m.newmod_field_sets()}
+        items={PATH_SET_SCAFFOLDS}
+        key={(scaffold) => scaffold.branch}
+        label={(scaffold) => scaffold.name}
+        checked={(scaffold) => form.selectedSets.includes(scaffold.branch)}
+        onToggle={(scaffold) => form.toggleSet(scaffold.branch)}
+      />
     {/if}
 
     {#if form.showProductsField}
-      <fieldset class="field wide check-group" disabled={form.busy}>
-        <legend>{m.newmod_field_products()}</legend>
-        <div class="checks">
-          {#each OFFICIAL_PRODUCTS as product (product.id)}
-            <label class="check">
-              <input
-                type="checkbox"
-                checked={form.requiredProducts.includes(product.id)}
-                onchange={() => form.toggleProduct(product.id)}
-              />
-              <span>{product.name}</span>
-            </label>
-          {/each}
-        </div>
-      </fieldset>
+      <CheckGroup
+        wide
+        disabled={form.busy}
+        legend={m.newmod_field_products()}
+        items={OFFICIAL_PRODUCTS}
+        key={(product) => product.id}
+        label={(product) => product.name}
+        checked={(product) => form.requiredProducts.includes(product.id)}
+        onToggle={(product) => form.toggleProduct(product.id)}
+      />
     {/if}
 
-    {#if form.showSafeField}
-      <label class="field">
-        <span>{m.newmod_safe_label()}</span>
-        <select bind:value={form.safeToAddMidCampaign} disabled={form.busy}>
-          <option value={true}>{m.newmod_safe_yes()}</option>
-          <option value={false}>{m.newmod_safe_no()}</option>
-        </select>
-      </label>
-    {/if}
-
-    {#if form.showNotesField}
-      <label class="field wide">
-        <span>{m.newmod_field_notes()}</span>
-        <textarea rows="2" bind:value={form.midCampaignNotes} placeholder={m.newmod_notes_placeholder()} disabled={form.busy}></textarea>
-      </label>
-    {/if}
+    <MidCampaignSafety
+      wide
+      type={form.type}
+      bind:safe={form.safeToAddMidCampaign}
+      bind:notes={form.midCampaignNotes}
+      disabled={form.busy}
+    />
 
     <div class="field wide location">
       <span>{m.newmod_field_location()}</span>
@@ -345,8 +301,7 @@
     grid-column: 1 / -1;
   }
 
-  .field span,
-  .check-group legend {
+  .field span {
     font-size: 0.8rem;
     color: var(--color-text-muted);
   }
@@ -362,78 +317,6 @@
 
   .error-text {
     color: var(--color-error);
-  }
-
-  .check-group {
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    padding: var(--spacing-sm) var(--spacing-md);
-    min-width: 0;
-  }
-
-  .checks {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: var(--spacing-xs) var(--spacing-md);
-    margin-top: var(--spacing-xs);
-  }
-
-  .check {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    font-size: 0.9rem;
-  }
-
-  /* Custom checkbox: a filled, rounded box with a checkmark, matching the app's
-     palette instead of the browser default. */
-  .check input[type="checkbox"] {
-    appearance: none;
-    -webkit-appearance: none;
-    flex-shrink: 0;
-    width: 1.15rem;
-    height: 1.15rem;
-    margin: 0;
-    display: inline-grid;
-    place-content: center;
-    border: 1.5px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    cursor: pointer;
-    transition: background var(--transition-fast), border-color var(--transition-fast);
-  }
-
-  .check input[type="checkbox"]::before {
-    content: "";
-    width: 0.65rem;
-    height: 0.65rem;
-    transform: scale(0);
-    transition: transform var(--transition-fast);
-    background: var(--color-primary-text);
-    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
-  }
-
-  .check input[type="checkbox"]:hover:not(:disabled) {
-    border-color: var(--color-primary);
-  }
-
-  .check input[type="checkbox"]:checked {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-  }
-
-  .check input[type="checkbox"]:checked::before {
-    transform: scale(1);
-  }
-
-  .check input[type="checkbox"]:focus-visible {
-    outline: 2px solid var(--color-focus);
-    outline-offset: 2px;
-  }
-
-  .check input[type="checkbox"]:disabled {
-    cursor: default;
-    opacity: 0.55;
   }
 
   .location-row {

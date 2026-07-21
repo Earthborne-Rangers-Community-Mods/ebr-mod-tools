@@ -15,7 +15,7 @@
   // `labelledby` is the id of an external field label; when provided it is
   // prepended to the trigger's accessible name so the surrounding "Icon" context
   // is announced along with the button's own content.
-  let { value = $bindable(""), disabled = false, labelledby = undefined } = $props();
+  let { value = $bindable(""), disabled = false, labelledby = undefined, onchange = undefined } = $props();
 
   // Unique id so the trigger can reference its own content in aria-labelledby.
   const triggerId = $props.id();
@@ -54,10 +54,12 @@
   function handleEmojiClick(event) {
     value = event.detail.unicode;
     open = false;
+    onchange?.();
   }
 
   function clear() {
     value = "";
+    onchange?.();
   }
 
   // Free the bundled-data blob URL when the field is torn down so it does not
