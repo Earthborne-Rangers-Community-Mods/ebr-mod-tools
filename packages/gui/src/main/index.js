@@ -2,6 +2,11 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import { join } from "node:path";
 import { isAllowedExternalUrl } from "./url-allowlist.js";
 
+/** The single main window. */
+let mainWindow = null;
+/** Latest unsaved-edits state pushed from the renderer; gates the close guard. */
+let hasUnsavedChanges = false;
+
 /**
  * Create the main application window. The renderer runs with nodeIntegration on,
  * contextIsolation off, and sandbox off so it shares a Node.js context and can
@@ -25,6 +30,35 @@ function createWindow() {
   });
 
   window.once("ready-to-show", () => window.show());
+
+  mainWindow = window;
+  window.__allowClose = false;
+  // A fresh window starts with nothing unsaved; only its renderer can raise the
+  // flag again. Resetting here means a recreated window (e.g. macOS re-activate)
+  // never inherits a stale `true` from the window that closed before it.
+  hasUnsavedChanges = false;
+
+  // Guard unsaved edits. We only intercept when the renderer has told us there
+  // are unsaved changes, so a broken or not-yet-loaded renderer can never trap
+  // the window. When we do intercept, the renderer prompts and calls back via
+  // `app:force-close`; `__allowClose` lets that programmatic close through.
+  window.on("close", (event) => {
+    if (window.__allowClose || !hasUnsavedChanges) return;
+    event.preventDefault();
+    window.webContents.send("app:confirm-close");
+  });
+
+  // A crashed renderer can no longer answer the confirm-close prompt, so drop the
+  // guard to keep the window closeable.
+  window.webContents.on("render-process-gone", () => {
+    hasUnsavedChanges = false;
+  });
+
+  // Clear per-window state on teardown so nothing leaks into the next window.
+  window.on("closed", () => {
+    if (mainWindow === window) mainWindow = null;
+    hasUnsavedChanges = false;
+  });
 
   // Open external links in the user's browser, never inside an Electron window.
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -103,6 +137,20 @@ ipcMain.handle("shell:openPath", async (_event, dirPath) => {
   // shell.openPath resolves to "" on success or an error message on failure.
   const result = await shell.openPath(dirPath);
   return result === "";
+});
+
+// The renderer reports whether there are unsaved edits, so the close guard only
+// intercepts when there is something to lose.
+ipcMain.on("app:dirty-changed", (_event, dirty) => {
+  hasUnsavedChanges = Boolean(dirty);
+});
+
+// The renderer has finished guarding (saved/discarded) and the window may close.
+ipcMain.on("app:force-close", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.__allowClose = true;
+    mainWindow.close();
+  }
 });
 
 app.whenReady().then(() => {

@@ -8,6 +8,7 @@ export const ROUTES = Object.freeze({
   SETUP: "setup",
   NEW_MOD: "new-mod",
   MOD_DETAILS: "mod-details",
+  MOD_EDIT: "mod-edit",
   CONFLICT: "conflict",
 });
 

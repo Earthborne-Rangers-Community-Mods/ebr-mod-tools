@@ -1,208 +1,166 @@
 <script>
-  import { onMount } from "svelte";
   import BackButton from "../components/BackButton.svelte";
-  import CheckGroup from "../components/CheckGroup.svelte";
-  import EmojiField from "../components/EmojiField.svelte";
-  import LanguageField from "../components/LanguageField.svelte";
-  import MidCampaignSafety from "../components/MidCampaignSafety.svelte";
   import ObsidianButton from "../components/ObsidianButton.svelte";
-  import { navigation } from "../lib/navigation.svelte.js";
-  import { modDetailsForm } from "../lib/moddetails.svelte.js";
-  import { typeName, typeDesc } from "../lib/modtypes.js";
-  import { openPath } from "../lib/platform.js";
-  import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
+  import { navigation, ROUTES } from "../lib/navigation.svelte.js";
+  import { openMods } from "../lib/mods.svelte.js";
+  import { typeName } from "../lib/modtypes.js";
+  import { openPath, openExternal } from "../lib/platform.js";
+  import { showSafeChoice } from "../lib/midcampaign.js";
+  import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
+  import pencilIcon from "../assets/icons/pencil.svg";
+  import folderIcon from "../assets/icons/open-folder.svg";
+  import discordLogo from "../assets/icons/discord-logo.svg";
   import * as m from "../lib/paraglide/messages.js";
 
-  const form = modDetailsForm;
+  const entry = $derived(openMods.get(navigation.selectedModId));
+  const mod = $derived(entry?.manifest ?? null);
 
-  onMount(() => form.load(navigation.selectedModId));
-
-  const ERROR_MESSAGES = {
-    "invalid-name": m.moddetails_error_invalid_name,
-    "invalid-version": m.moddetails_error_invalid_version,
-    "invalid-description": m.moddetails_error_invalid_description,
-    "invalid-author": m.moddetails_error_invalid_author,
-  };
-
-  function campaignLabel(campaign) {
-    return campaign.oneDayMission
-      ? `${campaign.name} (${m.moddetails_one_day_tag()})`
-      : campaign.name;
+  /** Map a list of ids to their catalog display names, falling back to the id. */
+  function names(ids, catalog) {
+    return (ids ?? []).map((id) => catalog.find((c) => c.id === id)?.name ?? id);
   }
 
-  // Localized inline error for a field, or null when it is currently valid.
-  function fieldError(field) {
-    const code = form.fieldErrors[field];
-    return code ? ERROR_MESSAGES[code]?.() : null;
+  function edit() {
+    navigation.go(ROUTES.MOD_EDIT, { modId: mod.id });
   }
 </script>
 
 <section class="page">
   <BackButton />
 
-  {#if !form.loaded}
+  {#if !mod}
     <p class="banner error" role="alert">{m.moddetails_not_found()}</p>
   {:else}
     <header class="mod-header">
-      <span class="mod-icon" aria-hidden="true">{form.icon}</span>
+      <span class="mod-icon" aria-hidden="true">{mod.icon}</span>
       <div>
-        <h1>{form.name}</h1>
-        <p class="muted">{typeName(form.type)} &middot; v{form.version} &middot; {form.id}</p>
+        <h1>{mod.name}</h1>
+        <p class="muted">{typeName(mod.type)} &middot; v{mod.version} &middot; {mod.id}</p>
       </div>
-      <span class="save-status" aria-live="polite">
-        {#if form.saveState === "saving"}
-          {m.moddetails_saving()}
-        {:else if form.hasErrors}
-          <span class="error-text">{m.moddetails_save_blocked()}</span>
-        {:else if form.saveState === "error"}
-          <span class="error-text">{m.moddetails_save_error({ detail: form.errorDetail ?? "" })}</span>
-        {:else if form.dirty}
-          {m.moddetails_unsaved()}
-        {:else if form.saveState === "saved"}
-          {m.moddetails_saved()}
-        {/if}
-      </span>
+      <div class="header-actions">
+        <button
+          type="button"
+          class="icon-button"
+          onclick={() => openPath(entry.dir)}
+          aria-label={m.moddetails_open_folder()}
+          title={m.moddetails_open_folder()}
+        >
+          <span class="icon" style={`--icon-mask: url("${folderIcon}")`} aria-hidden="true"></span>
+        </button>
+        <ObsidianButton dir={entry.dir} size="compact" />
+        <button
+          type="button"
+          class="icon-button"
+          onclick={edit}
+          aria-label={m.moddetails_edit()}
+          title={m.moddetails_edit()}
+        >
+          <span class="icon" style={`--icon-mask: url("${pencilIcon}")`} aria-hidden="true"></span>
+        </button>
+      </div>
     </header>
 
-    <div class="actions">
-      <button
-        type="button"
-        class="primary"
-        onclick={() => form.save()}
-        disabled={!form.dirty || form.saveState === "saving"}
-      >
-        {m.moddetails_save()}
-      </button>
-      <button
-        type="button"
-        class="secondary"
-        onclick={() => form.revert()}
-        disabled={!form.dirty || form.saveState === "saving"}
-      >
-        {m.moddetails_undo()}
-      </button>
-      <button type="button" class="ghost" onclick={() => openPath(form.dir)}>
-        {m.moddetails_open_folder()}
-      </button>
-      <ObsidianButton dir={form.dir} size="fill" />
-    </div>
-
-    <div class="fields">
-      <label class="field">
-        <span>{m.moddetails_field_name()}</span>
-        <input type="text" bind:value={form.name} onblur={() => form.validateField("name")} />
-        {#if fieldError("name")}
-          <small class="hint error-text">{fieldError("name")}</small>
-        {/if}
-      </label>
-      <label class="field">
-        <span>{m.moddetails_field_id()}</span>
-        <input type="text" value={form.id} readonly />
-      </label>
-      <label class="field">
-        <span>{m.moddetails_field_version()}</span>
-        <input type="text" bind:value={form.version} onblur={() => form.validateField("version")} />
-        {#if fieldError("version")}
-          <small class="hint error-text">{fieldError("version")}</small>
-        {/if}
-      </label>
-      <div class="field">
-        <span id="icon-field-label">{m.moddetails_field_icon()}</span>
-        <EmojiField bind:value={form.icon} labelledby="icon-field-label" />
+    <dl class="details">
+      <div class="row wide">
+        <dt>{m.moddetails_field_description()}</dt>
+        <dd>{mod.description}</dd>
       </div>
-      <label class="field">
-        <span>{m.moddetails_field_type()}</span>
-        <select
-          value={form.pendingType ?? form.type}
-          onchange={(e) => form.requestTypeChange(e.currentTarget.value)}
-        >
-          {#each MOD_TYPES as type (type.id)}
-            <option value={type.id}>
-              {typeName(type.id)} &mdash; {typeDesc(type.id)}
-            </option>
-          {/each}
-        </select>
-      </label>
-      <label class="field">
-        <span>{m.moddetails_field_language()}</span>
-        <LanguageField bind:value={form.language} />
-      </label>
-      <label class="field wide">
-        <span>{m.moddetails_field_description()}</span>
-        <textarea rows="2" bind:value={form.description} onblur={() => form.validateField("description")}></textarea>
-        {#if fieldError("description")}
-          <small class="hint error-text">{fieldError("description")}</small>
-        {/if}
-      </label>
-      <label class="field">
-        <span>{m.moddetails_field_author()}</span>
-        <input type="text" bind:value={form.author} onblur={() => form.validateField("author")} />
-        {#if fieldError("author")}
-          <small class="hint error-text">{fieldError("author")}</small>
-        {/if}
-      </label>
-      <label class="field">
-        <span>{m.moddetails_field_discord()}</span>
-        <input type="text" bind:value={form.authorDiscord} />
-      </label>
-      <label class="field wide">
-        <span>{m.moddetails_field_tags()}</span>
-        <input type="text" bind:value={form.tags} />
-        <small class="hint">{m.moddetails_tags_hint()}</small>
-      </label>
-      <label class="field wide">
-        <span>{m.moddetails_field_repo_url()}</span>
-        <input type="text" value={form.repoUrl || m.moddetails_repo_url_none()} readonly />
-      </label>
-    </div>
-
-    {#if form.typeChangePending}
-      <div class="banner warn" role="alert">
-        <p class="warn-title">{m.moddetails_type_warning_title({ type: typeName(form.pendingType) })}</p>
-        <p>{m.moddetails_type_warning()}</p>
-        <div class="banner-actions">
-          <button type="button" class="primary" onclick={() => form.confirmTypeChange()}>
-            {m.moddetails_type_confirm()}
-          </button>
-          <button type="button" class="ghost" onclick={() => form.cancelTypeChange()}>
-            {m.moddetails_type_cancel()}
-          </button>
+      <div class="row">
+        <dt>{m.moddetails_field_author()}</dt>
+        <dd class="author">
+          <span>{mod.author}</span>
+          {#if mod.authorDiscord}
+            <span class="discord-handle">
+              <span
+                class="discord-logo"
+                style={`--discord-mask: url("${discordLogo}")`}
+                aria-hidden="true"
+              ></span>
+              {mod.authorDiscord}
+            </span>
+          {/if}
+        </dd>
+      </div>
+      <div class="row">
+        <dt>{m.moddetails_field_language()}</dt>
+        <dd>{mod.language}</dd>
+      </div>
+      {#if mod.tags && mod.tags.length > 0}
+        <div class="row wide">
+          <dt>{m.moddetails_field_tags()}</dt>
+          <dd>{mod.tags.join(", ")}</dd>
         </div>
+      {/if}
+      <div class="row wide">
+        <dt>{m.moddetails_field_repo_url()}</dt>
+        <dd>
+          {#if mod.repoUrl}
+            <a
+              class="link"
+              href={mod.repoUrl}
+              onclick={(event) => {
+                event.preventDefault();
+                openExternal(mod.repoUrl);
+              }}
+            >
+              {mod.repoUrl}
+            </a>
+          {:else}
+            {m.moddetails_repo_url_none()}
+          {/if}
+        </dd>
       </div>
-    {/if}
-
-    <CheckGroup
-      legend={m.moddetails_campaigns()}
-      items={OFFICIAL_CAMPAIGNS}
-      key={(campaign) => campaign.id}
-      label={campaignLabel}
-      checked={(campaign) => form.campaigns.includes(campaign.id)}
-      onToggle={(campaign) => form.toggleCampaign(campaign.id)}
-    />
-
-    <CheckGroup
-      legend={m.moddetails_required_products()}
-      items={OFFICIAL_PRODUCTS}
-      key={(product) => product.id}
-      label={(product) => product.name}
-      checked={(product) => form.requiredProducts.includes(product.id)}
-      onToggle={(product) => form.toggleRequiredProduct(product.id)}
-    />
-
-    <CheckGroup
-      legend={m.moddetails_optional_products()}
-      items={OFFICIAL_PRODUCTS}
-      key={(product) => product.id}
-      label={(product) => product.name}
-      checked={(product) => form.optionalProducts.includes(product.id)}
-      onToggle={(product) => form.toggleOptionalProduct(product.id)}
-    />
-
-    <MidCampaignSafety
-      type={form.type}
-      bind:safe={form.safeToAddMidCampaign}
-      bind:notes={form.midCampaignNotes}
-    />
+      <div class="row wide">
+        <dt>{m.moddetails_campaigns()}</dt>
+        <dd>
+          {#if mod.campaigns?.length}
+            <ul class="tag-list">
+              {#each names(mod.campaigns, OFFICIAL_CAMPAIGNS) as label}
+                <li class="badge-outline">{label}</li>
+              {/each}
+            </ul>
+          {:else}
+            {m.moddetails_value_none()}
+          {/if}
+        </dd>
+      </div>
+      <div class="row wide">
+        <dt>{m.moddetails_required_products()}</dt>
+        <dd>
+          {#if mod.requiredProducts?.length}
+            <ul class="tag-list">
+              {#each names(mod.requiredProducts, OFFICIAL_PRODUCTS) as label}
+                <li class="badge-outline">{label}</li>
+              {/each}
+            </ul>
+          {:else}
+            {m.moddetails_value_none()}
+          {/if}
+        </dd>
+      </div>
+      {#if mod.optionalProducts && mod.optionalProducts.length > 0}
+        <div class="row wide">
+          <dt>{m.moddetails_optional_products()}</dt>
+          <dd>
+            <ul class="tag-list">
+              {#each names(mod.optionalProducts, OFFICIAL_PRODUCTS) as label}
+                <li class="badge-outline">{label}</li>
+              {/each}
+            </ul>
+          </dd>
+        </div>
+      {/if}
+      {#if showSafeChoice(mod.type)}
+        <div class="row wide">
+          <dt>{m.midcampaign_legend()}</dt>
+          {#if mod.safeToAddMidCampaign}
+            <dd class="safety-safe">&#x1f6e1;&#xfe0f; {m.moddetails_safe_mid_campaign()}</dd>
+          {:else}
+            <dd class="safety-unsafe">&#x26a0;&#xfe0f; {mod.midCampaignNotes || m.moddetails_not_safe_mid_campaign()}</dd>
+          {/if}
+        </div>
+      {/if}
+    </dl>
   {/if}
 </section>
 
@@ -224,16 +182,46 @@
     line-height: 1;
   }
 
-  .save-status {
+  .header-actions {
     margin-left: auto;
-    font-size: 0.85rem;
-    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
   }
 
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--spacing-sm);
+  .icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+  }
+
+  .icon-button:hover {
+    background: var(--color-surface-hover);
+    border-color: var(--color-primary);
+  }
+
+  .icon {
+    display: block;
+    width: 1.25rem;
+    height: 1.25rem;
+    background-color: currentColor;
+    mask-image: var(--icon-mask);
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+    -webkit-mask-image: var(--icon-mask);
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    -webkit-mask-size: contain;
   }
 
   .banner {
@@ -242,9 +230,6 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
   }
 
   .banner.error {
@@ -252,51 +237,87 @@
     color: var(--color-error);
   }
 
-  .banner.warn {
-    border-color: var(--color-warning, var(--color-border));
-  }
-
-  .banner .warn-title {
-    font-weight: 600;
-    margin: 0;
-  }
-
-  .banner p {
-    margin: 0;
-  }
-
-  .banner-actions {
-    display: flex;
-    gap: var(--spacing-sm);
-  }
-
-  .fields {
+  .details {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--spacing-sm) var(--spacing-md);
+    margin: 0;
   }
 
-  .field {
+  .row {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+    min-width: 0;
   }
 
-  .field.wide {
+  .row.wide {
     grid-column: 1 / -1;
   }
 
-  .field span {
+  .row dt {
     font-size: 0.8rem;
     color: var(--color-text-muted);
   }
 
-  .hint {
-    color: var(--color-text-muted);
-    font-size: 0.75rem;
+  .row dd {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
-  .error-text {
+  .author {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .discord-handle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+  }
+
+  .discord-logo {
+    display: inline-block;
+    width: 1.1em;
+    height: 1.1em;
+    flex-shrink: 0;
+    background-color: currentColor;
+    mask-image: var(--discord-mask);
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+    -webkit-mask-image: var(--discord-mask);
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    -webkit-mask-size: contain;
+  }
+
+  .tag-list {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    padding: 0;
+    margin: 0;
+  }
+
+  .badge-outline {
+    display: inline-block;
+    font-size: var(--font-size-xs);
+    padding: 3px var(--spacing-sm);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+  }
+
+  .safety-safe {
+    color: var(--color-success);
+  }
+
+  .safety-unsafe {
     color: var(--color-error);
   }
 </style>

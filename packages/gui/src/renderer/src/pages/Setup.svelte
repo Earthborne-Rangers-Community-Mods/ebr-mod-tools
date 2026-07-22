@@ -207,11 +207,6 @@
 
   <div class="clear-row">
     <div class="card-actions">
-      {#if setupStore.completed}
-        <button type="button" class="primary" disabled={setupStore.busy} onclick={() => navigation.go(ROUTES.MY_MODS)}>
-          {m.setup_done()}
-        </button>
-      {/if}
       {#if confirmingClear}
         <button type="button" class="danger" disabled={setupStore.busy} onclick={confirmClearStoredSetup}>
           {m.setup_clear_confirm_yes()}
@@ -222,6 +217,11 @@
       {:else}
         <button type="button" class="ghost" disabled={setupStore.busy} onclick={() => (confirmingClear = true)}>
           {m.setup_clear()}
+        </button>
+      {/if}
+      {#if setupStore.completed}
+        <button type="button" class="primary" disabled={setupStore.busy} onclick={() => navigation.go(ROUTES.MY_MODS)}>
+          {m.setup_done()}
         </button>
       {/if}
     </div>
@@ -385,5 +385,9 @@
     flex-direction: column;
     gap: var(--spacing-sm);
     margin-top: var(--spacing-sm);
+  }
+
+  .clear-row .card-actions {
+    justify-content: flex-end;
   }
 </style>

@@ -43,3 +43,29 @@ export function openInObsidian(dir) {
 export function openPath(dir) {
   return ipcRenderer.invoke("shell:openPath", dir);
 }
+
+/**
+ * Tell the main process whether the app currently has unsaved edits, so it knows
+ * whether to intercept a window-close attempt. Pushed whenever the state changes.
+ * @param {boolean} isDirty
+ */
+export function sendDirty(isDirty) {
+  ipcRenderer.send("app:dirty-changed", Boolean(isDirty));
+}
+
+/**
+ * Register a handler for the main process's "confirm before closing" request
+ * (only sent while there are unsaved edits). The handler prompts the user and
+ * calls {@link confirmAppClose} to let the close proceed.
+ * @param {() => void} handler
+ * @returns {() => void} Unsubscribe function.
+ */
+export function onConfirmClose(handler) {
+  ipcRenderer.on("app:confirm-close", handler);
+  return () => ipcRenderer.removeListener("app:confirm-close", handler);
+}
+
+/** Tell the main process it may now close the window. */
+export function confirmAppClose() {
+  ipcRenderer.send("app:force-close");
+}
