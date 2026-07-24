@@ -1,4 +1,4 @@
-<script module>
+<script module lang="ts">
   import ISO6391 from "iso-639-1";
 
   // Built once for the whole module (shared by every instance): the option list
@@ -13,7 +13,7 @@
     .sort((a, b) => a.label.localeCompare(b.label));
 </script>
 
-<script>
+<script lang="ts">
   /**
    * Language picker field - a native select over the ISO 639-1 language set,
    * bound to a mod's `language` manifest field (a BCP 47 tag). Reusable across

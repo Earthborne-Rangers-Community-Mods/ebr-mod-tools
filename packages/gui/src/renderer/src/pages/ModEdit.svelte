@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { onMount } from "svelte";
   import BackButton from "../components/BackButton.svelte";
   import CheckGroup from "../components/CheckGroup.svelte";
@@ -28,15 +28,13 @@
     "invalid-author": m.moddetails_error_invalid_author,
   };
 
-  /** @param {{name: string, oneDayMission?: boolean}} campaign */
-  function campaignLabel(campaign) {
+  function campaignLabel(campaign: { name: string; oneDayMission?: boolean }) {
     return campaign.oneDayMission
       ? `${campaign.name} (${m.moddetails_one_day_tag()})`
       : campaign.name;
   }
 
-  /** @param {string} field */
-  function fieldError(field) {
+  function fieldError(field: string) {
     const code = form.fieldErrors[field];
     return code ? pick(ERROR_MESSAGES, code)?.() : null;
   }

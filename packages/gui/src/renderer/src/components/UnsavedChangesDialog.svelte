@@ -1,19 +1,20 @@
-<script>
+<script lang="ts">
   /**
    * Modal prompt shown when the user tries to leave (or close) a dirty edit form.
-   *
-   * @typedef {object} Props
-   * @property {() => void} onSave - Save the changes, then proceed.
-   * @property {() => void} onDiscard - Throw the changes away, then proceed.
-   * @property {() => void} onCancel - Stay put.
    */
   import * as m from "../lib/paraglide/messages.js";
 
-  /** @type {Props} */
-  let { onSave, onDiscard, onCancel } = $props();
+  interface Props {
+    /** Save the changes, then proceed. */
+    onSave: () => void;
+    /** Throw the changes away, then proceed. */
+    onDiscard: () => void;
+    /** Stay put. */
+    onCancel: () => void;
+  }
+  let { onSave, onDiscard, onCancel }: Props = $props();
 
-  /** @type {HTMLDialogElement} */
-  let dialogEl;
+  let dialogEl: HTMLDialogElement;
 
   // Open as a true modal on mount; close the native dialog on teardown.
   $effect(() => {
@@ -24,8 +25,7 @@
   // Escape fires the native `cancel` event. Keep the parent's state the single
   // source of truth: swallow the default close and route through onCancel so the
   // parent unmounts us.
-  /** @param {Event} event */
-  function handleCancel(event) {
+  function handleCancel(event: Event) {
     event.preventDefault();
     onCancel();
   }

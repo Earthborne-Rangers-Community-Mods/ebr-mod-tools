@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import BackButton from "../components/BackButton.svelte";
   import ObsidianButton from "../components/ObsidianButton.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
@@ -17,10 +17,8 @@
 
   /**
    * Map a list of ids to their catalog display names, falling back to the id.
-   * @param {string[]|undefined} ids
-   * @param {ReadonlyArray<{id: string, name: string}>} catalog
    */
-  function names(ids, catalog) {
+  function names(ids: string[] | undefined, catalog: ReadonlyArray<{ id: string; name: string }>) {
     return (ids ?? []).map((id) => catalog.find((c) => c.id === id)?.name ?? id);
   }
 
@@ -52,7 +50,7 @@
         >
           <span class="icon" style={`--icon-mask: url("${folderIcon}")`} aria-hidden="true"></span>
         </button>
-        <ObsidianButton dir={entry.dir} size="compact" />
+        <ObsidianButton dir={entry.dir} />
         <button
           type="button"
           class="icon-button"

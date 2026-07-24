@@ -1,23 +1,30 @@
-<script>
+<script lang="ts">
   /**
    * Presentational checkbox-group control: a bordered fieldset with a legend and
    * a responsive grid of labelled checkboxes.
    *
    * Callers pass the item list plus small accessor functions rather than a fixed
    * item shape. Disabling the fieldset natively disables every checkbox inside it.
-   *
-   * @typedef {object} Props
-   * @property {string} legend - Group heading.
-   * @property {readonly any[]} items - Rows to render.
-   * @property {(item: any) => string} key - Stable key for the {#each} block.
-   * @property {(item: any) => string} label - Visible label text for a row.
-   * @property {(item: any) => boolean} checked - Whether a row is selected.
-   * @property {(item: any) => void} onToggle - Called when a row is toggled.
-   * @property {boolean} [disabled] - Disable every checkbox.
-   * @property {boolean} [wide] - Span all columns when placed in a grid layout.
    */
-  /** @type {Props} */
-  let { legend, items, key, label, checked, onToggle, disabled = false, wide = false } = $props();
+  interface Props {
+    /** Group heading. */
+    legend: string;
+    /** Rows to render. */
+    items: readonly any[];
+    /** Stable key for the {#each} block. */
+    key: (item: any) => string;
+    /** Visible label text for a row. */
+    label: (item: any) => string;
+    /** Whether a row is selected. */
+    checked: (item: any) => boolean;
+    /** Called when a row is toggled. */
+    onToggle: (item: any) => void;
+    /** Disable every checkbox. */
+    disabled?: boolean;
+    /** Span all columns when placed in a grid layout. */
+    wide?: boolean;
+  }
+  let { legend, items, key, label, checked, onToggle, disabled = false, wide = false }: Props = $props();
 </script>
 
 <fieldset class="check-group" class:wide {disabled}>

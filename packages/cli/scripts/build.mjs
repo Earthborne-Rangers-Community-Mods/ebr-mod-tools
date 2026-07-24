@@ -34,7 +34,7 @@ const external = Object.keys(runtimeDeps);
 rmSync(distDir, { recursive: true, force: true });
 
 await build({
-  entryPoints: [join(cliRoot, "src", "cli.js")],
+  entryPoints: [join(cliRoot, "src", "cli.ts")],
   outfile: join(distDir, "cli.js"),
   bundle: true,
   platform: "node",

@@ -5,8 +5,9 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.js",
-    "./*": "./src/*"
+    ".": "./src/index.ts",
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*.ts"
   },
   "license": "MIT",
   "scripts": {

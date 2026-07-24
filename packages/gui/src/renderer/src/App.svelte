@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { onMount } from "svelte";
   import { navigation, ROUTES } from "./lib/navigation.svelte.js";
   import { openMods } from "./lib/mods.svelte.js";

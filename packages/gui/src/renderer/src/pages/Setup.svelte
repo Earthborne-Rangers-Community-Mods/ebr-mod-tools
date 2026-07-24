@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import BackButton from "../components/BackButton.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";

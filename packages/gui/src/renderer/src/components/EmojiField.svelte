@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   /**
    * Emoji picker field - a compact trigger button that opens an off-the-shelf
    * emoji picker (emoji-picker-element) in a popover. Reusable across forms that
@@ -10,12 +10,18 @@
    * keep app startup lean.
    */
   import { onDestroy } from "svelte";
+  import type { EmojiClickEventDetail } from "emoji-picker-element/shared";
   import * as m from "../lib/paraglide/messages.js";
 
   // `labelledby` is the id of an external field label; when provided it is
   // prepended to the trigger's accessible name so the surrounding "Icon" context
   // is announced along with the button's own content.
-  let { value = $bindable(""), disabled = false, labelledby = undefined, onchange = undefined } = $props();
+  let { value = $bindable(""), disabled = false, labelledby = undefined, onchange = undefined }: {
+    value?: string;
+    disabled?: boolean;
+    labelledby?: string;
+    onchange?: () => void;
+  } = $props();
 
   // Unique id so the trigger can reference its own content in aria-labelledby.
   const triggerId = $props.id();
@@ -23,9 +29,9 @@
   let open = $state(false);
   let loaded = $state(false);
   let loadError = $state(false);
-  let dataSourceUrl = $state(/** @type {string|null} */ (null));
-  let pickerEl = $state(/** @type {HTMLElement|null} */ (null));
-  let rootEl = $state(/** @type {HTMLElement|null} */ (null));
+  let dataSourceUrl = $state<string | null>(null);
+  let pickerEl = $state<HTMLElement | null>(null);
+  let rootEl = $state<HTMLElement | null>(null);
 
   // Lazy-load the picker element and its bundled data on first open.
   async function ensureLoaded() {
@@ -51,9 +57,10 @@
     open = !loadError;
   }
 
-  /** @param {any} event */
-  function handleEmojiClick(event) {
-    value = event.detail.unicode;
+  function handleEmojiClick(event: Event) {
+    const { unicode } = (event as CustomEvent<EmojiClickEventDetail>).detail;
+    if (!unicode) return;
+    value = unicode;
     open = false;
     onchange?.();
   }
@@ -81,12 +88,10 @@
   // Dismiss on outside click or Escape while the popover is open.
   $effect(() => {
     if (!open) return;
-    /** @param {PointerEvent} event */
-    function onPointerDown(event) {
-      if (rootEl && !rootEl.contains(/** @type {Node} */ (event.target))) open = false;
+    function onPointerDown(event: PointerEvent) {
+      if (rootEl && !rootEl.contains(event.target as Node)) open = false;
     }
-    /** @param {KeyboardEvent} event */
-    function onKeyDown(event) {
+    function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") open = false;
     }
     document.addEventListener("pointerdown", onPointerDown, true);

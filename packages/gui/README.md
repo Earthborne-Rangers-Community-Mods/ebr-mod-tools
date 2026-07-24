@@ -44,17 +44,17 @@ packages/gui/
   electron.vite.config.mjs   # electron-vite build config
   electron-builder.yml       # Windows + macOS packaging config
   svelte.config.mjs          # Svelte config (preprocess) - used by svelte-check
-  tsconfig.json              # checkJs config for svelte-check
+  tsconfig.json              # TypeScript config for svelte-check
   messages/
     en.json                  # UI strings (inlang message format)
   project.inlang/
     settings.json            # inlang project config (baseLocale en)
   src/
-    main/index.js            # Electron main process entry (window + guards)
+    main/index.ts            # Electron main process entry (window + guards)
     renderer/
       index.html             # Renderer entry (SPA)
       src/
-        main.js              # Svelte mount (imports app.css)
+        main.ts              # Svelte mount (imports app.css)
         app.css              # Portable design system: tokens, fonts, base styles
         App.svelte           # Shell: renders the active page full-width
         assets/
@@ -62,9 +62,9 @@ packages/gui/
           icons/             # Shared icon set (app icon, favicon, logos)
         components/          # Shared controls used by multiple pages
         lib/
-          navigation.svelte.js  # In-memory route state
-          mods.svelte.js        # Open-mods store (localStorage + on-disk manifests)
-          platform.js           # Main-process bridge (picker, external launch, reveal folder)
+          navigation.svelte.ts  # In-memory route state
+          mods.svelte.ts        # Open-mods store (localStorage + on-disk manifests)
+          platform.ts           # Main-process bridge (picker, external launch, reveal folder)
           paraglide/            # Generated message functions
         pages/
           MyMods.svelte           # Mod list + account header

@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { openMods } from "../lib/mods.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";
@@ -11,8 +11,8 @@
   import githubLogo from "../assets/icons/github-logo.svg";
   import gearIcon from "../assets/icons/gear.svg";
 
-  let addError = $state(/** @type {string|null} */ (null));
-  let confirmDir = $state(/** @type {string|null} */ (null));
+  let addError = $state<string | null>(null);
+  let confirmDir = $state<string | null>(null);
 
   async function openExisting() {
     addError = null;
@@ -33,8 +33,7 @@
     }
   }
 
-  /** @param {string} dir */
-  function requestClose(dir) {
+  function requestClose(dir: string) {
     confirmDir = dir;
   }
 
@@ -42,8 +41,7 @@
     confirmDir = null;
   }
 
-  /** @param {string} dir */
-  function confirmClose(dir) {
+  function confirmClose(dir: string) {
     openMods.remove(dir);
     if (confirmDir === dir) confirmDir = null;
   }

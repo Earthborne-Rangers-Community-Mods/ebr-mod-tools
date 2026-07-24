@@ -49,26 +49,26 @@ The docs on the [Mod Manifest (`ebr-mod.json`)](docs/manifest.md) for details.
 packages/
   core/             # Pure business logic - no process.exit, no console.log, no prompts
     src/
-      workflows.js  # High-level mod lifecycle workflows (scaffold, save, publish)
-      git.js        # Git operations wrapper (simple-git)
-      github.js     # GitHub API wrapper (@octokit/rest)
-      manifest.js   # Read/write/validate ebr-mod.json
-      config.js     # Fork URLs and author defaults storage (~/.ebr/)
-      catalogs.js   # Official campaign and product catalogs
-      registry.js   # Registry entry building and validation
-      errors.js     # Typed error classes
-      index.js      # Barrel export for all core functions
+      workflows.ts  # High-level mod lifecycle workflows (scaffold, save, publish)
+      git.ts        # Git operations wrapper (simple-git)
+      github.ts     # GitHub API wrapper (@octokit/rest)
+      manifest.ts   # Read/write/validate ebr-mod.json
+      config.ts     # Fork URLs and author defaults storage (~/.ebr/)
+      catalogs.ts   # Official campaign and product catalogs
+      registry.ts   # Registry entry building and validation
+      errors.ts     # Typed error classes
+      index.ts      # Barrel export for all core functions
   cli/              # CLI-only layer, one script per command
     src/
       commands/
-        setup.js
-        new.js
-        save.js
-        publish.js
-        include.js
-        validate.js
-        update.js
-      cli.js        # Commander setup and entry point
+        setup.ts
+        new.ts
+        save.ts
+        publish.ts
+        include.ts
+        validate.ts
+        update.ts
+      cli.ts        # Commander setup and entry point
   gui/              # Electron desktop app (Phase 3)
     src/            # Plain Svelte SPA renderer
 ```
@@ -110,10 +110,7 @@ packages/
 # Install dependencies
 npm install
 
-# Run any command directly from source (no build needed)
-node packages/cli/src/cli.js --help
-
-# Or build the self-contained bundle and link the 'ebr' command globally
+# Build the self-contained bundle and link the 'ebr' command globally
 npm run build --workspace packages/cli
 npm link --workspace packages/cli
 ebr --help
@@ -139,11 +136,11 @@ npm run test:watch
 
 ### Type checking
 
-The codebase is plain JavaScript, type-checked with TypeScript in `checkJs` mode
-(`svelte-check` for the GUI). Types are expressed with JSDoc; there are no
-authored `.ts` files. `packages/core` and `packages/cli` are checked with
-`tsc --noEmit` (via each package's `tsconfig.json` with `allowJs`, `checkJs`, and
-`strict`); `packages/gui` is checked with `svelte-check`.
+The codebase is authored TypeScript, type-checked with `strict`. `packages/core`
+and `packages/cli` are checked with `tsc --noEmit`. `packages/gui` is a Svelte 5
+app whose renderer `<script>` blocks use `lang="ts"` and whose lib modules are
+`.ts`; it is checked with `svelte-check`. Test files (`*.test.js`) are plain
+JavaScript run by Vitest and are not part of the type-check gate.
 
 ```powershell
 # Type-check every package (core, cli, gui)

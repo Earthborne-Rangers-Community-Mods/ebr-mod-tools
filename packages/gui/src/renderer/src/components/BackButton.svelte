@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import * as m from "../lib/paraglide/messages.js";
 

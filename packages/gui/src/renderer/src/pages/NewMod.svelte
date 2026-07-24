@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import BackButton from "../components/BackButton.svelte";
   import CheckGroup from "../components/CheckGroup.svelte";
   import EmojiField from "../components/EmojiField.svelte";
@@ -38,15 +38,13 @@
     form.type === "expansion" ? STORY_CAMPAIGNS : OFFICIAL_CAMPAIGNS,
   );
 
-  /** @param {{name: string, oneDayMission?: boolean}} campaign */
-  function campaignLabel(campaign) {
+  function campaignLabel(campaign: { name: string; oneDayMission?: boolean }) {
     return campaign.oneDayMission ? `${campaign.name} (${m.newmod_one_day_tag()})` : campaign.name;
   }
 
   // Localized inline error for a field the user has blurred (or that failed the
   // create gate), or null when the field is currently valid.
-  /** @param {string} field */
-  function fieldError(field) {
+  function fieldError(field: string) {
     const code = form.fieldErrors[field];
     return code ? pick(ERROR_MESSAGES, code)?.() : null;
   }

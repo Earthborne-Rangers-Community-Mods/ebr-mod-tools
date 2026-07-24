@@ -79,23 +79,23 @@ If you're changing anything in core logic, you probably need to add or change so
 
 ## Type Checking
 
-The codebase is plain JavaScript, type-checked with TypeScript in `checkJs` mode
-via JSDoc annotations - there are no authored `.ts` files. `packages/core` and
-`packages/cli` are checked with `tsc --noEmit` (each has a `tsconfig.json` with
-`allowJs`, `checkJs`, and `strict`); `packages/gui` is checked with `svelte-check`.
+The codebase is authored TypeScript, type-checked with `strict`. `packages/core`
+and `packages/cli` are checked with `tsc --noEmit`. `packages/gui` is a Svelte 5
+app: its renderer `<script>` blocks use `lang="ts"` and its lib modules are `.ts`,
+checked with `svelte-check`. Test files (`*.test.js`) are plain JavaScript run by
+Vitest and are not part of the type-check gate.
 
 - `npm run check` at the repo root type-checks every workspace
 - `npm run check --workspace packages/<name>` checks one package
-- Keep JSDoc types accurate as you change code, and run `npm run check` before
+- Keep types accurate as you change code, and run `npm run check` before
   opening a PR - the check must be clean (0 errors)
-- Shared domain types live in `packages/core/src/types.js` (JSDoc `@typedef`s,
-  no runtime code)
+- Shared domain types live in `packages/core/src/types.ts`
 
 ## Code Style
 
-- Plain JavaScript (ESM modules), type-checked with `checkJs` via JSDoc (no
-  authored `.ts` files)
-- Typed errors (`packages/core/src/errors.js`) for distinct failure modes - callers
+- All three packages are authored TypeScript (ESM modules, `strict`); the
+  `packages/gui` renderer `<script>` blocks use `lang="ts"`
+- Typed errors (`packages/core/src/errors.ts`) for distinct failure modes - callers
   branch on error type, not message strings
 - Core functions accept an optional `{ onProgress }` callback for status
   reporting

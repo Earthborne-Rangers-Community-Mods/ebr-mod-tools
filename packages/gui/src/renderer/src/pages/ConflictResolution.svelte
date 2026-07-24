@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import BackButton from "../components/BackButton.svelte";
 
   // Placeholder conflicted files for the blockout.
