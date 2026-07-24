@@ -55,13 +55,16 @@ function octokit(token) {
 /**
  * Wrap an Octokit error into a typed GithubError (or subclass).
  * Checks HTTP status for known failure modes.
+ * @param {string} operation
+ * @param {unknown} err
  */
 function wrapError(operation, err) {
   if (err instanceof GithubError) return err;
-  if (err.status === 401) {
+  const e = /** @type {{ status?: number, message?: string }} */ (err);
+  if (e.status === 401) {
     return new AuthenticationError();
   }
-  return new GithubError(operation, err.message || String(err), err.status);
+  return new GithubError(operation, e.message || String(err), e.status);
 }
 
 /**
@@ -140,6 +143,7 @@ export function runCommand(command, args, { input } = {}) {
  * @returns {Record<string, string>}
  */
 export function parseCredentialFill(stdout) {
+  /** @type {Record<string, string>} */
   const result = {};
   for (const line of stdout.split(/\r?\n/)) {
     if (!line) continue;

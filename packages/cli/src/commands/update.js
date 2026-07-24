@@ -15,16 +15,28 @@ import {
   GithubError,
 } from "core/errors.js";
 
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+
+/**
+ * @typedef {{
+ *   base: { updated: boolean, skipped: boolean },
+ *   campaigns: { updated: string[], skipped: string[], upToDate: string[], missing: string[], notAttempted: string[] },
+ *   mods: { updated: string[], skipped: string[], upToDate: string[], missing: string[], ahead: string[], notAttempted: string[] },
+ *   conflicted: { id: string, files: string[] } | null,
+ * }} UpdateSummary
+ */
+
 export const updateCommand = new Command("update")
   .description("Check for and merge updates from base content, included campaigns, and included mods")
   .action(updateAction);
 
 async function updateAction() {
   const dir = process.cwd();
-  const onProgress = (p) => console.log(p.message);
+  const onProgress = (/** @type {ProgressEvent} */ p) => console.log(p.message);
 
   // Track outcomes for the final summary so the user sees what landed
   // and what they still need to deal with.
+  /** @type {UpdateSummary} */
   const summary = {
     base: { updated: false, skipped: false },
     campaigns: {
@@ -188,7 +200,7 @@ async function updateAction() {
 
             try {
               const result = await includeMod(
-                { dir, source: m.id, registry },
+                { dir, source: m.id, registry: registry ?? undefined },
                 { onProgress },
               );
               if (result.alreadyUpToDate) {
@@ -246,6 +258,7 @@ async function updateAction() {
   }
 }
 
+/** @param {UpdateSummary} s */
 function printSummary(s) {
   const lines = ["\n--- Summary ---"];
   if (s.base.updated) lines.push("Base content: updated");

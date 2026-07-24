@@ -23,9 +23,9 @@
   let open = $state(false);
   let loaded = $state(false);
   let loadError = $state(false);
-  let dataSourceUrl = $state(null);
-  let pickerEl = $state(null);
-  let rootEl = $state(null);
+  let dataSourceUrl = $state(/** @type {string|null} */ (null));
+  let pickerEl = $state(/** @type {HTMLElement|null} */ (null));
+  let rootEl = $state(/** @type {HTMLElement|null} */ (null));
 
   // Lazy-load the picker element and its bundled data on first open.
   async function ensureLoaded() {
@@ -51,6 +51,7 @@
     open = !loadError;
   }
 
+  /** @param {any} event */
   function handleEmojiClick(event) {
     value = event.detail.unicode;
     open = false;
@@ -80,9 +81,11 @@
   // Dismiss on outside click or Escape while the popover is open.
   $effect(() => {
     if (!open) return;
+    /** @param {PointerEvent} event */
     function onPointerDown(event) {
-      if (rootEl && !rootEl.contains(event.target)) open = false;
+      if (rootEl && !rootEl.contains(/** @type {Node} */ (event.target))) open = false;
     }
+    /** @param {KeyboardEvent} event */
     function onKeyDown(event) {
       if (event.key === "Escape") open = false;
     }

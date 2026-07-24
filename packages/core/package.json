@@ -9,6 +9,9 @@
     "./*": "./src/*"
   },
   "license": "MIT",
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
   "dependencies": {
     "@octokit/rest": "^22.0.0",
     "simple-git": "^3.27.0"

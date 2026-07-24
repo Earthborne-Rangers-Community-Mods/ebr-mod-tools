@@ -20,7 +20,7 @@ const CONFIG_FILE = "config.json";
  * Read the full config object.
  * Returns `{}` if the config dir or file does not exist.
  * @param {{ configDir?: string }} [options]
- * @returns {Promise<object>}
+ * @returns {Promise<Record<string, any>>}
  * @throws {ConfigError} If the config file contains invalid JSON.
  */
 export async function getConfig({ configDir = CONFIG_DIR } = {}) {
@@ -29,8 +29,9 @@ export async function getConfig({ configDir = CONFIG_DIR } = {}) {
   try {
     raw = await readFile(filePath, "utf-8");
   } catch (err) {
-    if (err.code === "ENOENT") return {};
-    throw new ConfigError("read", `Failed to read config: ${err.message}`);
+    const e = /** @type {NodeJS.ErrnoException} */ (err);
+    if (e.code === "ENOENT") return {};
+    throw new ConfigError("read", `Failed to read config: ${e.message}`);
   }
   try {
     return JSON.parse(raw);

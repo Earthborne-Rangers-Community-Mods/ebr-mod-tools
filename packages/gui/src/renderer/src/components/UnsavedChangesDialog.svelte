@@ -12,6 +12,7 @@
   /** @type {Props} */
   let { onSave, onDiscard, onCancel } = $props();
 
+  /** @type {HTMLDialogElement} */
   let dialogEl;
 
   // Open as a true modal on mount; close the native dialog on teardown.
@@ -23,6 +24,7 @@
   // Escape fires the native `cancel` event. Keep the parent's state the single
   // source of truth: swallow the default close and route through onCancel so the
   // parent unmounts us.
+  /** @param {Event} event */
   function handleCancel(event) {
     event.preventDefault();
     onCancel();

@@ -15,6 +15,7 @@
   import { typeName, typeDesc } from "../lib/modtypes.js";
   import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
   import * as m from "../lib/paraglide/messages.js";
+  import { pick } from "../lib/pick.js";
   import { onMount } from "svelte";
 
   const form = newModForm;
@@ -37,15 +38,17 @@
     form.type === "expansion" ? STORY_CAMPAIGNS : OFFICIAL_CAMPAIGNS,
   );
 
+  /** @param {{name: string, oneDayMission?: boolean}} campaign */
   function campaignLabel(campaign) {
     return campaign.oneDayMission ? `${campaign.name} (${m.newmod_one_day_tag()})` : campaign.name;
   }
 
   // Localized inline error for a field the user has blurred (or that failed the
   // create gate), or null when the field is currently valid.
+  /** @param {string} field */
   function fieldError(field) {
     const code = form.fieldErrors[field];
-    return code ? ERROR_MESSAGES[code]?.() : null;
+    return code ? pick(ERROR_MESSAGES, code)?.() : null;
   }
 </script>
 
@@ -69,7 +72,7 @@
       {#if form.errorCode === "create-failed"}
         {m.newmod_error_create({ detail: form.errorDetail ?? "" })}
       {:else}
-        {ERROR_MESSAGES[form.errorCode]?.()}
+        {pick(ERROR_MESSAGES, form.errorCode)?.()}
       {/if}
     </p>
   {/if}

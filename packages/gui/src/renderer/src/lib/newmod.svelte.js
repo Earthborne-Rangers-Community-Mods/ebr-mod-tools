@@ -37,6 +37,10 @@ import { runGuarded } from "./guarded.js";
 import { checkModId } from "./registry.js";
 import { showSafeNotes, fixedSafety } from "./midcampaign.js";
 
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+/** @typedef {import('core/types.js').ModValues} ModValues */
+/** @typedef {import('core/types.js').Manifest} Manifest */
+
 /** Map scaffold branches selectable for a `campaign` mod. */
 export const MAP_SCAFFOLDS = KNOWN_SCAFFOLDS.filter((s) => s.branch.startsWith("map/"));
 
@@ -62,31 +66,31 @@ class NewModForm {
   type = $state("enhancement");
 
   // Type-specific fields.
-  campaigns = $state([]);
-  requiredProducts = $state([]);
+  campaigns = $state(/** @type {string[]} */ ([]));
+  requiredProducts = $state(/** @type {string[]} */ ([]));
   safeToAddMidCampaign = $state(false);
   midCampaignNotes = $state("");
-  selectedMaps = $state([]);
-  selectedSets = $state([]);
+  selectedMaps = $state(/** @type {string[]} */ ([]));
+  selectedSets = $state(/** @type {string[]} */ ([]));
 
   // Where the mod folder will be created (its parent directory).
-  parentDir = $state(null);
+  parentDir = $state(/** @type {string|null} */ (null));
 
   // Async/create state.
   busy = $state(false);
-  progress = $state(null);
-  errorCode = $state(null);
-  errorDetail = $state(null);
+  progress = $state(/** @type {string|null} */ (null));
+  errorCode = $state(/** @type {string|null} */ (null));
+  errorDetail = $state(/** @type {string|null} */ (null));
   /** Non-fatal failures from the scaffold/include steps after the mod was created. */
-  warnings = $state([]);
+  warnings = $state(/** @type {Array<{kind: string, ref: string, detail: string}>} */ ([]));
   /** True once creation finished but left warnings; the mod exists and is tracked. */
   completedWithWarnings = $state(false);
   /** Id of the mod just created, so completion can route to its details page. */
-  createdModId = $state(null);
+  createdModId = $state(/** @type {string|null} */ (null));
   /** Registry availability of the current id ({ status, entry } or null). */
-  idStatus = $state(null);
+  idStatus = $state(/** @type {{status: string, entry?: {author?: string}}|null} */ (null));
   /** Per-field validation error codes, keyed by field name (blur-time feedback). */
-  fieldErrors = $state({});
+  fieldErrors = $state(/** @type {Record<string, string>} */ ({}));
 
   /** Kebab-case id derived from the name, matching `ebr new`. */
   get id() {
@@ -154,6 +158,7 @@ class NewModForm {
    * campaign-derived products leak across the switch), and preserved when moving
    * within the campaign-targeting family (enhancement/expansion/collection/
    * one-day-mission).
+   * @param {string} type
    */
   setType(type) {
     const cameFromReset = this.type === "campaign" || this.type === "theme";
@@ -266,9 +271,10 @@ class NewModForm {
    * Validate one editable text field and record (or clear) its inline error, so
    * the user sees a problem on blur rather than only at create time. Reuses the
    * same `newmod_error_invalid_*` messages the create gate surfaces.
-   * @param {"name"|"author"|"description"|"language"|"icon"} field
+   * @param {string} field
    */
   validateField(field) {
+    /** @type {string|null} */
     let code = null;
     if (field === "name") {
       if (validateName(this.name) !== true) code = "invalid-name";
@@ -312,6 +318,7 @@ class NewModForm {
 
     const requiredProducts = this.type === "theme" ? [] : [...this.requiredProducts];
 
+    /** @type {ModValues} */
     const values = {
       name: this.name.trim(),
       author: this.author.trim(),
@@ -351,16 +358,16 @@ class NewModForm {
    * the creator can retry with the scaffold/include tools - so they are
    * collected as warnings rather than thrown.
    * @param {string} dir
-   * @param {object} manifest
+   * @param {Manifest} manifest
    */
   async #stampAndInclude(dir, manifest) {
-    const onProgress = (p) => (this.progress = p.message);
+    const onProgress = (/** @type {ProgressEvent} */ p) => (this.progress = p.message ?? null);
 
     for (const branch of this.scaffoldsToStamp) {
       try {
         await includeScaffold({ dir, source: branch }, { onProgress });
       } catch (err) {
-        this.warnings = [...this.warnings, { kind: "scaffold", ref: branch, detail: err?.message ?? "" }];
+        this.warnings = [...this.warnings, { kind: "scaffold", ref: branch, detail: (/** @type {Error} */ (err))?.message ?? "" }];
       }
     }
 
@@ -371,7 +378,7 @@ class NewModForm {
       try {
         await includeCampaign({ dir, source: id }, { onProgress });
       } catch (err) {
-        this.warnings = [...this.warnings, { kind: "campaign", ref: id, detail: err?.message ?? "" }];
+        this.warnings = [...this.warnings, { kind: "campaign", ref: id, detail: (/** @type {Error} */ (err))?.message ?? "" }];
         // Stop on the first campaign failure: later merges likely depend on a
         // clean tree. Report the rest as explicitly skipped so the user knows
         // they were never attempted.
@@ -409,6 +416,7 @@ class NewModForm {
       this.errorCode = "no-folder";
       return;
     }
+    const parentDir = this.parentDir;
 
     await runGuarded(
       this,
@@ -416,10 +424,10 @@ class NewModForm {
       async () => {
         this.progress = null;
         const manifest = buildManifest(this.#buildValues());
-        const targetDir = join(this.parentDir, manifest.id);
+        const targetDir = join(parentDir, manifest.id);
         const result = await scaffoldMod(
           { dir: targetDir, manifest, forkUrl },
-          { onProgress: (p) => (this.progress = p.message) },
+          { onProgress: (/** @type {ProgressEvent} */ p) => (this.progress = p.message ?? null) },
         );
         await this.#stampAndInclude(result.modDir, manifest);
         const added = await openMods.add(result.modDir);
@@ -432,8 +440,8 @@ class NewModForm {
         }
       },
       {
-        onError: (err) => {
-          this.errorDetail = err?.message ?? null;
+        onError: (/** @type {unknown} */ err) => {
+          this.errorDetail = (/** @type {Error} */ (err))?.message ?? null;
         },
         finalize: () => {
           this.progress = null;

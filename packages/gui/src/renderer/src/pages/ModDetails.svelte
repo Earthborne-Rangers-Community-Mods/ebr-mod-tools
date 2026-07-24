@@ -12,15 +12,20 @@
   import discordLogo from "../assets/icons/discord-logo.svg";
   import * as m from "../lib/paraglide/messages.js";
 
-  const entry = $derived(openMods.get(navigation.selectedModId));
+  const entry = $derived(navigation.selectedModId ? openMods.get(navigation.selectedModId) : null);
   const mod = $derived(entry?.manifest ?? null);
 
-  /** Map a list of ids to their catalog display names, falling back to the id. */
+  /**
+   * Map a list of ids to their catalog display names, falling back to the id.
+   * @param {string[]|undefined} ids
+   * @param {ReadonlyArray<{id: string, name: string}>} catalog
+   */
   function names(ids, catalog) {
     return (ids ?? []).map((id) => catalog.find((c) => c.id === id)?.name ?? id);
   }
 
   function edit() {
+    if (!mod) return;
     navigation.go(ROUTES.MOD_EDIT, { modId: mod.id });
   }
 </script>
@@ -28,14 +33,14 @@
 <section class="page">
   <BackButton />
 
-  {#if !mod}
+  {#if !entry || !mod}
     <p class="banner error" role="alert">{m.moddetails_not_found()}</p>
   {:else}
     <header class="mod-header">
       <span class="mod-icon" aria-hidden="true">{mod.icon}</span>
       <div>
         <h1>{mod.name}</h1>
-        <p class="muted">{typeName(mod.type)} &middot; v{mod.version} &middot; {mod.id}</p>
+        <p class="muted">{typeName(mod.type ?? "")} &middot; v{mod.version} &middot; {mod.id}</p>
       </div>
       <div class="header-actions">
         <button
@@ -100,7 +105,7 @@
               href={mod.repoUrl}
               onclick={(event) => {
                 event.preventDefault();
-                openExternal(mod.repoUrl);
+                openExternal(mod.repoUrl ?? "");
               }}
             >
               {mod.repoUrl}
@@ -150,7 +155,7 @@
           </dd>
         </div>
       {/if}
-      {#if showSafeChoice(mod.type)}
+      {#if showSafeChoice(mod.type ?? "")}
         <div class="row wide">
           <dt>{m.midcampaign_legend()}</dt>
           {#if mod.safeToAddMidCampaign}

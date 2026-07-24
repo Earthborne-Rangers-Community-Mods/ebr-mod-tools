@@ -8,11 +8,14 @@ import { OFFICIAL_PRODUCTS } from "core/catalogs.js";
 import { renderCliError } from "./render-error.js";
 import { GithubError, GitError, GitAuthenticationError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "core/errors.js";
 
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+
 export const publishCommand = new Command("publish")
   .description("Submit or update the mod in the registry via GitHub PR")
   .option("--force", "Skip unpushed changes check")
   .action(publishAction);
 
+/** @param {{force?: boolean}} opts */
 async function publishAction(opts) {
     const dir = process.cwd();
 
@@ -41,7 +44,7 @@ async function publishAction(opts) {
       const result = await publishMod(
         { dir, registryForkUrl: forks.registry, force: opts.force },
         {
-          onProgress: (p) =>
+          onProgress: (/** @type {ProgressEvent} */ p) =>
             p.step === "create-pr-failed"
               ? console.log(`\x1b[33m⚠ ${p.message}\x1b[0m`)
               : console.log(p.message),
@@ -77,7 +80,7 @@ async function publishAction(opts) {
             // the opener is killed first and nothing launches.
             await new Promise((r) => setTimeout(r, 1500));
           } catch (e) {
-            console.log(`Couldn't open a browser (${e.message}). Use the link above.`);
+            console.log(`Couldn't open a browser (${(/** @type {Error} */ (e)).message}). Use the link above.`);
           }
         }
       }
@@ -195,7 +198,7 @@ async function maybeAutoFixManifest(dir) {
     console.log(`  - ${formatValidationError(err)}`);
   }
 
-  const productLabel = (id) => {
+  const productLabel = (/** @type {string} */ id) => {
     const p = OFFICIAL_PRODUCTS.find((p) => p.id === id);
     return p ? `${p.name} (${id})` : id;
   };

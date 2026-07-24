@@ -17,6 +17,8 @@ import {
 import { openMods } from "./mods.svelte.js";
 import { showSafeNotes, fixedSafety } from "./midcampaign.js";
 
+/** @typedef {import('core/types.js').RawManifest} RawManifest */
+
 /**
  * Split a comma-separated tag string into a deduped list of lowercase tags.
  * @param {string} text
@@ -32,7 +34,7 @@ function parseTags(text) {
 
 class ModDetailsForm {
   // Identity / read-only display fields.
-  dir = $state(null);
+  dir = $state(/** @type {string|null} */ (null));
   id = $state("");
   repoUrl = $state("");
 
@@ -46,9 +48,9 @@ class ModDetailsForm {
   icon = $state("");
   language = $state("en");
   type = $state("enhancement");
-  campaigns = $state([]);
-  requiredProducts = $state([]);
-  optionalProducts = $state([]);
+  campaigns = $state(/** @type {string[]} */ ([]));
+  requiredProducts = $state(/** @type {string[]} */ ([]));
+  optionalProducts = $state(/** @type {string[]} */ ([]));
   safeToAddMidCampaign = $state(false);
   midCampaignNotes = $state("");
 
@@ -56,17 +58,20 @@ class ModDetailsForm {
   /** True once a manifest was loaded; false means the mod could not be found. */
   loaded = $state(false);
   /** Per-field validation error codes, keyed by field name. */
-  fieldErrors = $state({});
+  fieldErrors = $state(/** @type {Record<string, string>} */ ({}));
   /** Save status shown to the user: idle | saving | saved | error. */
   saveState = $state("idle");
   /** Detail message from a failed write, surfaced with the error status. */
-  errorDetail = $state(null);
+  errorDetail = $state(/** @type {string|null} */ (null));
   /** A type the user picked but has not yet confirmed (drives the warning). */
-  pendingType = $state(null);
+  pendingType = $state(/** @type {string|null} */ (null));
   /** JSON of the field values as last loaded/saved; drives the `dirty` check. */
   savedSnapshot = $state("");
 
-  /** Full manifest as last persisted; source of fields we do not edit here. */
+  /**
+   * Full manifest as last persisted; source of fields we do not edit here.
+   * @type {RawManifest|null}
+   */
   #original = null;
 
   /** Whether a type change is awaiting confirmation. */
@@ -129,7 +134,7 @@ class ModDetailsForm {
   /**
    * Copy a manifest's editable fields into the draft `$state`. Shared by `load`
    * and `revert`.
-   * @param {object} mf
+   * @param {RawManifest} mf
    */
   #populate(mf) {
     this.id = mf.id ?? "";
@@ -157,6 +162,7 @@ class ModDetailsForm {
    * @param {string} field
    */
   validateField(field) {
+    /** @type {string|null} */
     let code = null;
     if (field === "name") {
       if (validateName(this.name) !== true) code = "invalid-name";
@@ -296,11 +302,13 @@ class ModDetailsForm {
       this.saveState = "saved";
     } catch (err) {
       this.saveState = "error";
-      this.errorDetail = err?.message ?? "";
+      this.errorDetail = (/** @type {Error} */ (err))?.message ?? "";
     }
   }
 
-  /** Record a freshly-written manifest as the new baseline and sync My Mods. */
+  /** Record a freshly-written manifest as the new baseline and sync My Mods.
+   * @param {RawManifest} manifest
+   */
   #applySaved(manifest) {
     this.#original = manifest;
     const entry = openMods.entries.find((e) => e.dir === this.dir);

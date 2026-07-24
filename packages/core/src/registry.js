@@ -4,6 +4,10 @@
 
 import { GithubError } from "./errors.js";
 
+/** @typedef {import('./types.js').Manifest} Manifest */
+/** @typedef {import('./types.js').RegistryEntry} RegistryEntry */
+/** @typedef {import('./types.js').Registry} Registry */
+
 // Public registry location. Mirrors the mod manager app's anonymous
 // raw.githubusercontent fetch path (see ebr-mod-manager src/lib/registry.ts).
 const REGISTRY_OWNER = "Earthborne-Rangers-Community-Mods";
@@ -26,12 +30,12 @@ const REQUIRED_MIRROR_FIELDS = [
  * Optional fields mirrored only when present and non-empty.
  */
 const OPTIONAL_MIRROR_FIELDS = [
-  { key: "authorDiscord", test: (v) => typeof v === "string" && v.length > 0 },
-  { key: "tags", test: (v) => Array.isArray(v) && v.length > 0 },
-  { key: "icon", test: (v) => typeof v === "string" && v.length > 0 },
-  { key: "optionalProducts", test: (v) => Array.isArray(v) && v.length > 0 },
-  { key: "includedMods", test: (v) => Array.isArray(v) && v.length > 0 },
-  { key: "midCampaignNotes", test: (v) => typeof v === "string" && v.length > 0 },
+  { key: "authorDiscord", test: (/** @type {unknown} */ v) => typeof v === "string" && v.length > 0 },
+  { key: "tags", test: (/** @type {unknown} */ v) => Array.isArray(v) && v.length > 0 },
+  { key: "icon", test: (/** @type {unknown} */ v) => typeof v === "string" && v.length > 0 },
+  { key: "optionalProducts", test: (/** @type {unknown} */ v) => Array.isArray(v) && v.length > 0 },
+  { key: "includedMods", test: (/** @type {unknown} */ v) => Array.isArray(v) && v.length > 0 },
+  { key: "midCampaignNotes", test: (/** @type {unknown} */ v) => typeof v === "string" && v.length > 0 },
 ];
 
 /**
@@ -62,20 +66,22 @@ export function checkIncludedMods(includedMods, registry) {
 
 /**
  * Build a registry entry from a manifest and commit hash.
- * @param {object} manifest - Validated mod manifest.
+ * @param {Manifest} manifest - Validated mod manifest.
  * @param {string} commitHash - Full SHA-1 of the published commit.
- * @returns {object} Registry entry ready for insertion.
+ * @returns {RegistryEntry} Registry entry ready for insertion.
  */
 export function buildRegistryEntry(manifest, commitHash) {
+  /** @type {Record<string, any>} */
   const entry = {};
 
   for (const field of REQUIRED_MIRROR_FIELDS) {
-    entry[field] = manifest[field];
+    entry[field] = manifest[/** @type {keyof Manifest} */ (field)];
   }
 
   for (const { key, test } of OPTIONAL_MIRROR_FIELDS) {
-    if (manifest[key] !== undefined && test(manifest[key])) {
-      entry[key] = manifest[key];
+    const value = manifest[/** @type {keyof Manifest} */ (key)];
+    if (value !== undefined && test(value)) {
+      entry[key] = value;
     }
   }
 
@@ -84,7 +90,7 @@ export function buildRegistryEntry(manifest, commitHash) {
   entry.updatedAt = new Date().toISOString().split("T")[0];
   entry.commitHash = commitHash;
 
-  return entry;
+  return /** @type {RegistryEntry} */ (entry);
 }
 
 /**
@@ -98,7 +104,7 @@ export function buildRegistryEntry(manifest, commitHash) {
  * @param {object} [options]
  * @param {string} [options.url] - Override the registry URL (tests).
  * @param {typeof fetch} [options.fetchImpl] - Injected fetch implementation (tests).
- * @returns {Promise<{mods: Array<{id: string}>}>} Parsed registry.
+ * @returns {Promise<Registry>} Parsed registry.
  * @throws {GithubError} On a non-OK HTTP response or invalid JSON body.
  */
 export async function fetchRegistry({ url = REGISTRY_RAW_URL, fetchImpl = fetch } = {}) {
@@ -111,7 +117,7 @@ export async function fetchRegistry({ url = REGISTRY_RAW_URL, fetchImpl = fetch 
     );
   }
   try {
-    return await response.json();
+    return /** @type {Registry} */ (await response.json());
   } catch {
     throw new GithubError("registry-fetch", "Registry response was not valid JSON.");
   }
@@ -126,14 +132,14 @@ export async function fetchRegistry({ url = REGISTRY_RAW_URL, fetchImpl = fetch 
  * @param {object} [options]
  * @param {string} [options.url] - Override the registry URL (tests).
  * @param {typeof fetch} [options.fetchImpl] - Injected fetch implementation (tests).
- * @returns {Promise<{status: "available"|"claimed"|"unverified", entry?: object, error?: Error}>}
+ * @returns {Promise<{status: "available"|"claimed"|"unverified", entry?: RegistryEntry, error?: Error}>}
  */
 export async function checkModIdAvailability(modId, { url, fetchImpl } = {}) {
   let registry;
   try {
     registry = await fetchRegistry({ url, fetchImpl });
   } catch (error) {
-    return { status: "unverified", error };
+    return { status: "unverified", error: /** @type {Error} */ (error) };
   }
 
   const entry = registry?.mods?.find((mod) => mod.id === modId);

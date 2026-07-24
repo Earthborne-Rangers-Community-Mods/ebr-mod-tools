@@ -8,6 +8,8 @@
 import { readManifest, ManifestNotFoundError } from "core";
 import { dirname } from "node:path";
 
+/** @typedef {import('core/types.js').RawManifest} RawManifest */
+
 const STORAGE_KEY = "ebr-gui:open-mods";
 const LAST_DIR_KEY = "ebr-gui:last-open-dir";
 
@@ -84,8 +86,20 @@ function persistLastOpenDir(dir) {
   }
 }
 
+/**
+ * A manifest is openable in the GUI only if it carries a non-empty string `id`:
+ * the app keys mod navigation off `manifest.id` (`get(id)`, `navigation.go`). An
+ * id-less manifest (hand-edited or a partial write) is surfaced as a broken
+ * entry rather than a "ready" card that silently cannot be opened.
+ * @param {RawManifest} manifest
+ * @returns {boolean}
+ */
+function hasUsableId(manifest) {
+  return typeof manifest.id === "string" && manifest.id.length > 0;
+}
+
 class OpenMods {
-  /** @type {Array<{dir: string, status: "loading"|"ready"|"error", manifest: object|null, error: string|null}>} */
+  /** @type {Array<{dir: string, status: "loading"|"ready"|"error", manifest: RawManifest|null, error: string|null}>} */
   entries = $state([]);
   /** Directory of the most recently opened mod; seeds the open picker. */
   lastOpenDir = $state(loadLastOpenDir());
@@ -116,16 +130,22 @@ class OpenMods {
     }
   }
 
-  /** @param {{dir: string, status: string, manifest: object|null, error: string|null}} entry */
+  /** @param {{dir: string, status: string, manifest: RawManifest|null, error: string|null}} entry */
   async #loadEntry(entry) {
     try {
-      entry.manifest = await readManifest(entry.dir);
-      entry.status = "ready";
-      entry.error = null;
+      const manifest = await readManifest(entry.dir);
+      entry.manifest = manifest;
+      if (hasUsableId(manifest)) {
+        entry.status = "ready";
+        entry.error = null;
+      } else {
+        entry.status = "error";
+        entry.error = null;
+      }
     } catch (err) {
       entry.manifest = null;
       entry.status = "error";
-      entry.error = err?.message ?? null;
+      entry.error = (/** @type {Error} */ (err))?.message ?? null;
     }
   }
 
@@ -156,7 +176,7 @@ class OpenMods {
   /**
    * Add a mod directory to the list after confirming it holds a valid manifest.
    * @param {string} dir - Absolute path to a mod directory.
-   * @returns {Promise<{ok: true, dir: string, already?: boolean, manifest?: object} | {ok: false, reason: string, message?: string}>}
+   * @returns {Promise<{ok: true, dir: string, already?: boolean, manifest?: RawManifest} | {ok: false, reason: string, message?: string}>}
    */
   async add(dir) {
     if (!dir) return { ok: false, reason: "no-dir" };
@@ -169,9 +189,14 @@ class OpenMods {
       manifest = await readManifest(dir);
     } catch (err) {
       const reason = err instanceof ManifestNotFoundError ? "not-found" : "unreadable";
-      return { ok: false, reason, message: err?.message };
+      return { ok: false, reason, message: (/** @type {Error} */ (err))?.message };
     }
-    this.entries = [...this.entries, { dir, status: "ready", manifest, error: null }];
+    // A readable but id-less manifest is added as a broken entry (it cannot be
+    // opened, since navigation keys off the id), mirroring the hydration path.
+    const entry = hasUsableId(manifest)
+      ? { dir, status: /** @type {const} */ ("ready"), manifest, error: null }
+      : { dir, status: /** @type {const} */ ("error"), manifest, error: null };
+    this.entries = [...this.entries, entry];
     this.#persist();
     this.#rememberOpenDir(dir);
     return { ok: true, dir, manifest };
@@ -186,7 +211,7 @@ class OpenMods {
   /**
    * Look up a loaded mod by its manifest id.
    * @param {string} id
-   * @returns {{dir: string, status: string, manifest: object|null, error: string|null}|null}
+   * @returns {{dir: string, status: string, manifest: RawManifest|null, error: string|null}|null}
    */
   get(id) {
     return this.entries.find((entry) => entry.manifest?.id === id) ?? null;

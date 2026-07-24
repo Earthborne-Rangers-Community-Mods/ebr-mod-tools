@@ -11,7 +11,20 @@ import { getForkUrls, getAuthorDefaults } from "core/config.js";
 import { checkModIdAvailability } from "core/registry.js";
 import { ManifestNotFoundError, GitError, ValidationError } from "core/errors.js";
 
-const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+/** @typedef {import('core/types.js').Manifest} Manifest */
+/** @typedef {import('core/types.js').RawManifest} RawManifest */
+/** @typedef {import('core/types.js').ModValues} ModValues */
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+/**
+ * @typedef {object} NewModContext
+ * @property {Manifest} manifest
+ * @property {string} targetDir
+ * @property {boolean} existingRepo
+ * @property {string[]} scaffoldsToStamp
+ * @property {{status: string, entry?: {author?: string}}} [modIdStatus]
+ */
+
+const yellow = (/** @type {string} */ s) => `\x1b[33m${s}\x1b[0m`;
 
 const MOD_TYPE_CHOICES = MOD_TYPES.map(t => ({
   name: `${t.name} - ${t.description.toLowerCase()}`,
@@ -111,6 +124,7 @@ export const newCommand = new Command("new")
       }
 
       // Read existing manifest if present
+      /** @type {RawManifest} */
       let existing = {};
       try {
         existing = await readManifest(cwd);
@@ -121,7 +135,7 @@ export const newCommand = new Command("new")
 
       // Pre-populate author defaults from config
       const authorDefaults = await getAuthorDefaults();
-      const values = { ...existing };
+      const values = /** @type {ModValues} */ ({ ...existing });
       if (!values.author && authorDefaults.author) {
         values.author = authorDefaults.author;
       }
@@ -170,6 +184,7 @@ export const newCommand = new Command("new")
       }
 
       // Confirm / edit loop
+      /** @type {NewModContext} */
       const context = { manifest, targetDir, existingRepo, scaffoldsToStamp: postActions.scaffoldsToStamp };
       // Courtesy mod-id uniqueness check; the warning is shown after the summary.
       context.modIdStatus = await checkModIdAvailability(manifest.id);
@@ -187,8 +202,8 @@ export const newCommand = new Command("new")
       } else {
         const scaffold = existingRepo ? scaffoldModIntoClone : scaffoldMod;
         const result = await scaffold(
-          { dir: targetDir, manifest, forkUrl },
-          { onProgress: ({ message }) => console.log(message) },
+          { dir: targetDir, manifest, forkUrl: /** @type {string} */ (forkUrl) },
+          { onProgress: (/** @type {ProgressEvent} */ ev) => console.log(ev.message) },
         );
 
         console.log(`\nMod initialized in ${result.modDir}`);
@@ -200,7 +215,7 @@ export const newCommand = new Command("new")
         await stampScaffoldsAndIncludeCampaigns(result.modDir, manifest, context.scaffoldsToStamp);
       }
     } catch (err) {
-      console.error(err.message);
+      console.error((/** @type {Error} */ (err)).message);
       process.exitCode = 1;
     }
   });
@@ -226,6 +241,10 @@ function printModIdWarning(modId, result) {
   }
 }
 
+/**
+ * @param {string[]} campaigns
+ * @param {string[]} [selected]
+ */
 function productChoices(campaigns, selected = []) {
   const implied = impliedProductsForCampaigns(campaigns);
   return OFFICIAL_PRODUCTS.map(p => ({
@@ -240,7 +259,7 @@ function productChoices(campaigns, selected = []) {
  * values used by `ebr new`. Deletes the key entirely when the result is
  * empty so we don't write `"optionalProducts": []` to disk.
  *
- * @param {object} values - Mutable values object being assembled in `ebr new`.
+ * @param {Record<string, any>} values - Mutable values object being assembled in `ebr new`.
  */
 function syncOptionalProducts(values) {
   const derived = deriveOptionalProducts({
@@ -258,6 +277,7 @@ function syncOptionalProducts(values) {
 
 // --- Universal prompts ---
 
+/** @param {ModValues} values */
 async function promptUniversal(values) {
   if (!values.name) {
     values.name = await input({ message: "Mod name:", validate: validateName });
@@ -290,6 +310,7 @@ async function promptUniversal(values) {
 /**
  * Dispatch to the correct type-specific prompt function.
  * Returns a postActions object with scaffoldsToStamp (array of branch names).
+ * @param {ModValues} values
  */
 async function promptForType(values) {
   switch (values.type) {
@@ -303,6 +324,7 @@ async function promptForType(values) {
   }
 }
 
+/** @param {ModValues} values */
 async function promptCampaignType(values) {
   values.campaigns = [toId(values.name)];
   values.safeToAddMidCampaign = false;
@@ -331,6 +353,7 @@ async function promptCampaignType(values) {
 /**
  * Prompt for mid-campaign notes when the mod is marked unsafe and none are set
  * yet.
+ * @param {ModValues} values
  */
 async function promptMidCampaignNotes(values) {
   if (!values.safeToAddMidCampaign && !values.midCampaignNotes) {
@@ -341,6 +364,7 @@ async function promptMidCampaignNotes(values) {
   }
 }
 
+/** @param {ModValues} values */
 async function promptExpansionType(values) {
   if (!values.campaigns || values.campaigns.length === 0) {
     values.campaigns = await checkbox({
@@ -379,6 +403,7 @@ async function promptExpansionType(values) {
   return { scaffoldsToStamp: [] };
 }
 
+/** @param {ModValues} values */
 async function promptEnhancementType(values) {
   if (!values.campaigns || values.campaigns.length === 0) {
     values.campaigns = await checkbox({
@@ -417,6 +442,7 @@ async function promptEnhancementType(values) {
   return { scaffoldsToStamp: [] };
 }
 
+/** @param {ModValues} values */
 async function promptOneDayMissionType(values) {
   if (!values.campaigns || values.campaigns.length === 0) {
     values.campaigns = await checkbox({
@@ -441,6 +467,7 @@ async function promptOneDayMissionType(values) {
   return { scaffoldsToStamp: ["set/custom-one-day-mission"] };
 }
 
+/** @param {ModValues} values */
 async function promptCollectionType(values) {
   if (!values.campaigns || values.campaigns.length === 0) {
     values.campaigns = await checkbox({
@@ -466,6 +493,7 @@ async function promptCollectionType(values) {
   return { scaffoldsToStamp: [] };
 }
 
+/** @param {ModValues} values */
 async function promptThemeType(values) {
   values.campaigns = ["any"];
   values.requiredProducts = [];
@@ -485,6 +513,7 @@ async function promptThemeType(values) {
   return { scaffoldsToStamp: [] };
 }
 
+/** @param {ModValues} values */
 async function promptGenericType(values) {
   if (!values.campaigns || values.campaigns.length === 0) {
     values.campaigns = await checkbox({
@@ -505,6 +534,7 @@ async function promptGenericType(values) {
 
 // --- Summary display ---
 
+/** @param {NewModContext} context */
 function displaySummary(context) {
   const { manifest, targetDir, scaffoldsToStamp } = context;
   console.log("\n  Mod Summary:");
@@ -532,6 +562,10 @@ function displaySummary(context) {
   console.log();
 }
 
+/**
+ * @param {Record<string, any>} manifest
+ * @param {string} key
+ */
 function formatFieldValue(manifest, key) {
   const val = manifest[key];
   if (val === undefined || val === null) return "(none)";
@@ -542,6 +576,11 @@ function formatFieldValue(manifest, key) {
 
 // --- Confirm / edit loop ---
 
+/**
+ * @param {Manifest} manifest
+ * @param {string} key
+ * @returns {boolean}
+ */
 function isFieldVisible(manifest, key) {
   const type = manifest.type;
   switch (key) {
@@ -558,6 +597,7 @@ function isFieldVisible(manifest, key) {
   }
 }
 
+/** @param {NewModContext} context */
 async function confirmLoop(context) {
   const { manifest, existingRepo } = context;
   while (true) {
@@ -610,6 +650,11 @@ async function confirmLoop(context) {
   }
 }
 
+/**
+ * @param {Record<string, any>} manifest
+ * @param {string} key
+ * @param {NewModContext} context
+ */
 async function editField(manifest, key, context) {
   switch (key) {
     case "name":
@@ -763,11 +808,11 @@ async function editField(manifest, key, context) {
  * `ebr include`.
  *
  * @param {string} dir - Mod directory.
- * @param {object} manifest - The mod's manifest.
+ * @param {Manifest} manifest - The mod's manifest.
  * @param {string[]} scaffoldsToStamp - Scaffold branch names to stamp.
  */
 async function stampScaffoldsAndIncludeCampaigns(dir, manifest, scaffoldsToStamp) {
-  const onProgress = ({ message }) => console.log(message);
+  const onProgress = (/** @type {ProgressEvent} */ ev) => console.log(ev.message);
 
   // Stamp scaffolds
   if (scaffoldsToStamp && scaffoldsToStamp.length > 0) {
@@ -778,7 +823,7 @@ async function stampScaffoldsAndIncludeCampaigns(dir, manifest, scaffoldsToStamp
         const skipped = result.filesSkipped ? ` (${result.filesSkipped} skipped)` : "";
         console.log(`  Stamped ${result.branch} (${result.filesAdded} file(s)${skipped})`);
       } catch (err) {
-        console.error(`  Failed to stamp ${branch}: ${err.message}`);
+        console.error(`  Failed to stamp ${branch}: ${(/** @type {Error} */ (err)).message}`);
         console.error(`  You can retry later with: ebr scaffold ${branch}`);
       }
     }
@@ -800,7 +845,7 @@ async function stampScaffoldsAndIncludeCampaigns(dir, manifest, scaffoldsToStamp
           console.log(`  Merged ${result.branch} at ${result.commitHash.slice(0, 7)}.`);
         }
       } catch (err) {
-        console.error(`  Failed to include ${id}: ${err.message}`);
+        console.error(`  Failed to include ${id}: ${(/** @type {Error} */ (err)).message}`);
         console.error(`  You can retry later with: ebr include ${id}`);
         const remaining = campaignsToInclude.slice(i + 1);
         for (const skipped of remaining) {

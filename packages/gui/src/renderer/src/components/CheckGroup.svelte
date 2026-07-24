@@ -8,7 +8,7 @@
    *
    * @typedef {object} Props
    * @property {string} legend - Group heading.
-   * @property {any[]} items - Rows to render.
+   * @property {readonly any[]} items - Rows to render.
    * @property {(item: any) => string} key - Stable key for the {#each} block.
    * @property {(item: any) => string} label - Visible label text for a row.
    * @property {(item: any) => boolean} checked - Whether a row is selected.

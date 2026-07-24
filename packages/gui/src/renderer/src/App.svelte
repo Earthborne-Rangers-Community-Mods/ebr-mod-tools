@@ -12,6 +12,7 @@
   import ModEdit from "./pages/ModEdit.svelte";
   import ConflictResolution from "./pages/ConflictResolution.svelte";
   import UnsavedChangesDialog from "./components/UnsavedChangesDialog.svelte";
+  import { pick } from "./lib/pick.js";
 
   const PAGES = {
     [ROUTES.MY_MODS]: MyMods,
@@ -22,7 +23,7 @@
     [ROUTES.CONFLICT]: ConflictResolution,
   };
 
-  const CurrentPage = $derived(PAGES[navigation.route] ?? MyMods);
+  const CurrentPage = $derived(pick(PAGES, navigation.route) ?? MyMods);
   let startupReady = $state(false);
   let showCloseDialog = $state(false);
 

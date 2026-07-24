@@ -10,13 +10,20 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile, stat, rm } from "node:fs/
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { listFilesRecursive, sanitizePathSegment, realPathSafe, realPathOfDestination, isPathInside } from "./filesystem.js";
-import { readManifest, writeManifest, validateManifest, formatValidationErrors, updateManifest, compareVersions } from "./manifest.js";
+import { readManifest, writeManifest, assertValidManifest, updateManifest, compareVersions } from "./manifest.js";
 import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase } from "./git.js";
 import { getAuthenticatedUser, forkRepo, normalizeGithubUrl, borrowCredentialToken } from "./github.js";
 import { ManifestError, GithubError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry, fetchRegistry } from "./registry.js";
 import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
 import { CONFIG_DIR } from "./config.js";
+
+/** @typedef {import('./types.js').Manifest} Manifest */
+/** @typedef {import('./types.js').RawManifest} RawManifest */
+/** @typedef {import('./types.js').Registry} Registry */
+/** @typedef {import('./types.js').RegistryEntry} RegistryEntry */
+/** @typedef {import('./types.js').PrResult} PrResult */
+/** @typedef {import('./types.js').IncludedMod} IncludedMod */
 
 // --- Constants ---
 
@@ -53,10 +60,10 @@ export function getModBranchName(modId) {
  *
  * @param {object} params
  * @param {string} params.dir - Directory containing the existing clone.
- * @param {object} params.manifest - Complete manifest object to write.
+ * @param {Manifest} params.manifest - Complete manifest object to write.
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress] - Progress callback ({ step, message }).
- * @returns {Promise<{ modDir: string, manifest: object, branch: string }>}
+ * @returns {Promise<{ modDir: string, manifest: Manifest, branch: string }>}
  */
 export async function scaffoldModIntoClone({ dir, manifest }, { onProgress } = {}) {
   const modBranch = getModBranchName(manifest.id);
@@ -107,12 +114,12 @@ export async function scaffoldModIntoClone({ dir, manifest }, { onProgress } = {
  *
  * @param {object} params
  * @param {string} params.dir - Directory to scaffold into (must be empty or not exist).
- * @param {object} params.manifest - Complete manifest object to write.
+ * @param {Manifest} params.manifest - Complete manifest object to write.
  * @param {string} params.forkUrl - HTTPS URL of the user's fork (e.g. "https://github.com/user/ebr-mod-base-content").
  * @param {string} [params.baseRepoUrl] - Override the upstream base-content URL (tests).
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress] - Progress callback ({ step, message }).
- * @returns {Promise<{ modDir: string, manifest: object, branch: string }>}
+ * @returns {Promise<{ modDir: string, manifest: Manifest, branch: string }>}
  * @throws {ManifestError} If directory contains unexpected files.
  */
 export async function scaffoldMod({ dir, manifest, forkUrl, baseRepoUrl = BASE_REPO_URL }, { onProgress } = {}) {
@@ -229,7 +236,7 @@ export async function saveMod({ dir, commitMessage, version }, { onProgress } = 
 
 /**
  * Build the PR body markdown.
- * @param {object} manifest
+ * @param {Manifest} manifest
  * @param {string} commitHash
  * @param {boolean} isUpdate
  * @returns {string}
@@ -292,7 +299,8 @@ function buildCompareUrl({ registryOwner, registryRepo, base, head, title, body 
  * @param {string} options.title
  * @param {string} options.body
  * @param {typeof fetch} [options.fetchImpl]
- * @returns {Promise<{number: number, url: string}|{alreadyExists: true}|null>}
+ * @param {Function} [onProgress]
+ * @returns {Promise<PrResult|null>}
  */
 async function requestPrViaWorker({ workerUrl, forkOwner, branch, title, body, fetchImpl = fetch }, onProgress) {
   try {
@@ -309,14 +317,15 @@ async function requestPrViaWorker({ workerUrl, forkOwner, branch, title, body, f
       onProgress?.({ step: "create-pr-failed", message: `Auto-PR failed (HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ""}); falling back to compare URL.` });
       return null;
     }
-    const data = await res.json();
+    const data = /** @type {Record<string, unknown>} */ (await res.json());
     if (!data || typeof data.url !== "string") {
       onProgress?.({ step: "create-pr-failed", message: "Auto-PR failed (unexpected worker response); falling back to compare URL." });
       return null;
     }
-    return { number: data.number, url: data.url };
+    const number = typeof data.number === "number" ? data.number : undefined;
+    return { number, url: data.url };
   } catch (err) {
-    onProgress?.({ step: "create-pr-failed", message: `Auto-PR failed (${err.message}); falling back to compare URL.` });
+    onProgress?.({ step: "create-pr-failed", message: `Auto-PR failed (${(/** @type {Error} */ (err)).message}); falling back to compare URL.` });
     return null;
   }
 }
@@ -345,7 +354,7 @@ export function forkOwnerFromUrl(forkUrl) {
  * @param {string} options.registryRepo
  * @param {string} options.modId
  * @param {typeof fetch} [options.fetchImpl]
- * @returns {Promise<object|null>}
+ * @returns {Promise<RegistryEntry|null>}
  * @throws {GithubError} On a non-404 HTTP failure or invalid JSON.
  */
 async function fetchPublishedModEntry({ registryOwner, registryRepo, modId, fetchImpl = fetch }) {
@@ -354,14 +363,14 @@ async function fetchPublishedModEntry({ registryOwner, registryRepo, modId, fetc
   try {
     res = await fetchImpl(url);
   } catch (err) {
-    throw new GithubError("publish", `Could not reach the registry: ${err.message}`);
+    throw new GithubError("publish", `Could not reach the registry: ${(/** @type {Error} */ (err)).message}`);
   }
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new GithubError("publish", `Registry read failed with status ${res.status}.`, res.status);
   }
   try {
-    return await res.json();
+    return /** @type {RegistryEntry} */ (await res.json());
   } catch {
     throw new GithubError("publish", "Existing registry entry is not valid JSON.");
   }
@@ -458,7 +467,8 @@ async function writeRegistryEntry(
         await discardAndClone(cloneDir, forkCloneUrl, { onProgress });
         await prepareCloneForPublish(cloneDir, forkCloneUrl, branchName, { onProgress });
       } catch (reclErr) {
-        if (reclErr && reclErr.cause === undefined) reclErr.cause = reuseErr;
+        const e = /** @type {{ cause?: unknown }} */ (reclErr);
+        if (e && e.cause === undefined) e.cause = reuseErr;
         throw reclErr;
       }
     }
@@ -511,7 +521,7 @@ async function writeRegistryEntry(
  * @param {typeof fetch} [options.fetchImpl] - Injected fetch (tests).
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress] - Progress callback ({ step, message }).
- * @returns {Promise<{createdPr: {number, url}|null, prAlreadyExists: boolean, compareUrl: string, entry: object, commitHash: string, isUpdate: boolean, includedModWarnings: Array}>}
+ * @returns {Promise<{createdPr: PrResult|null, prAlreadyExists: boolean, compareUrl: string, entry: object, commitHash: string, isUpdate: boolean, includedModWarnings: Array<{modId: string, modName: string, message: string}>}>}
  */
 export async function publishMod(
   { dir, registryForkUrl, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO, cloneDir = DEFAULT_REGISTRY_CLONE_DIR, prWorkerUrl = DEFAULT_PR_WORKER_URL, fetchImpl = fetch },
@@ -519,16 +529,7 @@ export async function publishMod(
 ) {
   // 1. Read and validate manifest
   onProgress?.({ step: "validate", message: "Validating ebr-mod.json..." });
-  const manifest = await readManifest(dir);
-
-  const errors = validateManifest(manifest);
-  if (errors.length > 0) {
-    const messages = formatValidationErrors(errors);
-    throw new ManifestError(
-      "validation",
-      `Manifest validation failed:\n${messages.map((m) => `  - ${m}`).join("\n")}`,
-    );
-  }
+  const manifest = assertValidManifest(await readManifest(dir));
 
   if (!manifest.repoUrl) {
     throw new ManifestError(
@@ -589,6 +590,7 @@ export async function publishMod(
   }
 
   // 6. Check includedMods against the browse-tier registry (anonymous).
+  /** @type {Array<{modId: string, modName: string, message: string}>} */
   let includedModWarnings = [];
   if (manifest.includedMods?.length) {
     try {
@@ -633,6 +635,7 @@ export async function publishMod(
     title: prTitle, body: prBody,
   });
 
+  /** @type {PrResult|null} */
   let createdPr = null;
   let prAlreadyExists = false;
   if (prWorkerUrl) {
@@ -707,7 +710,7 @@ export async function resolveCredentialLogin({ runImpl, interactive = false, get
  * @param {string} params.owner - Upstream repo owner.
  * @param {string} params.repo - Upstream repo name.
  * @param {string} params.login - The user's GitHub login.
- * @param {object} [params.deps] - Injected implementations (tests).
+ * @param {{runImpl?: function, remoteExistsImpl?: function, borrowTokenImpl?: function, forkRepoImpl?: function}} [params.deps] - Injected implementations (tests).
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress]
  * @returns {Promise<{forkUrl: string, status: "exists"|"created"|"manual"}>}
@@ -804,7 +807,10 @@ export async function applyBaseUpdate({ dir }, { onProgress } = {}) {
   return { merged: true };
 }
 
-/** Precondition guard: ensures {@link dir} is a git repo with the base-content remote configured. */
+/**
+ * Precondition guard: ensures {@link dir} is a git repo with the base-content remote configured.
+ * @param {string} dir
+ */
 async function assertBaseRepo(dir) {
   if (!(await isRepo(dir))) {
     throw new NotARepoError(dir);
@@ -1086,7 +1092,7 @@ export function remoteNameForRepoUrl(repoUrl) {
       `Cannot derive a remote name from repo URL "${repoUrl}". Expected a GitHub URL like https://github.com/<owner>/<repo>.`,
     );
   }
-  const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const slug = (/** @type {string} */ s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `inc-${slug(match[1])}-${slug(match[2])}`;
 }
 
@@ -1101,8 +1107,8 @@ export function remoteNameForRepoUrl(repoUrl) {
  * identify a single mod.
  *
  * @param {string} source
- * @param {{mods?: Array<object>}} registry - Parsed browse-tier registry.
- * @returns {{ modId: string, entry: object }}
+ * @param {Registry} registry - Parsed browse-tier registry.
+ * @returns {{ modId: string, entry: RegistryEntry }}
  * @throws {ValidationError} If `source` is empty.
  * @throws {IncludeModNotFoundError} If no registry entry matches.
  */
@@ -1126,7 +1132,7 @@ export function resolveModSource(source, registry) {
  *
  * @param {Array<{id: string, name: string, author: string, version: string, repoUrl: string}>|undefined} existing
  * @param {{id: string, name: string, author: string, version: string, repoUrl: string}} entry
- * @returns {Array<object>}
+ * @returns {IncludedMod[]}
  */
 export function upsertIncludedMod(existing, entry) {
   const list = Array.isArray(existing) ? [...existing] : [];
@@ -1159,13 +1165,13 @@ export function upsertIncludedMod(existing, entry) {
  *
  * @param {object} params
  * @param {string} params.dir - Mod directory.
- * @param {string} params.source - Mod id.
- * @param {object} [params.registry] - Pre-fetched browse-tier registry. Fetched
+ * @param {string} params.source - Mod id to include.
+ * @param {Registry} [params.registry] - Pre-fetched browse-tier registry. Fetched
  *   anonymously when omitted (avoids a redundant fetch when the caller, e.g.
  *   `ebr update`, already has it).
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress]
- * @returns {Promise<{ modId: string, includedEntry: object, commitHash: string, alreadyUpToDate: boolean }>}
+ * @returns {Promise<{ modId: string, includedEntry: IncludedMod, commitHash: string, alreadyUpToDate: boolean }>}
  * @throws {NotARepoError} If `dir` is not a git repository.
  * @throws {IndexNotCleanError} If the index has staged changes when the workflow starts.
  * @throws {ValidationError} If `source` is malformed.
@@ -1232,7 +1238,7 @@ export async function includeMod({ dir, source, registry }, { onProgress } = {})
       await writeManifest(dir, manifest);
       await stageFile(dir, "ebr-mod.json");
 
-      const otherConflicts = err.conflictedFiles.filter((f) => f !== "ebr-mod.json");
+      const otherConflicts = err.conflictedFiles.filter((/** @type {string} */ f) => f !== "ebr-mod.json");
       if (otherConflicts.length === 0) {
         // The manifest was the only conflict (the common case for two mods
         // off the same shell). Finalize the merge ourselves - the author
@@ -1288,12 +1294,12 @@ export async function includeMod({ dir, source, registry }, { onProgress } = {})
  *
  * @param {object} params
  * @param {string} params.dir - Mod directory (must be a git repo).
- * @param {object} [params.registry] - Pre-fetched browse-tier registry. Fetched
+ * @param {Registry} [params.registry] - Pre-fetched browse-tier registry. Fetched
  *   anonymously when omitted - but only when there are included mods to check,
  *   so a mod with an empty `includedMods` never touches the network.
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress]
- * @returns {Promise<{ updates: Array<{ id: string, name: string, missing: boolean, manifestAhead: boolean, updateAvailable: boolean, currentVersion: string, registryVersion: string|null, repoUrl: string, commitHash: string|null }>, registry: object|null }>} The walk results plus the registry that was used (the passed-in one, the freshly fetched one, or `null` when there were no mods to check), so the caller can drive merges without fetching again.
+ * @returns {Promise<{ updates: Array<{ id: string, name: string, missing: boolean, manifestAhead: boolean, updateAvailable: boolean, currentVersion: string, registryVersion: string|null, repoUrl: string, commitHash: string|null }>, registry: Registry|null }>} The walk results plus the registry that was used (the passed-in one, the freshly fetched one, or `null` when there were no mods to check), so the caller can drive merges without fetching again.
  * @throws {NotARepoError} If `dir` is not a git repository.
  * @throws {GithubError} If the registry cannot be fetched.
  * @throws {ManifestError} If the manifest is missing or invalid.
@@ -1402,8 +1408,8 @@ function substituteScaffoldPath(relPath, modName) {
  * product is already covered by the manifest.
  *
  * @param {string} branch - Scaffold branch (e.g. "map/river-valley").
- * @param {object} manifest
- * @param {ReadonlyArray<{branch: string, product: string}>} [catalog]
+ * @param {RawManifest} manifest
+ * @param {ReadonlyArray<{branch: string, product?: string}>} [catalog]
  * @returns {string | null}
  */
 export function computeMissingScaffoldProduct(branch, manifest, catalog = KNOWN_SCAFFOLDS) {
@@ -1516,7 +1522,7 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
       // failure, bad URL, auth, local git problem) is left as a GitError so
       // the user sees the underlying message rather than a misleading
       // "branch not found" claim.
-      const msg = (err?.message || "").toLowerCase();
+      const msg = ((/** @type {Error|undefined} */ (err))?.message || "").toLowerCase();
       if (msg.includes("remote branch") && msg.includes("not found")) {
         throw new ScaffoldRefNotFoundError(branch, scaffoldRepoUrl);
       }
@@ -1566,7 +1572,7 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
         await stat(absDest);
         conflicts.push(dest);
       } catch (err) {
-        if (err && err.code !== "ENOENT") {
+        if (err && (/** @type {NodeJS.ErrnoException} */ (err)).code !== "ENOENT") {
           // A stat failure that isn't "missing" (e.g. EACCES, ENOTDIR on a
           // path through a regular file) is a real problem; surface it
           // rather than treating the path as safe to write.

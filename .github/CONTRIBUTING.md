@@ -46,7 +46,7 @@ desktop GUI. Do not put terminal I/O in `packages/core/src/`.
 1. Fork this repository
 2. Create a feature branch from `main`
 3. Make your changes
-4. Run `npm test` and verify all tests pass
+4. Run `npm test` and `npm run check` (type checking) and verify both pass
 5. Open a pull request against `main`
 
 ### What We Accept
@@ -77,9 +77,24 @@ If you're changing anything in core logic, you probably need to add or change so
 - Every core function should have corresponding test coverage
 - CLI commands (`packages/cli/src/commands/`) are not unit tested
 
+## Type Checking
+
+The codebase is plain JavaScript, type-checked with TypeScript in `checkJs` mode
+via JSDoc annotations - there are no authored `.ts` files. `packages/core` and
+`packages/cli` are checked with `tsc --noEmit` (each has a `tsconfig.json` with
+`allowJs`, `checkJs`, and `strict`); `packages/gui` is checked with `svelte-check`.
+
+- `npm run check` at the repo root type-checks every workspace
+- `npm run check --workspace packages/<name>` checks one package
+- Keep JSDoc types accurate as you change code, and run `npm run check` before
+  opening a PR - the check must be clean (0 errors)
+- Shared domain types live in `packages/core/src/types.js` (JSDoc `@typedef`s,
+  no runtime code)
+
 ## Code Style
 
-- Plain JavaScript (ESM modules)
+- Plain JavaScript (ESM modules), type-checked with `checkJs` via JSDoc (no
+  authored `.ts` files)
 - Typed errors (`packages/core/src/errors.js`) for distinct failure modes - callers
   branch on error type, not message strings
 - Core functions accept an optional `{ onProgress }` callback for status

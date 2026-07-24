@@ -14,6 +14,12 @@
  */
 import { MOD_TYPES } from "core";
 import * as m from "./paraglide/messages.js";
+import { pick } from "./pick.js";
+
+/** Namespace viewed as a record of the zero-arg `mod_type_*` message fns this module looks up.
+ * @type {Record<string, () => string>}
+ * */
+const messages = /** @type {Record<string, () => string>} */ (/** @type {unknown} */ (m));
 
 /**
  * Paraglide message key for a mod type, matching the generated function names
@@ -32,7 +38,7 @@ function messageKey(id, suffix) {
  * @returns {string}
  */
 export function typeName(id) {
-  return m[messageKey(id, "name")]?.() ?? MOD_TYPES.find((t) => t.id === id)?.name ?? id;
+  return pick(messages, messageKey(id, "name"))?.() ?? MOD_TYPES.find((t) => t.id === id)?.name ?? id;
 }
 
 /**
@@ -41,5 +47,5 @@ export function typeName(id) {
  * @returns {string}
  */
 export function typeDesc(id) {
-  return m[messageKey(id, "desc")]?.() ?? MOD_TYPES.find((t) => t.id === id)?.description ?? id;
+  return pick(messages, messageKey(id, "desc"))?.() ?? MOD_TYPES.find((t) => t.id === id)?.description ?? id;
 }

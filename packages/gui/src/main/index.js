@@ -2,10 +2,14 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import { join } from "node:path";
 import { isAllowedExternalUrl } from "./url-allowlist.js";
 
-/** The single main window. */
+/** @typedef {import('electron').OpenDialogOptions} OpenDialogOptions */
+
+/** The single main window. @type {BrowserWindow|null} */
 let mainWindow = null;
 /** Latest unsaved-edits state pushed from the renderer; gates the close guard. */
 let hasUnsavedChanges = false;
+/** Windows cleared to close programmatically, bypassing the unsaved-edits guard. */
+const closeAllowed = new WeakSet();
 
 /**
  * Create the main application window. The renderer runs with nodeIntegration on,
@@ -32,7 +36,6 @@ function createWindow() {
   window.once("ready-to-show", () => window.show());
 
   mainWindow = window;
-  window.__allowClose = false;
   // A fresh window starts with nothing unsaved; only its renderer can raise the
   // flag again. Resetting here means a recreated window (e.g. macOS re-activate)
   // never inherits a stale `true` from the window that closed before it.
@@ -41,9 +44,10 @@ function createWindow() {
   // Guard unsaved edits. We only intercept when the renderer has told us there
   // are unsaved changes, so a broken or not-yet-loaded renderer can never trap
   // the window. When we do intercept, the renderer prompts and calls back via
-  // `app:force-close`; `__allowClose` lets that programmatic close through.
+  // `app:force-close`; membership in `closeAllowed` lets that programmatic close
+  // through.
   window.on("close", (event) => {
-    if (window.__allowClose || !hasUnsavedChanges) return;
+    if (closeAllowed.has(window) || !hasUnsavedChanges) return;
     event.preventDefault();
     window.webContents.send("app:confirm-close");
   });
@@ -89,6 +93,10 @@ app.on("web-contents-created", (_event, contents) => {
   });
 });
 
+/**
+ * @param {string} a
+ * @param {string} b
+ */
 function sameOrigin(a, b) {
   try {
     return new URL(a).origin === new URL(b).origin;
@@ -101,6 +109,7 @@ function sameOrigin(a, b) {
 // directly.
 ipcMain.handle("dialog:pickDirectory", async (_event, defaultPath) => {
   const parent = BrowserWindow.getFocusedWindow();
+  /** @type {OpenDialogOptions} */
   const options = { properties: ["openDirectory"] };
   if (typeof defaultPath === "string" && defaultPath) {
     options.defaultPath = defaultPath;
@@ -148,7 +157,7 @@ ipcMain.on("app:dirty-changed", (_event, dirty) => {
 // The renderer has finished guarding (saved/discarded) and the window may close.
 ipcMain.on("app:force-close", () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.__allowClose = true;
+    closeAllowed.add(mainWindow);
     mainWindow.close();
   }
 });

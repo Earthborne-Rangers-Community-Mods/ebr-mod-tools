@@ -5,6 +5,8 @@ import { saveMod } from "core/workflows.js";
 import { renderCliError } from "./render-error.js";
 import { ManifestNotFoundError, NothingToCommitError } from "core/errors.js";
 
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+
 export const saveCommand = new Command("save")
   .description("Update manifest, stage all changes, commit, and push")
   .option("--bump <type>", "Version bump type: patch, minor, or major")
@@ -27,13 +29,15 @@ export const saveCommand = new Command("save")
       throw err;
     }
 
-    // Resolve target version: explicit --version, --bump, prompt, or skip
+    // Resolve target version: explicit --version, --bump, prompt, or skip.
+    // A manifest with no version (malformed / hand-edited) is treated as 0.0.0.
+    const currentVersion = manifest.version ?? "0.0.0";
     let version = opts.version || null;
     if (!version) {
       let bumpType = opts.bump || null;
       if (!bumpType) {
         bumpType = await select({
-          message: `Current version: ${manifest.version}. How would you like to bump it?`,
+          message: `Current version: ${currentVersion}. How would you like to bump it?`,
           choices: [
             { name: "Patch (tweaks and fixes)", value: "patch" },
             { name: "Minor (new stuff)", value: "minor" },
@@ -43,7 +47,7 @@ export const saveCommand = new Command("save")
         });
       }
       if (bumpType) {
-        version = bumpVersion(manifest.version, bumpType);
+        version = bumpVersion(currentVersion, bumpType);
       }
     }
 
@@ -56,7 +60,7 @@ export const saveCommand = new Command("save")
     try {
       const result = await saveMod(
         { dir, version, commitMessage },
-        { onProgress: (p) => console.log(p.message) },
+        { onProgress: (/** @type {ProgressEvent} */ p) => console.log(p.message) },
       );
 
       if (result.manifestChanges.length > 0) {

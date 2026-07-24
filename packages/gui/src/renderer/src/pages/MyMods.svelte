@@ -11,8 +11,8 @@
   import githubLogo from "../assets/icons/github-logo.svg";
   import gearIcon from "../assets/icons/gear.svg";
 
-  let addError = $state(null);
-  let confirmDir = $state(null);
+  let addError = $state(/** @type {string|null} */ (null));
+  let confirmDir = $state(/** @type {string|null} */ (null));
 
   async function openExisting() {
     addError = null;
@@ -33,6 +33,7 @@
     }
   }
 
+  /** @param {string} dir */
   function requestClose(dir) {
     confirmDir = dir;
   }
@@ -41,6 +42,7 @@
     confirmDir = null;
   }
 
+  /** @param {string} dir */
   function confirmClose(dir) {
     openMods.remove(dir);
     if (confirmDir === dir) confirmDir = null;
@@ -110,17 +112,18 @@
     <ul class="mod-list">
       {#each openMods.entries as mod (mod.dir)}
         <li class="mod-card">
-          {#if mod.status === "ready"}
+          {#if mod.status === "ready" && mod.manifest}
+            {@const mf = mod.manifest}
             <button
               type="button"
               class="mod-open"
-              onclick={() => navigation.go(ROUTES.MOD_DETAILS, { modId: mod.manifest.id })}
+              onclick={() => navigation.go(ROUTES.MOD_DETAILS, { modId: mf.id })}
             >
-              <span class="mod-icon" aria-hidden="true">{mod.manifest.icon}</span>
+              <span class="mod-icon" aria-hidden="true">{mf.icon}</span>
               <span class="mod-main">
-                <span class="mod-name">{mod.manifest.name}</span>
+                <span class="mod-name">{mf.name}</span>
                 <span class="mod-meta">
-                  {typeName(mod.manifest.type)} &middot; v{mod.manifest.version}
+                  {typeName(mf.type ?? "")} &middot; v{mf.version}
                 </span>
               </span>
             </button>
@@ -137,8 +140,8 @@
               <span class="mod-icon" aria-hidden="true">&#9888;</span>
               <span class="mod-main">
                 <span class="mod-name">{basename(mod.dir)}</span>
-                <span class="mod-meta error" title={mod.error ?? undefined}>
-                  {m.mymods_error_unreadable()}
+                <span class="mod-meta error" title={mod.error ? m.mymods_error_unreadable_detail({ folder: basename(mod.dir), detail: mod.error }) : undefined}>
+                  {mod.manifest ? m.mymods_error_invalid() : m.mymods_error_unreadable()}
                 </span>
               </span>
             </div>

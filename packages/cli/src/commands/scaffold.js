@@ -10,11 +10,14 @@ import {
   ScaffoldRefNotFoundError,
 } from "core/errors.js";
 
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+
 export const scaffoldCommand = new Command("scaffold")
   .description("Stamp a scaffold template into the current mod")
   .argument("[branch]", `Scaffold branch ref (e.g. '${SCAFFOLD_TYPES[0]}/<name>'). Omit to pick from a list of known scaffolds.`)
   .action(scaffoldAction);
 
+/** @param {string|undefined} branchArg */
 async function scaffoldAction(branchArg) {
   const dir = process.cwd();
 
@@ -34,7 +37,7 @@ async function scaffoldAction(branchArg) {
     });
   }
 
-  const onProgress = (p) => console.log(p.message);
+  const onProgress = (/** @type {ProgressEvent} */ p) => console.log(p.message);
 
   try {
     const stampResult = await includeScaffold(
@@ -59,6 +62,8 @@ async function scaffoldAction(branchArg) {
  * add it (or to skip). On accept, writes the manifest, stages it, and
  * commits with `Add products for <branch>`. Silent no-op when the scaffold
  * has no catalog entry or the manifest already covers the product.
+ * @param {string} dir
+ * @param {string} branch
  */
 async function reconcileScaffoldProducts(dir, branch) {
   const manifest = await readManifest(dir);
@@ -90,11 +95,14 @@ async function reconcileScaffoldProducts(dir, branch) {
 /**
  * Merge two arrays of strings, dropping duplicates, preserving order.
  * Returns a new array; never mutates inputs.
+ * @param {string[]|undefined} existing
+ * @param {string[]|undefined} additions
  */
 function mergeUnique(existing, additions) {
   const seen = new Set();
+  /** @type {string[]} */
   const out = [];
-  const push = (v) => {
+  const push = (/** @type {string} */ v) => {
     if (typeof v === "string" && !seen.has(v)) {
       seen.add(v);
       out.push(v);
@@ -107,6 +115,7 @@ function mergeUnique(existing, additions) {
 
 /**
  * Map a typed error to user-facing output and set process.exitCode.
+ * @param {unknown} err
  */
 function handleScaffoldError(err) {
   if (err instanceof ScaffoldRefNotFoundError) {

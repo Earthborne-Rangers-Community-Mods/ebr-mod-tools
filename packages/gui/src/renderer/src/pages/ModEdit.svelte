@@ -11,10 +11,13 @@
   import { typeName, typeDesc } from "../lib/modtypes.js";
   import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
   import * as m from "../lib/paraglide/messages.js";
+  import { pick } from "../lib/pick.js";
 
   const form = modDetailsForm;
 
-  onMount(() => form.load(navigation.selectedModId));
+  onMount(() => {
+    if (navigation.selectedModId) form.load(navigation.selectedModId);
+  });
 
   let showBackDialog = $state(false);
 
@@ -25,15 +28,17 @@
     "invalid-author": m.moddetails_error_invalid_author,
   };
 
+  /** @param {{name: string, oneDayMission?: boolean}} campaign */
   function campaignLabel(campaign) {
     return campaign.oneDayMission
       ? `${campaign.name} (${m.moddetails_one_day_tag()})`
       : campaign.name;
   }
 
+  /** @param {string} field */
   function fieldError(field) {
     const code = form.fieldErrors[field];
-    return code ? ERROR_MESSAGES[code]?.() : null;
+    return code ? pick(ERROR_MESSAGES, code)?.() : null;
   }
 
   function goToDetails() {
@@ -172,7 +177,7 @@
 
     {#if form.typeChangePending}
       <div class="banner warn" role="alert">
-        <p class="warn-title">{m.moddetails_type_warning_title({ type: typeName(form.pendingType) })}</p>
+        <p class="warn-title">{m.moddetails_type_warning_title({ type: typeName(form.pendingType ?? "") })}</p>
         <p>{m.moddetails_type_warning()}</p>
         <div class="banner-actions">
           <button type="button" class="primary" onclick={() => form.confirmTypeChange()}>

@@ -16,6 +16,7 @@
   "mymods_empty": "No mods yet.",
   "mymods_loading": "Loading...",
   "mymods_error_unreadable": "Could not read this mod.",
+  "mymods_error_invalid": "This mod's ebr-mod.json file has no id, so it can't be opened.",
   "mymods_remove_confirm": "Remove from list?",
   "mymods_remove": "Remove",
   "mymods_cancel": "Cancel",

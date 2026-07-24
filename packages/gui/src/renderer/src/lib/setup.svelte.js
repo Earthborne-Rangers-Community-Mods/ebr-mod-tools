@@ -24,6 +24,8 @@ import {
 } from "core";
 import { runGuarded } from "./guarded.js";
 
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+
 /** Upstream org and repos the creator forks. Mirrors the CLI `setup` command. */
 const ORG = "Earthborne-Rangers-Community-Mods";
 const BASE_CONTENT_REPO = "ebr-mod-base-content";
@@ -37,14 +39,14 @@ export const BROWSER_FORK_URLS = Object.freeze({
 
 class SetupStore {
   /** GitHub login confirmed by an active credential probe (null until probed). */
-  detectedLogin = $state(null);
+  detectedLogin = $state(/** @type {string|null} */ (null));
   /** Whether the last active probe confirmed a working git credential. */
   credentialsChecked = $state(false);
   /** Configured fork URLs, read from `~/.ebr/`. */
-  forks = $state({ baseContent: null, registry: null });
+  forks = $state(/** @type {{baseContent: string|null, registry: string|null}} */ ({ baseContent: null, registry: null }));
   /** Reachability of each fork after an active status check (null = unchecked). */
-  baseForkReachable = $state(null);
-  registryForkReachable = $state(null);
+  baseForkReachable = $state(/** @type {boolean|null} */ (null));
+  registryForkReachable = $state(/** @type {boolean|null} */ (null));
   /** Author defaults (bound to the form inputs on the Setup page). */
   author = $state("");
   authorDiscord = $state("");
@@ -58,11 +60,11 @@ class SetupStore {
   /** True only while `runSetup` is creating/verifying the forks (drives the forks dot's in-progress state). */
   settingUpForks = $state(false);
   /** Live progress message during `runSetup`. */
-  progress = $state(null);
+  progress = $state(/** @type {string|null} */ (null));
   /** Error code from the last operation (localized by the component), or null. */
-  errorCode = $state(null);
+  errorCode = $state(/** @type {string|null} */ (null));
   /** Repos that could not be forked automatically and need the browser flow. */
-  manualForks = $state([]);
+  manualForks = $state(/** @type {Array<{repo: string, browserUrl: string}>} */ ([]));
   #initialized = false;
 
   /**
@@ -73,8 +75,8 @@ class SetupStore {
   get displayLogin() {
     return (
       this.detectedLogin ??
-      forkOwnerFromUrl(this.forks.baseContent) ??
-      forkOwnerFromUrl(this.forks.registry)
+      (this.forks.baseContent ? forkOwnerFromUrl(this.forks.baseContent) : null) ??
+      (this.forks.registry ? forkOwnerFromUrl(this.forks.registry) : null)
     );
   }
 
@@ -171,10 +173,10 @@ class SetupStore {
         for (const repo of [BASE_CONTENT_REPO, REGISTRY_REPO]) {
           const result = await ensureFork(
             { owner: ORG, repo, login },
-            { onProgress: (p) => (this.progress = p.message) },
+            { onProgress: (/** @type {ProgressEvent} */ p) => (this.progress = p.message ?? null) },
           );
           if (result.status === "manual") {
-            manual.push({ repo, browserUrl: BROWSER_FORK_URLS[repo] });
+            manual.push({ repo, browserUrl: /** @type {Record<string, string>} */ (BROWSER_FORK_URLS)[repo] });
           }
         }
 

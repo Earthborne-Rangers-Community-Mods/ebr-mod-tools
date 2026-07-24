@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix } from "../src/manifest.js";
+import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix, assertValidManifest } from "../src/manifest.js";
 import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../src/catalogs.js";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../src/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
@@ -177,6 +177,23 @@ describe("validateManifest", () => {
     expect(errors).toEqual([{ code: VALIDATION_CODES.MISSING_REQUIRED_FIELD, field: "name" }]);
   });
 
+  // --- schemaVersion number check (FIELD_NOT_NUMBER) ---
+
+  it("rejects string schemaVersion", () => {
+    const errors = validateManifest(validManifest({ schemaVersion: "x" }));
+    expect(hasError(errors, { code: VALIDATION_CODES.FIELD_NOT_NUMBER, field: "schemaVersion" })).toBe(true);
+  });
+
+  it("rejects boolean schemaVersion", () => {
+    const errors = validateManifest(validManifest({ schemaVersion: true }));
+    expect(hasError(errors, { code: VALIDATION_CODES.FIELD_NOT_NUMBER, field: "schemaVersion" })).toBe(true);
+  });
+
+  it("accepts numeric schemaVersion", () => {
+    const errors = validateManifest(validManifest({ schemaVersion: 2 }));
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.FIELD_NOT_NUMBER)).toEqual([]);
+  });
+
   // --- Type validation ---
 
   it("rejects an invalid mod type", () => {
@@ -291,6 +308,44 @@ describe("validateManifest", () => {
   it("rejects non-array optionalProducts", () => {
     const errors = validateManifest(validManifest({ optionalProducts: "something" }));
     expect(hasError(errors, { code: VALIDATION_CODES.FIELD_NOT_ARRAY, field: "optionalProducts" })).toBe(true);
+  });
+
+  // --- Array element string check (ARRAY_ITEM_NOT_STRING) ---
+
+  it("rejects a number in campaigns array", () => {
+    const errors = validateManifest(validManifest({ campaigns: [123] }));
+    expect(hasError(errors, { code: VALIDATION_CODES.ARRAY_ITEM_NOT_STRING, field: "campaigns", index: 0 })).toBe(true);
+  });
+
+  it("reports the correct index when a later element is non-string", () => {
+    const errors = validateManifest(validManifest({ campaigns: ["lure-of-the-valley", 42] }));
+    expect(hasError(errors, { code: VALIDATION_CODES.ARRAY_ITEM_NOT_STRING, field: "campaigns", index: 1 })).toBe(true);
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.ARRAY_ITEM_NOT_STRING && e.index === 0)).toEqual([]);
+  });
+
+  it("rejects a non-string element in requiredProducts", () => {
+    const errors = validateManifest(validManifest({ requiredProducts: [42] }));
+    expect(hasError(errors, { code: VALIDATION_CODES.ARRAY_ITEM_NOT_STRING, field: "requiredProducts", index: 0 })).toBe(true);
+  });
+
+  it("rejects a non-string element in tags", () => {
+    const errors = validateManifest(validManifest({ tags: [true] }));
+    expect(hasError(errors, { code: VALIDATION_CODES.ARRAY_ITEM_NOT_STRING, field: "tags", index: 0 })).toBe(true);
+  });
+
+  it("rejects a non-string element in optionalProducts", () => {
+    const errors = validateManifest(validManifest({ optionalProducts: [{}] }));
+    expect(hasError(errors, { code: VALIDATION_CODES.ARRAY_ITEM_NOT_STRING, field: "optionalProducts", index: 0 })).toBe(true);
+  });
+
+  it("accepts all-string elements across array fields", () => {
+    const errors = validateManifest(validManifest({
+      campaigns: ["lure-of-the-valley"],
+      requiredProducts: ["core-set"],
+      tags: ["npc"],
+      optionalProducts: ["stewards-of-the-valley"],
+    }));
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.ARRAY_ITEM_NOT_STRING)).toEqual([]);
   });
 
   // --- Product validation ---
@@ -495,6 +550,70 @@ describe("validateManifest", () => {
     expect(errors.filter((e) => e.code === VALIDATION_CODES.INCLUDED_MOD_MISSING_FIELD && e.index === 1).length).toBeGreaterThanOrEqual(4);
   });
 
+  // --- includedCampaigns entry validation (INCLUDED_CAMPAIGN_MISSING_FIELD) ---
+
+  it("rejects an includedCampaigns entry missing commitHash", () => {
+    const errors = validateManifest(
+      validManifest({
+        type: "collection",
+        includedCampaigns: [{ id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley" }],
+      }),
+    );
+    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "commitHash" })).toBe(true);
+  });
+
+  it("rejects an includedCampaigns entry with empty-string id", () => {
+    const errors = validateManifest(
+      validManifest({
+        type: "collection",
+        includedCampaigns: [{ id: "", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" }],
+      }),
+    );
+    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "id" })).toBe(true);
+  });
+
+  it("rejects an includedCampaigns entry with non-string branch", () => {
+    const errors = validateManifest(
+      validManifest({
+        type: "collection",
+        includedCampaigns: [{ id: "lure-of-the-valley", branch: 42, commitHash: "abc1234" }],
+      }),
+    );
+    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "branch" })).toBe(true);
+  });
+
+  it("rejects a null includedCampaigns entry - fires for all three required fields", () => {
+    const errors = validateManifest(
+      validManifest({
+        type: "collection",
+        includedCampaigns: [null],
+      }),
+    );
+    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "id" })).toBe(true);
+    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "branch" })).toBe(true);
+    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "commitHash" })).toBe(true);
+  });
+
+  it("reports errors at the correct index for a second malformed includedCampaigns entry", () => {
+    const errors = validateManifest(
+      validManifest({
+        type: "collection",
+        includedCampaigns: [
+          { id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" },
+          { id: "shadow-of-the-storm", branch: "campaign/shadow-of-the-storm" }, // missing commitHash
+        ],
+      }),
+    );
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD && e.index === 0)).toEqual([]);
+    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 1, field: "commitHash" })).toBe(true);
+  });
+
+  it("fires FIELD_NOT_ARRAY (not INCLUDED_CAMPAIGN_MISSING_FIELD) when includedCampaigns is a non-array", () => {
+    const errors = validateManifest(validManifest({ includedCampaigns: "not-an-array" }));
+    expect(hasError(errors, { code: VALIDATION_CODES.FIELD_NOT_ARRAY, field: "includedCampaigns" })).toBe(true);
+    expect(errors.filter((e) => e.code === VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD)).toEqual([]);
+  });
+
   // --- language ---
 
   it("rejects empty string language", () => {
@@ -552,6 +671,12 @@ describe("validateManifest", () => {
     expect(hasError(errors, { code: VALIDATION_CODES.INVALID_REPO_URL })).toBe(true);
   });
 
+  it("rejects a present-but-non-string repoUrl", () => {
+    // A number (or any non-string) repoUrl must be rejected, not silently skipped.
+    const errors = validateManifest(validManifest({ repoUrl: 42 }));
+    expect(hasError(errors, { code: VALIDATION_CODES.INVALID_REPO_URL, field: "repoUrl" })).toBe(true);
+  });
+
   // --- name / author / description non-empty ---
 
   it.each(["name", "author", "description"])(
@@ -607,6 +732,9 @@ describe("formatValidationError", () => {
       { code: VALIDATION_CODES.INVALID_REPO_URL, field: "repoUrl", value: "https://gitlab.com/x" },
       { code: VALIDATION_CODES.INVALID_ICON, field: "icon", value: "abc" },
       { code: VALIDATION_CODES.CAMPAIGN_MISSING_PRODUCT, field: "requiredProducts", value: "spire-in-bloom", campaign: "spire-in-bloom" },
+      { code: VALIDATION_CODES.FIELD_NOT_NUMBER, field: "schemaVersion" },
+      { code: VALIDATION_CODES.ARRAY_ITEM_NOT_STRING, field: "campaigns", index: 0 },
+      { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "commitHash" },
     ];
     for (const err of testCases) {
       const msg = formatValidationError(err);
@@ -1062,6 +1190,61 @@ describe("applyMissingProductFix", () => {
 
   it("throws on an unknown bucket", () => {
     expect(() => applyMissingProductFix({}, ["core-set"], "neither")).toThrow();
+  });
+});
+
+// --- assertValidManifest ---
+
+describe("assertValidManifest", () => {
+  it("returns the same object reference for a valid manifest", () => {
+    const manifest = validManifest();
+    expect(assertValidManifest(manifest)).toBe(manifest);
+  });
+
+  it("throws ManifestError for a manifest with a single invalid field", () => {
+    expect(() => assertValidManifest(validManifest({ id: "NOT KEBAB" }))).toThrow(ManifestError);
+  });
+
+  it("thrown error has field 'validation', not 'file'", () => {
+    let caught;
+    try {
+      assertValidManifest(validManifest({ id: "NOT KEBAB" }));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ManifestError);
+    expect(caught).not.toBeInstanceOf(ManifestNotFoundError);
+    expect(caught).not.toBeInstanceOf(ManifestParseError);
+    expect(caught.field).toBe("validation");
+  });
+
+  it("throws for a non-object input (null)", () => {
+    let caught;
+    try {
+      assertValidManifest(null);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ManifestError);
+    expect(caught.field).toBe("validation");
+  });
+
+  it("aggregates all validation errors into the thrown message", () => {
+    // An empty object fails every required-field check - many errors.
+    const raw = {};
+    const expectedMessages = formatValidationErrors(validateManifest(raw));
+    expect(expectedMessages.length).toBeGreaterThan(1);
+
+    let caught;
+    try {
+      assertValidManifest(raw);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ManifestError);
+    for (const msg of expectedMessages) {
+      expect(caught.message).toContain(msg);
+    }
   });
 });
 

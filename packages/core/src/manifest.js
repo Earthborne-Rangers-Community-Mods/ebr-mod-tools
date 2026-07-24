@@ -8,6 +8,11 @@ import { join } from "node:path";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "./errors.js";
 import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "./catalogs.js";
 
+/** @typedef {import('./types.js').Manifest} Manifest */
+/** @typedef {import('./types.js').RawManifest} RawManifest */
+/** @typedef {import('./types.js').ModValues} ModValues */
+/** @typedef {import('./types.js').ValidationErrorInfo} ValidationErrorInfo */
+
 const MANIFEST_FILENAME = "ebr-mod.json";
 export const DEFAULT_MOD_ICON = "\uD83C\uDFD4\uFE0F"; // mountain
 
@@ -27,6 +32,7 @@ const REQUIRED_FIELDS = [
 ];
 
 const INCLUDED_MOD_REQUIRED_FIELDS = ["id", "name", "author", "version", "repoUrl"];
+const INCLUDED_CAMPAIGN_REQUIRED_FIELDS = ["id", "branch", "commitHash"];
 
 // --- Field validators ---
 // Each returns `true` when valid, or a human-readable error string.
@@ -143,8 +149,11 @@ export const VALIDATION_CODES = Object.freeze({
   FIELD_NOT_ARRAY: "FIELD_NOT_ARRAY",
   FIELD_NOT_BOOLEAN: "FIELD_NOT_BOOLEAN",
   FIELD_NOT_STRING: "FIELD_NOT_STRING",
+  FIELD_NOT_NUMBER: "FIELD_NOT_NUMBER",
+  ARRAY_ITEM_NOT_STRING: "ARRAY_ITEM_NOT_STRING",
   COLLECTION_MISSING_INCLUDED_MODS: "COLLECTION_MISSING_INCLUDED_MODS",
   INCLUDED_MOD_MISSING_FIELD: "INCLUDED_MOD_MISSING_FIELD",
+  INCLUDED_CAMPAIGN_MISSING_FIELD: "INCLUDED_CAMPAIGN_MISSING_FIELD",
   INVALID_LANGUAGE_TAG: "INVALID_LANGUAGE_TAG",
   UNKNOWN_PRODUCT: "UNKNOWN_PRODUCT",
   CAMPAIGN_MISSING_PRODUCT: "CAMPAIGN_MISSING_PRODUCT",
@@ -155,7 +164,7 @@ export const VALIDATION_CODES = Object.freeze({
 /**
  * Read and parse ebr-mod.json from a directory.
  * @param {string} dir - Directory containing ebr-mod.json.
- * @returns {Promise<object>} Parsed manifest object.
+ * @returns {Promise<RawManifest>} Parsed, but not yet validated, manifest object.
  * @throws {ManifestError} If the file is missing or contains invalid JSON.
  */
 export async function readManifest(dir) {
@@ -164,10 +173,11 @@ export async function readManifest(dir) {
   try {
     raw = await readFile(filePath, "utf-8");
   } catch (err) {
-    if (err.code === "ENOENT") {
+    const e = /** @type {NodeJS.ErrnoException} */ (err);
+    if (e.code === "ENOENT") {
       throw new ManifestNotFoundError(dir);
     }
-    throw new ManifestError("file", `Could not read ${MANIFEST_FILENAME}: ${err.message}`);
+    throw new ManifestError("file", `Could not read ${MANIFEST_FILENAME}: ${e.message}`);
   }
 
   try {
@@ -193,21 +203,28 @@ export async function writeManifest(dir, manifest) {
  * Each error has a stable `code` (from `VALIDATION_CODES`) plus context fields (field, value, index).
  * Use `formatValidationError()` to get human-readable messages for display.
  *
- * @param {object} manifest - Manifest object to validate.
- * @returns {Array<{code: string, field?: string, value?: *, index?: number}>}
+ * @param {unknown} input - Untrusted value to validate.
+ * @returns {ValidationErrorInfo[]}
  */
-export function validateManifest(manifest) {
+export function validateManifest(input) {
+  /** @type {ValidationErrorInfo[]} */
   const errors = [];
 
-  if (!manifest || typeof manifest !== "object") {
+  if (!input || typeof input !== "object") {
     return [{ code: VALIDATION_CODES.NOT_AN_OBJECT }];
   }
+  const manifest = /** @type {Record<string, any>} */ (input);
 
   // Required fields
   for (const field of REQUIRED_FIELDS) {
     if (manifest[field] === undefined || manifest[field] === null) {
       errors.push({ code: VALIDATION_CODES.MISSING_REQUIRED_FIELD, field });
     }
+  }
+
+  // schemaVersion must be a number when present.
+  if (manifest.schemaVersion !== undefined && typeof manifest.schemaVersion !== "number") {
+    errors.push({ code: VALIDATION_CODES.FIELD_NOT_NUMBER, field: "schemaVersion" });
   }
 
   // Type validation
@@ -237,10 +254,18 @@ export function validateManifest(manifest) {
     errors.push({ code: VALIDATION_CODES.INVALID_VERSION_FORMAT, field: "version", value: manifest.version });
   }
 
-  // Array fields
+  // Array fields: must be arrays of strings when present.
   for (const field of ["campaigns", "requiredProducts", "tags", "optionalProducts"]) {
-    if (manifest[field] !== undefined && !Array.isArray(manifest[field])) {
+    const value = manifest[field];
+    if (value === undefined) continue;
+    if (!Array.isArray(value)) {
       errors.push({ code: VALIDATION_CODES.FIELD_NOT_ARRAY, field });
+    } else {
+      value.forEach((item, index) => {
+        if (typeof item !== "string") {
+          errors.push({ code: VALIDATION_CODES.ARRAY_ITEM_NOT_STRING, field, index, value: item });
+        }
+      });
     }
   }
 
@@ -306,6 +331,24 @@ export function validateManifest(manifest) {
     }
   }
 
+  // Validate includedCampaigns entries when present: each must carry a string
+  // id/branch/commitHash, matching the IncludedCampaign shape assertValidManifest
+  // narrows to.
+  if (manifest.includedCampaigns !== undefined) {
+    if (!Array.isArray(manifest.includedCampaigns)) {
+      errors.push({ code: VALIDATION_CODES.FIELD_NOT_ARRAY, field: "includedCampaigns" });
+    } else {
+      for (let i = 0; i < manifest.includedCampaigns.length; i++) {
+        const entry = manifest.includedCampaigns[i];
+        for (const field of INCLUDED_CAMPAIGN_REQUIRED_FIELDS) {
+          if (!entry || typeof entry[field] !== "string" || entry[field].length === 0) {
+            errors.push({ code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: i, field });
+          }
+        }
+      }
+    }
+  }
+
   // language: non-empty string and valid BCP 47 tag
   if (manifest.language !== undefined) {
     if (typeof manifest.language !== "string" || manifest.language.length === 0) {
@@ -315,9 +358,10 @@ export function validateManifest(manifest) {
     }
   }
 
-  // repoUrl validation
-  if (manifest.repoUrl !== undefined && typeof manifest.repoUrl === "string") {
-    if (validateRepoUrl(manifest.repoUrl) !== true) {
+  // repoUrl validation - a present repoUrl must be a string and a valid GitHub
+  // URL. A present-but-non-string value is rejected.
+  if (manifest.repoUrl !== undefined) {
+    if (typeof manifest.repoUrl !== "string" || validateRepoUrl(manifest.repoUrl) !== true) {
       errors.push({ code: VALIDATION_CODES.INVALID_REPO_URL, field: "repoUrl", value: manifest.repoUrl });
     }
   }
@@ -334,7 +378,7 @@ export function validateManifest(manifest) {
  * Format a single validation error as a human-readable string.
  * Used by the CLI for display. The GUI may use its own formatting/localization.
  *
- * @param {object} err - A validation error object from validateManifest().
+ * @param {ValidationErrorInfo} err - A validation error object from validateManifest().
  * @returns {string} Human-readable error message.
  */
 export function formatValidationError(err) {
@@ -357,10 +401,16 @@ export function formatValidationError(err) {
       return `"${err.field}" must be a boolean.`;
     case VALIDATION_CODES.FIELD_NOT_STRING:
       return `"${err.field}" must be a non-empty string.`;
+    case VALIDATION_CODES.FIELD_NOT_NUMBER:
+      return `"${err.field}" must be a number.`;
+    case VALIDATION_CODES.ARRAY_ITEM_NOT_STRING:
+      return `"${err.field}[${err.index}]" must be a string.`;
     case VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS:
       return `Collection mods must include at least one mod or campaign (non-empty "includedMods" or "includedCampaigns").`;
     case VALIDATION_CODES.INCLUDED_MOD_MISSING_FIELD:
       return `includedMods[${err.index}] is missing required field: "${err.field}".`;
+    case VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD:
+      return `includedCampaigns[${err.index}] must have a non-empty string "${err.field}".`;
     case VALIDATION_CODES.INVALID_LANGUAGE_TAG:
       return `"language" must be a valid BCP 47 language tag (e.g. "en", "es", "zh-Hans"). Got "${err.value}".`;
     case VALIDATION_CODES.UNKNOWN_PRODUCT:
@@ -381,11 +431,32 @@ export function formatValidationError(err) {
 
 /**
  * Format all validation errors as human-readable strings.
- * @param {Array} errors - Array of validation error objects from validateManifest().
+ * @param {ValidationErrorInfo[]} errors - Array of validation error objects from validateManifest().
  * @returns {string[]} Array of human-readable error messages.
  */
 export function formatValidationErrors(errors) {
   return errors.map(formatValidationError);
+}
+
+/**
+ * Validate a raw (on-disk) manifest and narrow it to a `Manifest`, or throw with
+ * the aggregated validation errors. This is the single gate that turns the
+ * unvalidated `readManifest` result into a shape callers can rely on.
+ *
+ * @param {RawManifest} manifest - A parsed, not-yet-validated manifest.
+ * @returns {Manifest} The same object, narrowed to a validated manifest.
+ * @throws {ManifestError} If validation fails (message lists every problem).
+ */
+export function assertValidManifest(manifest) {
+  const errors = validateManifest(manifest);
+  if (errors.length > 0) {
+    const messages = formatValidationErrors(errors);
+    throw new ManifestError(
+      "validation",
+      `Manifest validation failed:\n${messages.map((m) => `  - ${m}`).join("\n")}`,
+    );
+  }
+  return /** @type {Manifest} */ (manifest);
 }
 
 /**
@@ -435,7 +506,7 @@ export function bumpVersion(version, type) {
  *   "cannot compare").
  */
 export function compareVersions(a, b) {
-  const parse = (v) => {
+  const parse = (/** @type {string} */ v) => {
     const m = typeof v === "string" ? v.match(/^(\d+)\.(\d+)\.(\d+)/) : null;
     return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
   };
@@ -503,12 +574,12 @@ export function deriveOptionalProducts({ type, campaigns = [], requiredProducts 
  * required manifest field, so it stays as an empty array if drained;
  * `optionalProducts` is optional, so it's deleted when drained.
  *
- * @param {object} manifest - The parsed manifest. `requiredProducts` and
+ * @param {RawManifest} manifest - The parsed manifest. `requiredProducts` and
  *   `optionalProducts` must be arrays or absent; this function is meant to
  *   be called only after callers have confirmed those fields are well-formed.
  * @param {string[]} missingProducts - Product ids to add.
  * @param {"required"|"optional"} bucket - Which list to add them to.
- * @returns {object} The same manifest object (mutated).
+ * @returns {RawManifest} The same manifest object (mutated).
  */
 export function applyMissingProductFix(manifest, missingProducts, bucket) {
   if (bucket !== "required" && bucket !== "optional") {
@@ -536,26 +607,14 @@ export function applyMissingProductFix(manifest, missingProducts, bucket) {
 }
 
 /**
- * Build a manifest object from options.
+ * Build a manifest object from a creator's collected field values.
  *
- * @param {object} options
- * @param {string} options.name
- * @param {string} [options.id] - Defaults to kebab-case of name.
- * @param {string} options.author
- * @param {string} [options.authorDiscord]
- * @param {string} options.description
- * @param {string} options.type
- * @param {string[]} options.campaigns
- * @param {string[]} options.requiredProducts
- * @param {string[]} [options.optionalProducts]
- * @param {boolean} options.safeToAddMidCampaign
- * @param {string} [options.midCampaignNotes]
- * @param {string} options.language
- * @param {string} [options.icon]
- * @returns {object} Manifest object.
+ * @param {ModValues} options
+ * @returns {Manifest} Manifest object.
  */
 export function buildManifest(options) {
   const id = options.id || toId(options.name);
+  /** @type {Manifest} */
   const manifest = {
     schemaVersion: 1,
     name: options.name,
@@ -593,7 +652,7 @@ export function buildManifest(options) {
  * @param {string|null} [options.repoUrl] - GitHub URL to set (omit or null to skip).
  * @param {object} [callbacks]
  * @param {function} [callbacks.onProgress] - Progress callback.
- * @returns {Promise<{manifest: object, changes: Array<{field: string, oldValue: *, newValue: *}>}>}
+ * @returns {Promise<{manifest: RawManifest, changes: Array<{field: string, oldValue: *, newValue: *}>}>}
  */
 export async function updateManifest(
   { dir, version, repoUrl },
@@ -602,6 +661,7 @@ export async function updateManifest(
   onProgress?.({ step: "read", message: "Reading manifest..." });
   const manifest = await readManifest(dir);
 
+  /** @type {Array<{field: string, oldValue: *, newValue: *}>} */
   const changes = [];
 
   // --- Set version ---

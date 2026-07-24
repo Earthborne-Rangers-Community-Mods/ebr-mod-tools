@@ -136,3 +136,20 @@ npm test
 # Watch mode (re-runs on file changes)
 npm run test:watch
 ```
+
+### Type checking
+
+The codebase is plain JavaScript, type-checked with TypeScript in `checkJs` mode
+(`svelte-check` for the GUI). Types are expressed with JSDoc; there are no
+authored `.ts` files. `packages/core` and `packages/cli` are checked with
+`tsc --noEmit` (via each package's `tsconfig.json` with `allowJs`, `checkJs`, and
+`strict`); `packages/gui` is checked with `svelte-check`.
+
+```powershell
+# Type-check every package (core, cli, gui)
+npm run check
+
+# Type-check a single package
+npm run check --workspace packages/core
+npm run check --workspace packages/gui
+```

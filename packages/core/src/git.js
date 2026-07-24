@@ -2,8 +2,11 @@
  * Git operations wrapper using simple-git.
  */
 
-import simpleGit from "simple-git";
+import { simpleGit } from "simple-git";
 import { GitError, NotARepoError, GitAuthenticationError, MergeConflictError, NothingToCommitError, DirtyWorkingTreeError } from "./errors.js";
+
+/** @typedef {import('simple-git').SimpleGitProgressEvent} SimpleGitProgressEvent */
+/** @typedef {import('simple-git').SimpleGitOptions} SimpleGitOptions */
 
 /**
  * Build a human-readable message from a simple-git progress event.
@@ -17,16 +20,25 @@ function progressMessage(method, stage, percent) {
 }
 
 /**
+ * Build the simple-git `progress` option from an onProgress callback.
+ * @param {Function} [onProgress]
+ * @returns {((event: SimpleGitProgressEvent) => void) | undefined}
+ */
+function progressOption(onProgress) {
+  if (!onProgress) return undefined;
+  return ({ method, stage, progress }) => {
+    onProgress({ step: method, message: progressMessage(method, stage, progress), stage, percent: progress });
+  };
+}
+
+/**
  * Create a simple-git instance for a directory.
  * @param {string} dir
+ * @param {{ onProgress?: Function }} [options]
  */
 function git(dir, { onProgress } = {}) {
-  const options = { baseDir: dir };
-  if (onProgress) {
-    options.progress = ({ method, stage, progress }) => {
-      onProgress({ step: method, message: progressMessage(method, stage, progress), stage, percent: progress });
-    };
-  }
+  /** @type {Partial<SimpleGitOptions>} */
+  const options = { baseDir: dir, progress: progressOption(onProgress) };
   return simpleGit(options);
 }
 
@@ -54,9 +66,11 @@ export function isGitAuthError(message) {
 /**
  * Wrap a simple-git error into a typed GitError (or subclass).
  * Checks for known error patterns and throws the appropriate subclass.
+ * @param {string} operation
+ * @param {unknown} err
  */
 function wrapError(operation, err) {
-  const msg = err?.message || String(err);
+  const msg = (/** @type {Error|undefined} */ (err))?.message || String(err);
 
   if (msg.includes("not a git repository")) {
     return new NotARepoError(msg);
@@ -91,9 +105,7 @@ export async function isRepo(dir) {
  */
 export async function cloneRepo(url, dir, { onProgress } = {}) {
   try {
-    await simpleGit({ progress: onProgress ? ({ method, stage, progress }) => {
-      onProgress({ step: method, message: progressMessage(method, stage, progress), stage, percent: progress });
-    } : undefined }).clone(url, dir);
+    await simpleGit({ progress: progressOption(onProgress) }).clone(url, dir);
   } catch (err) {
     throw wrapError("clone", err);
   }
@@ -114,10 +126,7 @@ export async function cloneRepo(url, dir, { onProgress } = {}) {
  */
 export async function cloneBranchShallow(url, dir, branch, { onProgress } = {}) {
   try {
-    const progressOpt = onProgress ? ({ method, stage, progress }) => {
-      onProgress({ step: method, message: progressMessage(method, stage, progress), stage, percent: progress });
-    } : undefined;
-    await simpleGit({ progress: progressOpt }).clone(url, dir, [
+    await simpleGit({ progress: progressOption(onProgress) }).clone(url, dir, [
       "--branch", branch,
       "--single-branch",
       "--depth", "1",
@@ -254,14 +263,14 @@ export async function stageAll(dir) {
  * Stage changes filtered by extension: new/modified files must match the
  * allowlist, but deletions are always staged (so bad files can be cleaned up).
  * @param {string} dir
- * @param {string[]} extensions - Array of extensions including the dot (e.g. [".md", ".json"]).
+ * @param {readonly string[]} extensions - Array of extensions including the dot (e.g. [".md", ".json"]).
  */
 export async function stageByExtensions(dir, extensions) {
   try {
     const extSet = new Set(extensions.map(e => e.toLowerCase()));
     const status = await git(dir).status();
 
-    const hasAllowedExt = (f) => {
+    const hasAllowedExt = (/** @type {string} */ f) => {
       const dot = f.lastIndexOf(".");
       return dot !== -1 && extSet.has(f.substring(dot).toLowerCase());
     };
@@ -302,7 +311,7 @@ export async function commit(dir, message) {
     if (err instanceof NothingToCommitError) {
       throw err;
     }
-    const msg = err?.message || String(err);
+    const msg = (/** @type {Error|undefined} */ (err))?.message || String(err);
     if (msg.includes("nothing to commit") || msg.includes("nothing added to commit")) {
       throw new NothingToCommitError();
     }
@@ -381,7 +390,7 @@ export async function merge(dir, ref, { onProgress, noCommit = false } = {}) {
     const args = noCommit ? ["--no-commit", "--no-ff", ref] : [ref];
     await git(dir).merge(args);
   } catch (err) {
-    const msg = err?.message || String(err);
+    const msg = (/** @type {Error|undefined} */ (err))?.message || String(err);
 
     // Detect "local changes would be overwritten by merge" before checking
     // for conflicts -- git aborts before starting the merge in this case.

@@ -11,7 +11,8 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check": "npm run check --workspaces --if-present"
   },
   "author": "Sunberry Keeper",
   "license": "MIT",
@@ -19,6 +20,8 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.0",
     "vitest": "^4.1.4"
   }
 }

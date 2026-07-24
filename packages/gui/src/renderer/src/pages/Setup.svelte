@@ -4,6 +4,7 @@
   import { setupStore } from "../lib/setup.svelte.js";
   import { openExternal } from "../lib/platform.js";
   import * as m from "../lib/paraglide/messages.js";
+  import { pick } from "../lib/pick.js";
   import githubLogo from "../assets/icons/github-logo.svg";
 
   // Snapshot of setup completion at page load. Deliberately non-reactive: the
@@ -56,7 +57,7 @@
   </p>
 
   {#if setupStore.errorCode}
-    <p class="banner error" role="alert">{ERROR_MESSAGES[setupStore.errorCode]?.()}</p>
+    <p class="banner error" role="alert">{pick(ERROR_MESSAGES, setupStore.errorCode)?.()}</p>
   {/if}
 
   <div class="card">

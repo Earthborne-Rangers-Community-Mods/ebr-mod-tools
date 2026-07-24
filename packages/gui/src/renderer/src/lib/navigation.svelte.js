@@ -13,9 +13,13 @@ export const ROUTES = Object.freeze({
 });
 
 class Navigation {
-  route = $state(ROUTES.MY_MODS);
-  selectedModId = $state(null);
+  route = $state(/** @type {string} */ (ROUTES.MY_MODS));
+  selectedModId = $state(/** @type {string|null} */ (null));
 
+  /**
+   * @param {string} route
+   * @param {{ modId?: string|null }} [options]
+   */
   go(route, { modId = null } = {}) {
     this.route = route;
     this.selectedModId = modId;

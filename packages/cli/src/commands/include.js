@@ -9,11 +9,14 @@ import {
   IncludeModNotFoundError,
 } from "core/errors.js";
 
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+
 export const includeCommand = new Command("include")
   .description("Include an official campaign branch or another mod into the current mod")
   .argument("[sources...]", "Campaign id(s) (e.g. 'lure-of-the-valley'), or mod id(s). Omit to pick campaigns from a checklist.")
   .action(includeAction);
 
+/** @param {string[]|string|undefined} sourcesArg */
 async function includeAction(sourcesArg) {
   const dir = process.cwd();
 
@@ -41,7 +44,7 @@ async function includeAction(sourcesArg) {
     sources = selected;
   }
 
-  const onProgress = (p) => console.log(p.message);
+  const onProgress = (/** @type {ProgressEvent} */ p) => console.log(p.message);
   const completed = [];
 
   // The browse-tier registry is fetched once, lazily, the first time a mod
@@ -97,6 +100,7 @@ async function includeAction(sourcesArg) {
 /**
  * Map a typed error to user-facing output and set process.exitCode.
  * Returns nothing; caller decides whether to continue or abort.
+ * @param {unknown} err
  */
 function handleIncludeError(err) {
   if (err instanceof IncludeModNotFoundError) {
@@ -116,6 +120,11 @@ function handleIncludeError(err) {
   throw err;
 }
 
+/**
+ * @param {string[]} completed
+ * @param {string} failedAt
+ * @param {string[]} remaining
+ */
 function printMultiSummary(completed, failedAt, remaining) {
   console.error("\n--- Summary ---");
   if (completed.length > 0) {

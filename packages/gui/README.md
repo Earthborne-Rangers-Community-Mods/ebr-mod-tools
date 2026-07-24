@@ -43,6 +43,8 @@ end over the workspace `core` package.
 packages/gui/
   electron.vite.config.mjs   # electron-vite build config
   electron-builder.yml       # Windows + macOS packaging config
+  svelte.config.mjs          # Svelte config (preprocess) - used by svelte-check
+  tsconfig.json              # checkJs config for svelte-check
   messages/
     en.json                  # UI strings (inlang message format)
   project.inlang/
@@ -85,6 +87,9 @@ npm run build --workspace packages/gui
 
 # Preview the production build
 npm run preview --workspace packages/gui
+
+# Type-check the renderer + main with svelte-check
+npm run check --workspace packages/gui
 
 # Build installers (electron-vite build, then electron-builder)
 npm run package --workspace packages/gui        # current platform

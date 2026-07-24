@@ -20,8 +20,8 @@ import { join, dirname, posix, relative, isAbsolute, sep } from "node:path";
  *
  * @param {string} root - Directory to walk.
  * @param {object} [options]
- * @param {string[]} [options.skipTopLevelDirs] - Top-level dir names to drop.
- * @param {string[]} [options.skipFiles] - File basenames to drop at any depth.
+ * @param {readonly string[]} [options.skipTopLevelDirs] - Top-level dir names to drop.
+ * @param {readonly string[]} [options.skipFiles] - File basenames to drop at any depth.
  * @param {boolean} [options.skipDotTopLevel] - Drop all dot-prefixed top-level
  *   dirs and root-level files.
  * @returns {Promise<string[]>} POSIX paths relative to `root`.
@@ -82,6 +82,8 @@ export function sanitizePathSegment(raw) {
 /**
  * Resolve a directory's real path; falls back to the input on failure so
  * callers don't have to special-case missing dirs.
+ * @param {string} dir
+ * @returns {Promise<string>}
  */
 export async function realPathSafe(dir) {
   try {
@@ -97,6 +99,8 @@ export async function realPathSafe(dir) {
  * existing ancestor, calls `realpath` on it, then re-joins the missing
  * tail. This catches the case where an intermediate directory is a symlink
  * pointing outside the intended root.
+ * @param {string} absDest
+ * @returns {Promise<string>}
  */
 export async function realPathOfDestination(absDest) {
   const segments = [];
@@ -125,6 +129,9 @@ export async function realPathOfDestination(absDest) {
  * be absolute. Uses `path.relative` plus a separator-aware `..` check to
  * avoid prefix-string false positives in either direction (e.g. `/foo` vs
  * `/foobar`, or a child whose first segment legitimately starts with `..`).
+ * @param {string} child
+ * @param {string} parent
+ * @returns {boolean}
  */
 export function isPathInside(child, parent) {
   const rel = relative(parent, child);

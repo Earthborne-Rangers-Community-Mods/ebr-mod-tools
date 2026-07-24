@@ -6,6 +6,8 @@ import { resolveCredentialLogin, ensureFork, forkUrlFor, forkOwnerFromUrl } from
 import { remoteExists } from "core/git.js";
 import { clearCredential } from "core/github.js";
 
+/** @typedef {import('core/types.js').ProgressEvent} ProgressEvent */
+
 const ORG = "Earthborne-Rangers-Community-Mods";
 const BASE_CONTENT_REPO = "ebr-mod-base-content";
 const REGISTRY_REPO = "ebr-mod-registry";
@@ -39,7 +41,7 @@ export const setupCommand = new Command("setup")
 
       await interactive();
     } catch (err) {
-      console.error(err.message);
+      console.error((/** @type {Error} */ (err)).message);
       process.exitCode = 1;
     }
   });
@@ -261,13 +263,17 @@ async function offerToClearCredential(login) {
 /**
  * Ensure a single fork exists, falling back to a guided browser flow when it
  * cannot be created automatically.
+ * @param {string} login
+ * @param {string} repo
+ * @param {string} browserForkUrl
+ * @param {string} purpose
  * @returns {Promise<boolean>} true when the fork exists at the end.
  */
 async function ensureForkForRepo(login, repo, browserForkUrl, purpose) {
   console.log(`\n--- Your fork of ${repo} (${purpose}) ---`);
   const result = await ensureFork(
     { owner: ORG, repo, login },
-    { onProgress: (p) => console.log(p.message) },
+    { onProgress: (/** @type {ProgressEvent} */ p) => console.log(p.message) },
   );
 
   if (result.status === "exists") {

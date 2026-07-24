@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
     "release": "npm run build && npm publish ./dist"
   },
   "repository": {

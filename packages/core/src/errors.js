@@ -5,6 +5,10 @@
  */
 
 export class ManifestError extends Error {
+  /**
+   * @param {string} field - Manifest field the error relates to.
+   * @param {string} message - Human-readable message.
+   */
   constructor(field, message) {
     super(message);
     this.name = "ManifestError";
@@ -13,6 +17,7 @@ export class ManifestError extends Error {
 }
 
 export class ManifestNotFoundError extends ManifestError {
+  /** @param {string} dir - Directory searched for ebr-mod.json. */
   constructor(dir) {
     super("file", `No ebr-mod.json found in ${dir}`);
     this.name = "ManifestNotFoundError";
@@ -21,6 +26,7 @@ export class ManifestNotFoundError extends ManifestError {
 }
 
 export class ManifestParseError extends ManifestError {
+  /** @param {string} dir - Directory whose ebr-mod.json failed to parse. */
   constructor(dir) {
     super("file", `ebr-mod.json contains invalid JSON.`);
     this.name = "ManifestParseError";
@@ -29,6 +35,10 @@ export class ManifestParseError extends ManifestError {
 }
 
 export class GitError extends Error {
+  /**
+   * @param {string} operation - Git operation that failed.
+   * @param {string} message - Human-readable message.
+   */
   constructor(operation, message) {
     super(message);
     this.name = "GitError";
@@ -37,6 +47,7 @@ export class GitError extends Error {
 }
 
 export class NotARepoError extends GitError {
+  /** @param {string} dir - Directory that is not a git repository. */
   constructor(dir) {
     super("status", `Not a git repository: ${dir}`);
     this.name = "NotARepoError";
@@ -45,6 +56,10 @@ export class NotARepoError extends GitError {
 }
 
 export class GitAuthenticationError extends GitError {
+  /**
+   * @param {string} operation - Git operation that failed authentication.
+   * @param {string} [message] - Human-readable message.
+   */
   constructor(operation, message) {
     super(operation, message || "Git authentication failed.");
     this.name = "GitAuthenticationError";
@@ -52,10 +67,21 @@ export class GitAuthenticationError extends GitError {
 }
 
 export class MergeConflictError extends GitError {
+  /** @param {string[]} conflictedFiles - Paths with merge conflicts. */
   constructor(conflictedFiles) {
     super("merge", "Merge resulted in conflicts that must be resolved manually.");
     this.name = "MergeConflictError";
     this.conflictedFiles = conflictedFiles;
+    // Optional include-context, attached by the include workflows when a
+    // merge conflict interrupts a campaign or mod include.
+    /** @type {string=} */
+    this.campaignId = undefined;
+    /** @type {string=} */
+    this.branch = undefined;
+    /** @type {string=} */
+    this.commitHash = undefined;
+    /** @type {string=} */
+    this.modId = undefined;
   }
 }
 
@@ -207,6 +233,10 @@ export class ScaffoldRefNotFoundError extends GitError {
 }
 
 export class ConfigError extends Error {
+  /**
+   * @param {string} operation - Config operation that failed.
+   * @param {string} message - Human-readable message.
+   */
   constructor(operation, message) {
     super(message);
     this.name = "ConfigError";
@@ -215,6 +245,11 @@ export class ConfigError extends Error {
 }
 
 export class GithubError extends Error {
+  /**
+   * @param {string} operation - GitHub operation that failed.
+   * @param {string} message - Human-readable message.
+   * @param {number|null} [httpStatus] - HTTP status code, when applicable.
+   */
   constructor(operation, message, httpStatus) {
     super(message);
     this.name = "GithubError";
@@ -235,6 +270,7 @@ export class AuthenticationError extends GithubError {
 }
 
 export class ValidationError extends Error {
+  /** @param {string} message - Human-readable message. */
   constructor(message) {
     super(message);
     this.name = "ValidationError";

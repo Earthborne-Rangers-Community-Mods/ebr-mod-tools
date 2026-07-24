@@ -6,12 +6,15 @@
  */
 import { fetchRegistry } from "core";
 
+/** @typedef {import('core/types.js').Registry} Registry */
+/** @typedef {import('core/types.js').RegistryEntry} RegistryEntry */
+
 /** How long a fetched registry stays fresh before the next access refetches. */
 const TTL_MS = 15 * 60 * 1000;
 
-/** @type {{ registry: object, fetchedAt: number } | null} */
+/** @type {{ registry: Registry, fetchedAt: number } | null} */
 let cached = null;
-/** @type {Promise<object> | null} Shared in-flight fetch, deduping concurrent callers. */
+/** @type {Promise<Registry> | null} Shared in-flight fetch, deduping concurrent callers. */
 let inflight = null;
 /** Monotonic id of the most recent fetch; only it may write the cache. */
 let latestRequestId = 0;
@@ -22,7 +25,7 @@ let latestRequestId = 0;
  * same as `fetchRegistry`.
  * @param {object} [options]
  * @param {boolean} [options.force] - Bypass the freshness check and refetch.
- * @returns {Promise<object>} The parsed registry (`{ mods: [...] }`).
+ * @returns {Promise<Registry>} The parsed registry (`{ mods: [...] }`).
  */
 export async function getRegistry({ force = false } = {}) {
   if (!force && cached && Date.now() - cached.fetchedAt < TTL_MS) {
@@ -53,7 +56,7 @@ export async function getRegistry({ force = false } = {}) {
  * Courtesy uniqueness check for a proposed mod id against the cached registry.
  * Never throws: a fetch failure degrades to `unverified` so the caller can proceed.
  * @param {string} id - Proposed kebab-case mod id.
- * @returns {Promise<{status: "available"|"claimed"|"unverified", entry?: object, error?: unknown}>}
+ * @returns {Promise<{status: "available"|"claimed"|"unverified", entry?: RegistryEntry, error?: unknown}>}
  */
 export async function checkModId(id) {
   let registry;
