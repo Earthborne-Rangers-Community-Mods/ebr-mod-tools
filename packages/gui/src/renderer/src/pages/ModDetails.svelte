@@ -1,6 +1,8 @@
 <script lang="ts">
   import BackButton from "../components/BackButton.svelte";
   import ObsidianButton from "../components/ObsidianButton.svelte";
+  import SaveControl from "../components/SaveControl.svelte";
+  import DirtyMarker from "../components/DirtyMarker.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { openMods } from "../lib/mods.svelte.js";
   import { typeName } from "../lib/modtypes.js";
@@ -37,10 +39,11 @@
     <header class="mod-header">
       <span class="mod-icon" aria-hidden="true">{mod.icon}</span>
       <div>
-        <h1>{mod.name}</h1>
+        <h1>{mod.name}<DirtyMarker dir={entry.dir} /></h1>
         <p class="muted">{typeName(mod.type ?? "")} &middot; v{mod.version} &middot; {mod.id}</p>
       </div>
       <div class="header-actions">
+        <SaveControl dir={entry.dir} />
         <button
           type="button"
           class="icon-button"

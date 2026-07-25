@@ -5,6 +5,8 @@
   import { pickDirectory, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { typeName } from "../lib/modtypes.js";
   import ObsidianButton from "../components/ObsidianButton.svelte";
+  import SaveControl from "../components/SaveControl.svelte";
+  import DirtyMarker from "../components/DirtyMarker.svelte";
   import { basename } from "node:path";
   import * as m from "../lib/paraglide/messages.js";
   import discordLogo from "../assets/icons/discord-logo.svg";
@@ -119,7 +121,7 @@
             >
               <span class="mod-icon" aria-hidden="true">{mf.icon}</span>
               <span class="mod-main">
-                <span class="mod-name">{mf.name}</span>
+                <span class="mod-name">{mf.name}<DirtyMarker dir={mod.dir} /></span>
                 <span class="mod-meta">
                   {typeName(mf.type ?? "")} &middot; v{mf.version}
                 </span>
@@ -154,6 +156,7 @@
               <button type="button" class="ghost" onclick={cancelClose}>{m.mymods_cancel()}</button>
             {:else}
               {#if mod.status === "ready"}
+                <SaveControl dir={mod.dir} />
                 <ObsidianButton dir={mod.dir} />
               {/if}
               <button

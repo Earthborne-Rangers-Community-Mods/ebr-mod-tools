@@ -12,6 +12,8 @@
   import ModEdit from "./pages/ModEdit.svelte";
   import ConflictResolution from "./pages/ConflictResolution.svelte";
   import UnsavedChangesDialog from "./components/UnsavedChangesDialog.svelte";
+  import SaveDialog from "./components/SaveDialog.svelte";
+  import { saveFlow } from "./lib/save.svelte.js";
   import { pick } from "./lib/pick.js";
 
   const PAGES = {
@@ -79,6 +81,10 @@
 
 {#if showCloseDialog}
   <UnsavedChangesDialog onSave={closeSave} onDiscard={closeDiscard} onCancel={closeCancel} />
+{/if}
+
+{#if saveFlow.open}
+  <SaveDialog />
 {/if}
 
 <style>

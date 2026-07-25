@@ -195,7 +195,24 @@ export async function saveMod({ dir, commitMessage, version }: { dir: string; co
   onProgress?.({ step: "commit", message: "Committing..." });
   await commit(dir, commitMessage);
 
-  // 5. Auto-set upstream tracking branch if not already set
+  // 5. Push (setting the upstream tracking branch on the first push)
+  await pushMod(dir, { onProgress });
+
+  const commitHash = await getHeadCommit(dir);
+  return {
+    commitHash,
+    manifestChanges: manifestResult?.changes ?? [],
+  };
+}
+
+/**
+ * Push the current branch to `origin`, setting the upstream tracking branch on
+ * the first push.
+ *
+ * @param dir - Mod directory (a git repo with an `origin` remote).
+ * @param callbacks.onProgress - Progress callback.
+ */
+export async function pushMod(dir: string, { onProgress }: ProgressOptions = {}): Promise<void> {
   const currentBranch = await getCurrentBranch(dir);
   const tracking = await getAheadBehind(dir);
   if (!tracking) {
@@ -203,16 +220,9 @@ export async function saveMod({ dir, commitMessage, version }: { dir: string; co
     await push(dir, { remote: "origin", branch: currentBranch });
     await setUpstreamBranch(dir, "origin", currentBranch);
   } else {
-    // 6. Push
     onProgress?.({ step: "push", message: "Pushing to remote..." });
     await push(dir);
   }
-
-  const commitHash = await getHeadCommit(dir);
-  return {
-    commitHash,
-    manifestChanges: manifestResult?.changes ?? [],
-  };
 }
 
 // --- publishMod ---

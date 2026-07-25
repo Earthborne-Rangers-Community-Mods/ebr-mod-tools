@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix, assertValidManifest } from "../src/manifest.js";
+import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, validateVersion, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix, assertValidManifest } from "../src/manifest.js";
 import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../src/catalogs.js";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../src/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
@@ -764,6 +764,38 @@ describe("formatValidationErrors", () => {
 
   it("returns empty array for no errors", () => {
     expect(formatValidationErrors([])).toEqual([]);
+  });
+});
+
+// --- validateVersion ---
+
+describe("validateVersion", () => {
+  it("accepts standard semver", () => {
+    expect(validateVersion("1.0.0")).toBe(true);
+    expect(validateVersion("2.10.3")).toBe(true);
+    expect(validateVersion("0.0.1")).toBe(true);
+  });
+
+  it("rejects empty string", () => {
+    expect(validateVersion("")).not.toBe(true);
+  });
+
+  it("rejects two-component string", () => {
+    expect(validateVersion("1.0")).not.toBe(true);
+  });
+
+  it("rejects v-prefixed string", () => {
+    expect(validateVersion("v1.0.0")).not.toBe(true);
+  });
+
+  it("rejects trailing non-semver characters (no separator)", () => {
+    // SEMVER_RE is $-anchored, so trailing non-semver characters are rejected.
+    expect(validateVersion("1.0.0abc")).not.toBe(true);
+  });
+
+  it("rejects four-component version", () => {
+    // The $ anchor also rejects a four-component version.
+    expect(validateVersion("1.0.0.4")).not.toBe(true);
   });
 });
 

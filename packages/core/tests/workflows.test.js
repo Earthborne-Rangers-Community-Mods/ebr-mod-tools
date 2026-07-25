@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import simpleGit from "simple-git";
-import { scaffoldMod, scaffoldModIntoClone, saveMod, getModBranchName } from "../src/workflows.js";
+import { scaffoldMod, scaffoldModIntoClone, saveMod, pushMod, getModBranchName } from "../src/workflows.js";
 import { readManifest, buildManifest, toId } from "../src/manifest.js";
-import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push } from "../src/git.js";
+import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push, getAheadBehind } from "../src/git.js";
 import { ManifestError, NothingToCommitError, GitError, ValidationError, ForkOutOfSyncError } from "../src/errors.js";
 import { createTempDir, validManifest, writeManifestFile, createProgressCollector } from "./helpers.js";
 
@@ -469,6 +469,34 @@ describe("saveMod", () => {
     expect(log.latest.message).toBe("Add new file");
   });
 
+  it("sets the upstream tracking branch on the first push", async () => {
+    // A repo whose branch has never been pushed (no upstream configured)..
+    const freshBare = await createBareRemote();
+    const freshDir = await createTempDir();
+    try {
+      await initTestRepo(freshDir);
+      await writeManifestFile(freshDir, validManifest());
+      await commitFile(freshDir, "readme.txt", "initial", "initial commit");
+      await addRemote(freshDir, "origin", freshBare);
+      // No upstream yet.
+      expect(await getAheadBehind(freshDir)).toBeNull();
+
+      await writeFile(join(freshDir, "new-file.md"), "new content");
+      const result = await saveMod({ dir: freshDir, commitMessage: "First save" });
+
+      expect(result.commitHash).toMatch(/^[0-9a-f]{40}$/);
+      const log = await simpleGit(freshBare).log();
+      expect(log.latest.message).toBe("First save");
+      // Upstream tracking is now set (ahead/behind resolves, at parity).
+      const tracking = await getAheadBehind(freshDir);
+      expect(tracking).not.toBeNull();
+      expect(tracking.ahead).toBe(0);
+    } finally {
+      await rm(freshDir, { recursive: true, force: true });
+      await rm(freshBare, { recursive: true, force: true });
+    }
+  });
+
   it("updates version before committing when version is provided", async () => {
     await writeFile(join(tmpDir, "content.md"), "some content");
 
@@ -599,3 +627,66 @@ describe("saveMod", () => {
     expect(manifest.repoUrl).toBe("https://github.com/creator/my-mod");
   });
 });
+
+// --- pushMod ---
+
+describe("pushMod", () => {
+  let tmpDir;
+  let bareDir;
+
+  beforeEach(async () => {
+    bareDir = await createBareRemote();
+    tmpDir = await createTempDir();
+    await initTestRepo(tmpDir);
+    await writeManifestFile(tmpDir, validManifest());
+    await commitFile(tmpDir, "readme.txt", "initial", "initial commit");
+    await addRemote(tmpDir, "origin", bareDir);
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+    await rm(bareDir, { recursive: true, force: true });
+  });
+
+  it("pushes and sets the upstream tracking branch on the first push", async () => {
+    // No upstream configured yet, so getAheadBehind reports no tracking branch.
+    expect(await getAheadBehind(tmpDir)).toBeNull();
+
+    await pushMod(tmpDir);
+
+    // The bare remote received the initial commit...
+    const log = await simpleGit(bareDir).log();
+    expect(log.latest.message).toBe("initial commit");
+    // ...and the upstream tracking branch is now set (ahead/behind resolves).
+    const tracking = await getAheadBehind(tmpDir);
+    expect(tracking).not.toBeNull();
+    expect(tracking.ahead).toBe(0);
+  });
+
+  it("pushes committed work that is ahead of the remote", async () => {
+    // Establish tracking, then commit locally without pushing.
+    await pushMod(tmpDir);
+    await commitFile(tmpDir, "extra.md", "more", "second commit");
+    expect((await getAheadBehind(tmpDir)).ahead).toBe(1);
+
+    await pushMod(tmpDir);
+
+    const log = await simpleGit(bareDir).log();
+    expect(log.latest.message).toBe("second commit");
+    expect((await getAheadBehind(tmpDir)).ahead).toBe(0);
+  });
+
+  it("reports progress for the upstream and push steps", async () => {
+    const first = createProgressCollector();
+    await pushMod(tmpDir, { onProgress: first.fn });
+    expect(first.steps()).toContain("upstream");
+    first.assertValid();
+
+    await commitFile(tmpDir, "extra.md", "more", "second commit");
+    const second = createProgressCollector();
+    await pushMod(tmpDir, { onProgress: second.fn });
+    expect(second.steps()).toContain("push");
+    second.assertValid();
+  });
+});
+

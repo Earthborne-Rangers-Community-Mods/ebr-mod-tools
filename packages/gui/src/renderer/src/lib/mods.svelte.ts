@@ -207,6 +207,23 @@ class OpenMods {
   get(id: string): ModEntry | null {
     return this.entries.find((entry) => entry.manifest?.id === id) ?? null;
   }
+
+  /**
+   * Look up a loaded mod by its directory path.
+   */
+  getByDir(dir: string): ModEntry | null {
+    return this.entries.find((entry) => entry.dir === dir) ?? null;
+  }
+
+  /**
+   * Re-read a mod's manifest from disk into its entry. Used after an operation
+   * (e.g. a save that bumped the version) changes `ebr-mod.json` underneath the
+   * cached copy. No-op when the directory is not tracked.
+   */
+  async reload(dir: string) {
+    const entry = this.getByDir(dir);
+    if (entry) await this.#loadEntry(entry);
+  }
 }
 
 export const openMods = new OpenMods();

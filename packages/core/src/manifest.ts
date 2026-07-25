@@ -35,7 +35,7 @@ const INCLUDED_CAMPAIGN_REQUIRED_FIELDS = ["id", "branch", "commitHash"];
 // Used by both validateManifest() and CLI prompts.
 
 const KEBAB_CASE_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const SEMVER_RE = /^\d+\.\d+\.\d+/;
+const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 // Strict owner/repo shape. Mirrors GITHUB_REPO_RE in
 // ebr-mod-registry/scripts/validate-mods.js so a manifest that passes publish
 // also passes the registry PR check. Trailing ".git" and a trailing slash are
