@@ -16,7 +16,7 @@
   "mymods_empty": "No mods yet.",
   "mymods_loading": "Loading...",
   "mymods_error_unreadable": "Could not read this mod.",
-  "mymods_error_invalid": "This mod's ebr-mod.json file has no id, so it can't be opened.",
+  "mymods_error_invalid": "This mod's ID is missing or invalid. Open it to fix it.",
   "mymods_remove_confirm": "Remove from list?",
   "mymods_remove": "Remove",
   "mymods_cancel": "Cancel",
@@ -197,7 +197,10 @@
   "moddetails_type_confirm": "Change type",
   "moddetails_type_cancel": "Keep current type",
   "moddetails_error_invalid_name": "Enter a mod name.",
+  "moddetails_error_invalid_id": "Enter a valid ID (lowercase letters, numbers, and hyphens).",
   "moddetails_error_invalid_version": "Enter a version like 1.0.0.",
   "moddetails_error_invalid_description": "Enter a short description.",
-  "moddetails_error_invalid_author": "Enter an author name."
+  "moddetails_error_invalid_author": "Enter an author name.",
+  "moddetails_id_repair_title": "This mod needs its ID repaired",
+  "moddetails_id_repair_notice": "This mod's ID was missing or invalid. Review the auto-generated ID, then click Save Changes to fix your mod."
 }

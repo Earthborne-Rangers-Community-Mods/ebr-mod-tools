@@ -117,7 +117,7 @@
             <button
               type="button"
               class="mod-open"
-              onclick={() => navigation.go(ROUTES.MOD_DETAILS, { modId: mf.id })}
+              onclick={() => navigation.go(ROUTES.MOD_DETAILS, { dir: mod.dir })}
             >
               <span class="mod-icon" aria-hidden="true">{mf.icon}</span>
               <span class="mod-main">
@@ -135,13 +135,25 @@
                 <span class="mod-meta">{m.mymods_loading()}</span>
               </span>
             </div>
+          {:else if mod.manifest}
+            <button
+              type="button"
+              class="mod-open"
+              onclick={() => navigation.go(ROUTES.MOD_EDIT, { dir: mod.dir })}
+            >
+              <span class="mod-icon" aria-hidden="true">&#9888;</span>
+              <span class="mod-main">
+                <span class="mod-name">{basename(mod.dir)}</span>
+                <span class="mod-meta error">{m.mymods_error_invalid()}</span>
+              </span>
+            </button>
           {:else}
             <div class="mod-open is-static">
               <span class="mod-icon" aria-hidden="true">&#9888;</span>
               <span class="mod-main">
                 <span class="mod-name">{basename(mod.dir)}</span>
                 <span class="mod-meta error" title={mod.error ? m.mymods_error_unreadable_detail({ folder: basename(mod.dir), detail: mod.error }) : undefined}>
-                  {mod.manifest ? m.mymods_error_invalid() : m.mymods_error_unreadable()}
+                  {m.mymods_error_unreadable()}
                 </span>
               </span>
             </div>

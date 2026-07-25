@@ -16,13 +16,14 @@
   const form = modDetailsForm;
 
   onMount(() => {
-    if (navigation.selectedModId) form.load(navigation.selectedModId);
+    if (navigation.selectedModDir) form.load(navigation.selectedModDir);
   });
 
   let showBackDialog = $state(false);
 
   const ERROR_MESSAGES = {
     "invalid-name": m.moddetails_error_invalid_name,
+    "invalid-id": m.moddetails_error_invalid_id,
     "invalid-version": m.moddetails_error_invalid_version,
     "invalid-description": m.moddetails_error_invalid_description,
     "invalid-author": m.moddetails_error_invalid_author,
@@ -40,13 +41,21 @@
   }
 
   function goToDetails() {
-    navigation.go(ROUTES.MOD_DETAILS, { modId: navigation.selectedModId });
+    navigation.go(ROUTES.MOD_DETAILS, { dir: navigation.selectedModDir });
+  }
+
+  // Where Back / Cancel / Discard land. A mod opened for repair was reached
+  // straight from My Mods (skipping Mod Details), so leaving without saving
+  // returns there; a normal edit returns to the read-only Mod Details view.
+  function leaveWithoutSaving() {
+    if (form.idRepair) navigation.go(ROUTES.MY_MODS);
+    else goToDetails();
   }
 
   // Back: guard when there are unsaved changes.
   function handleBack() {
     if (form.dirty) showBackDialog = true;
-    else goToDetails();
+    else leaveWithoutSaving();
   }
 
   // "Save Changes": persist, then return to the read-only view on success.
@@ -55,10 +64,10 @@
     if (!form.dirty) goToDetails();
   }
 
-  // "Cancel": drop edits and return to the read-only view.
+  // "Cancel": drop edits and leave.
   function cancelEdit() {
     form.revert();
-    goToDetails();
+    leaveWithoutSaving();
   }
 
   // Back-guard dialog actions.
@@ -70,7 +79,7 @@
   function dialogDiscard() {
     showBackDialog = false;
     form.revert();
-    goToDetails();
+    leaveWithoutSaving();
   }
   function dialogCancel() {
     showBackDialog = false;
@@ -78,11 +87,17 @@
 </script>
 
 <section class="page">
-  <BackButton to={ROUTES.MOD_DETAILS} label={m.moddetails_back()} onclick={handleBack} />
+  <BackButton to={form.idRepair ? ROUTES.MY_MODS : ROUTES.MOD_DETAILS} label={form.idRepair ? m.nav_back_to_mods() : m.moddetails_back()} onclick={handleBack} />
 
   {#if !form.loaded}
     <p class="banner error" role="alert">{m.moddetails_not_found()}</p>
   {:else}
+    {#if form.idRepair}
+      <div class="banner warn" role="status">
+        <p class="warn-title">{m.moddetails_id_repair_title()}</p>
+        <p>{m.moddetails_id_repair_notice()}</p>
+      </div>
+    {/if}
     <header class="mod-header">
       <span class="mod-icon" aria-hidden="true">{form.icon}</span>
       <div>
@@ -114,7 +129,14 @@
       </label>
       <label class="field">
         <span>{m.moddetails_field_id()}</span>
-        <input type="text" value={form.id} readonly />
+        {#if form.idRepair}
+          <input type="text" bind:value={form.id} onblur={() => form.validateField("id")} />
+          {#if fieldError("id")}
+            <small class="hint error-text">{fieldError("id")}</small>
+          {/if}
+        {:else}
+          <input type="text" value={form.id} readonly />
+        {/if}
       </label>
       <label class="field">
         <span>{m.moddetails_field_version()}</span>
@@ -268,40 +290,6 @@
     margin-left: auto;
     font-size: 0.85rem;
     color: var(--color-text-muted);
-  }
-
-  .banner {
-    margin: 0;
-    padding: var(--spacing-sm) var(--spacing-md);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
-  }
-
-  .banner.error {
-    border-color: var(--color-error);
-    color: var(--color-error);
-  }
-
-  .banner.warn {
-    border-color: var(--color-warning, var(--color-border));
-  }
-
-  .banner .warn-title {
-    font-weight: 600;
-    margin: 0;
-  }
-
-  .banner p {
-    margin: 0;
-  }
-
-  .banner-actions {
-    display: flex;
-    gap: var(--spacing-sm);
   }
 
   .fields {

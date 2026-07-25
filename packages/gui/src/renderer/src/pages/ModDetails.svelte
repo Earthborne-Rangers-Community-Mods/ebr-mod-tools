@@ -14,7 +14,7 @@
   import discordLogo from "../assets/icons/discord-logo.svg";
   import * as m from "../lib/paraglide/messages.js";
 
-  const entry = $derived(navigation.selectedModId ? openMods.get(navigation.selectedModId) : null);
+  const entry = $derived(navigation.selectedModDir ? openMods.getByDir(navigation.selectedModDir) : null);
   const mod = $derived(entry?.manifest ?? null);
 
   /**
@@ -25,8 +25,8 @@
   }
 
   function edit() {
-    if (!mod) return;
-    navigation.go(ROUTES.MOD_EDIT, { modId: mod.id });
+    if (!entry) return;
+    navigation.go(ROUTES.MOD_EDIT, { dir: entry.dir });
   }
 </script>
 
@@ -228,19 +228,6 @@
     -webkit-mask-repeat: no-repeat;
     -webkit-mask-position: center;
     -webkit-mask-size: contain;
-  }
-
-  .banner {
-    margin: 0;
-    padding: var(--spacing-sm) var(--spacing-md);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-  }
-
-  .banner.error {
-    border-color: var(--color-error);
-    color: var(--color-error);
   }
 
   .details {

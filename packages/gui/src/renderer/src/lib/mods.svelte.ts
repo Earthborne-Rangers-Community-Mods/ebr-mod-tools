@@ -5,7 +5,7 @@
  * ebr-mod.json on disk. Only the directory path is durable - the manifest is the
  * source of truth for everything else.
  */
-import { readManifest, ManifestNotFoundError } from "core";
+import { readManifest, ManifestNotFoundError, validateId } from "core";
 import type { RawManifest } from "core/types.js";
 import { dirname } from "node:path";
 
@@ -89,13 +89,19 @@ function persistLastOpenDir(dir: string): void {
 }
 
 /**
- * A manifest is openable in the GUI only if it carries a non-empty string `id`:
- * the app keys mod navigation off `manifest.id` (`get(id)`, `navigation.go`). An
- * id-less manifest (hand-edited or a partial write) is surfaced as a broken
- * entry rather than a "ready" card that silently cannot be opened.
+ * Whether the manifest carries a valid kebab-case `id`. `id` is a required
+ * field; an empty or malformed id flags the entry for repair.
  */
-function hasUsableId(manifest: RawManifest): boolean {
-  return typeof manifest.id === "string" && manifest.id.length > 0;
+function hasValidId(manifest: RawManifest): boolean {
+  return typeof manifest.id === "string" && validateId(manifest.id) === true;
+}
+
+/**
+ * Status for a manifest that was read successfully: "ready" when its id is valid,
+ * "error" (broken but openable/repairable) otherwise.
+ */
+function readableStatus(manifest: RawManifest): "ready" | "error" {
+  return hasValidId(manifest) ? "ready" : "error";
 }
 
 class OpenMods {
@@ -132,13 +138,8 @@ class OpenMods {
     try {
       const manifest = await readManifest(entry.dir);
       entry.manifest = manifest;
-      if (hasUsableId(manifest)) {
-        entry.status = "ready";
-        entry.error = null;
-      } else {
-        entry.status = "error";
-        entry.error = null;
-      }
+      entry.status = readableStatus(manifest);
+      entry.error = null;
     } catch (err) {
       entry.manifest = null;
       entry.status = "error";
@@ -185,11 +186,8 @@ class OpenMods {
       const reason = err instanceof ManifestNotFoundError ? "not-found" : "unreadable";
       return { ok: false, reason, message: (err as Error)?.message };
     }
-    // A readable but id-less manifest is added as a broken entry (it cannot be
-    // opened, since navigation keys off the id), mirroring the hydration path.
-    const entry: ModEntry = hasUsableId(manifest)
-      ? { dir, status: "ready", manifest, error: null }
-      : { dir, status: "error", manifest, error: null };
+    // A readable but id-less manifest is flagged for repair.
+    const entry: ModEntry = { dir, status: readableStatus(manifest), manifest, error: null };
     this.entries = [...this.entries, entry];
     this.#persist();
     this.#rememberOpenDir(dir);
@@ -202,17 +200,23 @@ class OpenMods {
   }
 
   /**
-   * Look up a loaded mod by its manifest id.
-   */
-  get(id: string): ModEntry | null {
-    return this.entries.find((entry) => entry.manifest?.id === id) ?? null;
-  }
-
-  /**
    * Look up a loaded mod by its directory path.
    */
   getByDir(dir: string): ModEntry | null {
     return this.entries.find((entry) => entry.dir === dir) ?? null;
+  }
+
+  /**
+   * Replace a tracked entry's cached manifest and recompute its ready/error
+   * status. Called after every successful save so the My Mods card reflects any
+   * changed field (name, version, icon, type) without a disk re-read.
+   */
+  setManifest(dir: string, manifest: RawManifest) {
+    const entry = this.getByDir(dir);
+    if (!entry) return;
+    entry.manifest = manifest;
+    entry.status = readableStatus(manifest);
+    entry.error = null;
   }
 
   /**

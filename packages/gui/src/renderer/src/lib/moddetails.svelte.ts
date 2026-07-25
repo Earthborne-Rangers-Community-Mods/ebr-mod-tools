@@ -13,6 +13,8 @@ import {
   validateName,
   validateVersion,
   validateNonEmpty,
+  validateId,
+  toId,
 } from "core";
 import { openMods } from "./mods.svelte.js";
 import { showSafeNotes, fixedSafety } from "./midcampaign.js";
@@ -54,6 +56,12 @@ class ModDetailsForm {
   // Transient UI state.
   /** True once a manifest was loaded; false means the mod could not be found. */
   loaded = $state(false);
+  /**
+   * True when the loaded mod's id was empty or malformed. Unlocks the otherwise
+   * read-only id field and shows the repair notice, so a broken manifest can be
+   * fixed rather than stranded.
+   */
+  idRepair = $state(false);
   /** Per-field validation error codes, keyed by field name. */
   fieldErrors = $state<Record<string, string>>({});
   /** Save status shown to the user: idle | saving | saved | error. */
@@ -91,11 +99,11 @@ class ModDetailsForm {
   }
 
   /**
-   * Load the mod with the given id from the My Mods store into the draft. When
-   * the mod is not present (removed from the list), marks the form unloaded.
+   * Load the mod at the given directory from the My Mods store into the draft.
+   * When the mod is not present (removed from the list), marks the form unloaded.
    */
-  load(id: string) {
-    const entry = openMods.get(id);
+  load(dir: string) {
+    const entry = openMods.getByDir(dir);
     const mf = entry?.manifest;
     if (!entry || !mf) {
       this.loaded = false;
@@ -111,6 +119,7 @@ class ModDetailsForm {
     this.errorDetail = null;
     this.loaded = true;
     this.savedSnapshot = this.#manifestString();
+    this.#suggestIdRepair();
   }
 
   /**
@@ -124,6 +133,19 @@ class ModDetailsForm {
     this.fieldErrors = {};
     this.errorDetail = null;
     this.saveState = "idle";
+  }
+
+  /**
+   * Set up id-repair mode. Runs at the end of `load`, after `savedSnapshot` is
+   * taken.
+   *
+   * If the loaded id is empty or malformed, flag the mod for repair (`idRepair`
+   * unlocks the id field and shows the notice) and pre-fill the id with a
+   * kebab-case guess from the name.
+   */
+  #suggestIdRepair() {
+    this.idRepair = validateId(this.id) !== true;
+    if (this.idRepair) this.id = toId(this.name);
   }
 
   /**
@@ -158,6 +180,8 @@ class ModDetailsForm {
     let code: string | null = null;
     if (field === "name") {
       if (validateName(this.name) !== true) code = "invalid-name";
+    } else if (field === "id") {
+      if (validateId(this.id) !== true) code = "invalid-id";
     } else if (field === "version") {
       if (validateVersion(this.version) !== true) code = "invalid-version";
     } else if (field === "description") {
@@ -178,7 +202,7 @@ class ModDetailsForm {
    * draft is safe to write. This is the real persistence gate.
    */
   #validateRequired() {
-    for (const field of ["name", "version", "description", "author"]) {
+    for (const field of ["name", "id", "version", "description", "author"]) {
       this.validateField(field);
     }
     return Object.keys(this.fieldErrors).length === 0;
@@ -231,6 +255,9 @@ class ModDetailsForm {
   /** Assemble the manifest to persist, preserving fields we do not edit. */
   #buildManifest() {
     const next = { ...this.#original };
+    const id = this.id.trim();
+    if (id) next.id = id;
+    else delete next.id;
     next.name = this.name.trim();
     next.version = this.version.trim();
     next.description = this.description.trim();
@@ -286,6 +313,7 @@ class ModDetailsForm {
       this.#applySaved(manifest);
       this.savedSnapshot = JSON.stringify(manifest);
       this.saveState = "saved";
+      this.idRepair = false;
     } catch (err) {
       this.saveState = "error";
       this.errorDetail = (err as Error)?.message ?? "";
@@ -296,8 +324,7 @@ class ModDetailsForm {
    */
   #applySaved(manifest: RawManifest) {
     this.#original = manifest;
-    const entry = openMods.entries.find((e) => e.dir === this.dir);
-    if (entry) entry.manifest = manifest;
+    if (this.dir) openMods.setManifest(this.dir, manifest);
   }
 }
 

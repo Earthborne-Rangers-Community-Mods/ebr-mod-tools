@@ -14,11 +14,11 @@ export const ROUTES = Object.freeze({
 
 class Navigation {
   route = $state<string>(ROUTES.MY_MODS);
-  selectedModId = $state<string | null>(null);
+  selectedModDir = $state<string | null>(null);
 
-  go(route: string, { modId = null }: { modId?: string | null } = {}) {
+  go(route: string, { dir = null }: { dir?: string | null } = {}) {
     this.route = route;
-    this.selectedModId = modId;
+    this.selectedModDir = dir;
   }
 }
 

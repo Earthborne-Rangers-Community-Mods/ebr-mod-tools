@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, validateIcon, formatValidationError, formatValidationErrors, VALIDATION_CODES, validateVersion, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix, assertValidManifest } from "../src/manifest.js";
+import { readManifest, writeManifest, validateManifest, validateIcon, validateId, validateName, validateLanguage, validateRepoUrl, formatValidationError, formatValidationErrors, VALIDATION_CODES, validateVersion, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix, assertValidManifest } from "../src/manifest.js";
 import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../src/catalogs.js";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../src/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
@@ -1042,6 +1042,119 @@ describe("validateIcon", () => {
     expect(validateIcon(undefined)).not.toBe(true);
     expect(validateIcon(null)).not.toBe(true);
     expect(validateIcon(42)).not.toBe(true);
+  });
+});
+
+// --- validateId ---
+
+describe("validateId", () => {
+  it("accepts kebab-case ids", () => {
+    expect(validateId("foo")).toBe(true);
+    expect(validateId("foo-bar")).toBe(true);
+    expect(validateId("abc123")).toBe(true);
+    expect(validateId("a-b-c")).toBe(true);
+    expect(validateId("123")).toBe(true);
+  });
+
+  it("rejects empty string", () => {
+    expect(validateId("")).not.toBe(true);
+  });
+
+  it("rejects uppercase and spaces", () => {
+    expect(validateId("Foo Bar")).not.toBe(true);
+    expect(validateId("UPPER")).not.toBe(true);
+  });
+
+  it("rejects leading, trailing, or doubled hyphens", () => {
+    expect(validateId("-foo")).not.toBe(true);
+    expect(validateId("foo-")).not.toBe(true);
+    expect(validateId("foo--bar")).not.toBe(true);
+  });
+
+  it("rejects non-string values", () => {
+    expect(validateId(undefined)).not.toBe(true);
+    expect(validateId(null)).not.toBe(true);
+    expect(validateId(42)).not.toBe(true);
+  });
+});
+
+// --- validateName ---
+
+describe("validateName", () => {
+  it("accepts names that yield a kebab-case id", () => {
+    expect(validateName("My Mod")).toBe(true);
+    expect(validateName("Expanded Boulder Field")).toBe(true);
+  });
+
+  it("rejects empty or whitespace-only names", () => {
+    expect(validateName("")).not.toBe(true);
+    expect(validateName("   ")).not.toBe(true);
+  });
+
+  it("rejects names with no letters or numbers", () => {
+    expect(validateName("!!!")).not.toBe(true);
+  });
+
+  it("rejects non-string values", () => {
+    expect(validateName(undefined)).not.toBe(true);
+    expect(validateName(42)).not.toBe(true);
+  });
+});
+
+// --- validateLanguage ---
+
+describe("validateLanguage", () => {
+  it("accepts BCP 47 tags", () => {
+    expect(validateLanguage("en")).toBe(true);
+    expect(validateLanguage("fr")).toBe(true);
+    expect(validateLanguage("pt-BR")).toBe(true);
+  });
+
+  it("rejects empty or whitespace-only input", () => {
+    expect(validateLanguage("")).not.toBe(true);
+    expect(validateLanguage("   ")).not.toBe(true);
+  });
+
+  it("rejects malformed tags", () => {
+    expect(validateLanguage("not a language")).not.toBe(true);
+    expect(validateLanguage("@@")).not.toBe(true);
+  });
+
+  it("rejects non-string values", () => {
+    expect(validateLanguage(undefined)).not.toBe(true);
+    expect(validateLanguage(42)).not.toBe(true);
+  });
+});
+
+// --- validateRepoUrl ---
+
+describe("validateRepoUrl", () => {
+  it("accepts the empty string (unpublished mods)", () => {
+    expect(validateRepoUrl("")).toBe(true);
+  });
+
+  it("accepts a full GitHub repo URL, with optional .git or trailing slash", () => {
+    expect(validateRepoUrl("https://github.com/foo/bar")).toBe(true);
+    expect(validateRepoUrl("https://github.com/foo/bar.git")).toBe(true);
+    expect(validateRepoUrl("https://github.com/foo/bar/")).toBe(true);
+  });
+
+  it("rejects non-https or non-GitHub hosts", () => {
+    expect(validateRepoUrl("http://github.com/foo/bar")).not.toBe(true);
+    expect(validateRepoUrl("https://gitlab.com/foo/bar")).not.toBe(true);
+  });
+
+  it("rejects a URL missing the repo segment", () => {
+    expect(validateRepoUrl("https://github.com/foo")).not.toBe(true);
+  });
+
+  it("rejects a URL with extra path segments", () => {
+    expect(validateRepoUrl("https://github.com/foo/bar/tree/main")).not.toBe(true);
+  });
+
+  it("rejects non-string values", () => {
+    expect(validateRepoUrl(undefined)).not.toBe(true);
+    expect(validateRepoUrl(42)).not.toBe(true);
   });
 });
 

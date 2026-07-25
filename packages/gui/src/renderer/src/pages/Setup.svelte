@@ -247,19 +247,6 @@
     margin-top: calc(-1 * var(--spacing-xs));
   }
 
-  .banner {
-    margin: 0;
-    padding: var(--spacing-sm) var(--spacing-md);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-  }
-
-  .banner.error {
-    border-color: var(--color-error);
-    color: var(--color-error);
-  }
-
   .card {
     display: flex;
     flex-direction: column;

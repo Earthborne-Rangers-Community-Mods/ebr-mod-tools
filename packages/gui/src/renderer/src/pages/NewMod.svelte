@@ -261,31 +261,6 @@
     color: var(--color-text-muted);
   }
 
-  .banner {
-    margin: 0;
-    padding: var(--spacing-sm) var(--spacing-md);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
-  }
-
-  .banner.error {
-    border-color: var(--color-error);
-    color: var(--color-error);
-  }
-
-  .banner.warn {
-    border-color: var(--color-warning, var(--color-border));
-  }
-
-  .banner ul {
-    margin: 0;
-    padding-left: var(--spacing-lg);
-  }
-
   .form {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

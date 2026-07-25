@@ -82,8 +82,8 @@ class NewModForm {
   warnings = $state<Array<{ kind: string; ref: string; detail: string }>>([]);
   /** True once creation finished but left warnings; the mod exists and is tracked. */
   completedWithWarnings = $state(false);
-  /** Id of the mod just created, so completion can route to its details page. */
-  createdModId = $state<string | null>(null);
+  /** Directory of the mod just created, so completion can route to its details page. */
+  createdModDir = $state<string | null>(null);
   /** Registry availability of the current id ({ status, entry } or null). */
   idStatus = $state<{ status: string; entry?: { author?: string } } | null>(null);
   /** Per-field validation error codes, keyed by field name (blur-time feedback). */
@@ -143,7 +143,7 @@ class NewModForm {
     this.errorDetail = null;
     this.warnings = [];
     this.completedWithWarnings = false;
-    this.createdModId = null;
+    this.createdModDir = null;
     this.idStatus = null;
     this.fieldErrors = {};
   }
@@ -414,7 +414,7 @@ class NewModForm {
         );
         await this.#stampAndInclude(result.modDir, manifest);
         const added = await openMods.add(result.modDir);
-        if (added.ok) this.createdModId = manifest.id;
+        if (added.ok) this.createdModDir = result.modDir;
 
         if (this.warnings.length > 0) {
           this.completedWithWarnings = true;
@@ -435,13 +435,14 @@ class NewModForm {
 
   /**
    * Leave the New Mod page for the freshly created mod's details page (falling
-   * back to My Mods if the id was somehow lost), clearing the form for next time.
+   * back to My Mods if the directory was somehow lost), clearing the form for
+   * next time.
    */
   finish() {
-    const modId = this.createdModId;
+    const dir = this.createdModDir;
     this.reset();
-    if (modId) {
-      navigation.go(ROUTES.MOD_DETAILS, { modId });
+    if (dir) {
+      navigation.go(ROUTES.MOD_DETAILS, { dir });
     } else {
       navigation.go(ROUTES.MY_MODS);
     }
