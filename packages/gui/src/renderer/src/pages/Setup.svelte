@@ -2,10 +2,19 @@
   import BackButton from "../components/BackButton.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";
+  import { themeStore, type ThemePreference } from "../lib/theme.svelte.js";
   import { openExternal } from "../lib/platform.js";
   import * as m from "../lib/paraglide/messages.js";
   import { pick } from "../lib/pick.js";
   import githubLogo from "../assets/icons/github-logo.svg";
+
+  // Color-theme choices for the appearance control. "system" follows the OS
+  // setting; "light"/"dark" pin the theme.
+  const THEME_OPTIONS: { value: ThemePreference; label: () => string }[] = [
+    { value: "system", label: m.setup_theme_system },
+    { value: "light", label: m.setup_theme_light },
+    { value: "dark", label: m.setup_theme_dark },
+  ];
 
   // Snapshot of setup completion at page load. Deliberately non-reactive: the
   // back button's presence is fixed for the life of this page, so acting on the
@@ -206,6 +215,25 @@
     </div>
   </div>
 
+  <div class="card">
+    <h2>{m.setup_appearance_heading()}</h2>
+    <p class="detail">{m.setup_appearance_lead()}</p>
+    <div class="theme-choice" role="radiogroup" aria-label={m.setup_appearance_heading()}>
+      {#each THEME_OPTIONS as option (option.value)}
+        <label class="theme-option" class:selected={themeStore.preference === option.value}>
+          <input
+            type="radio"
+            name="theme"
+            value={option.value}
+            checked={themeStore.preference === option.value}
+            onchange={() => themeStore.set(option.value)}
+          />
+          <span>{option.label()}</span>
+        </label>
+      {/each}
+    </div>
+  </div>
+
   <div class="clear-row">
     <div class="card-actions">
       {#if confirmingClear}
@@ -289,6 +317,57 @@
 
   .detail.warn {
     color: var(--color-error);
+  }
+
+  .theme-choice {
+    display: inline-flex;
+    gap: var(--spacing-xs);
+    align-self: flex-start;
+    padding: var(--spacing-xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+  }
+
+  .theme-option {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+  }
+
+  .theme-option:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+
+  .theme-option.selected {
+    background: var(--color-primary);
+    color: var(--color-primary-text);
+  }
+
+  .theme-option.selected:hover {
+    background: var(--color-primary-hover);
+  }
+
+  /* The native radio conveys state through the label styling; it stays in the
+     DOM for keyboard selection and focus, but is visually hidden. */
+  .theme-option input {
+    position: absolute;
+    width: 0;
+    height: 0;
+    margin: 0;
+    opacity: 0;
+  }
+
+  .theme-option:focus-within {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
   }
 
   .account-line {

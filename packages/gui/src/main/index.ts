@@ -1,6 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron";
 import type { OpenDialogOptions } from "electron";
 import { join } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
 import { isAllowedExternalUrl } from "./url-allowlist.js";
 
 /** The single main window. */
@@ -9,6 +10,46 @@ let mainWindow: BrowserWindow | null = null;
 let hasUnsavedChanges = false;
 /** Windows cleared to close programmatically, bypassing the unsaved-edits guard. */
 const closeAllowed = new WeakSet();
+
+// Window chrome background per theme, mirroring the light/dark --color-bg tokens.
+// Keep in sync with app.css --color-bg.
+const LIGHT_BG = "#f5ecd6";
+const DARK_BG = "#18241e";
+
+type ThemePreference = "system" | "light" | "dark";
+
+/** Path to the persisted theme preference. */
+function themeConfigPath(): string {
+  return join(app.getPath("userData"), "theme.json");
+}
+
+/** Read the stored theme preference, defaulting to "system" when unset or unreadable. */
+function readStoredThemePreference(): ThemePreference {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(themeConfigPath(), "utf8"));
+    if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  } catch {
+    // No file yet, or unreadable - fall back to system.
+  }
+  return "system";
+}
+
+/** Persist the theme preference so the next launch can paint the right window bg. */
+function writeStoredThemePreference(preference: ThemePreference): void {
+  try {
+    writeFileSync(themeConfigPath(), JSON.stringify(preference));
+  } catch {
+    // Best-effort - a failure just means the next launch falls back to system.
+  }
+}
+
+/**
+ * Resolve the window background color for a preference.
+ */
+function backgroundForPreference(preference: ThemePreference, systemIsDark: boolean): string {
+  const dark = preference === "dark" || (preference === "system" && systemIsDark);
+  return dark ? DARK_BG : LIGHT_BG;
+}
 
 /**
  * Create the main application window. The renderer runs with nodeIntegration on,
@@ -25,6 +66,12 @@ function createWindow() {
     height: 720,
     show: false,
     autoHideMenuBar: true,
+    // Paint the window in the active theme's --color-bg before the renderer
+    // loads, so there is no white flash on first paint.
+    backgroundColor: backgroundForPreference(
+      readStoredThemePreference(),
+      nativeTheme.shouldUseDarkColors,
+    ),
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: true,
@@ -146,6 +193,20 @@ ipcMain.handle("shell:openPath", async (_event, dirPath) => {
 // intercepts when there is something to lose.
 ipcMain.on("app:dirty-changed", (_event, dirty) => {
   hasUnsavedChanges = Boolean(dirty);
+});
+
+// The renderer reports its active theme preference so the next launch can paint
+// the window background to match.
+ipcMain.on("app:theme-changed", (_event, preference) => {
+  if (preference === "light" || preference === "dark" || preference === "system") {
+    writeStoredThemePreference(preference);
+  }
+});
+
+// The renderer reads the persisted preference synchronously at startup so it can
+// apply the theme before first paint. Main owns the stored value.
+ipcMain.on("app:get-theme", (event) => {
+  event.returnValue = readStoredThemePreference();
 });
 
 // The renderer has finished guarding (saved/discarded) and the window may close.

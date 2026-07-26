@@ -65,3 +65,20 @@ export function onConfirmClose(handler: () => void): () => void {
 export function confirmAppClose(): void {
   ipcRenderer.send("app:force-close");
 }
+
+/**
+ * The main process owns the persisted theme preference so it can draw the
+ * initial window background correctly.
+ */
+export function sendThemePreference(preference: "system" | "light" | "dark"): void {
+  ipcRenderer.send("app:theme-changed", preference);
+}
+
+/**
+ * Read the persisted color-theme preference from the main process. Synchronous
+ * so the renderer can apply the theme before first paint. Defaults to "system".
+ */
+export function getThemePreference(): "system" | "light" | "dark" {
+  const value: unknown = ipcRenderer.sendSync("app:get-theme");
+  return value === "light" || value === "dark" || value === "system" ? value : "system";
+}
