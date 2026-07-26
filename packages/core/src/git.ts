@@ -537,6 +537,20 @@ export async function getRemoteUrl(dir: string, remoteName: string): Promise<str
 }
 
 /**
+ * Read the author email recorded on a commit.
+ *
+ * @param ref - Commit-ish to read; defaults to HEAD.
+ */
+export async function getCommitAuthorEmail(dir: string, ref = "HEAD"): Promise<string | null> {
+  try {
+    const email = (await git(dir).raw(["show", "-s", "--format=%ae", ref])).trim();
+    return email || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check whether a remote repository is reachable.
  *
  * Runs `git ls-remote <url> HEAD`, which reads public repositories without any

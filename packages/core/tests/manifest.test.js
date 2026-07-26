@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readManifest, writeManifest, validateManifest, validateIcon, validateId, validateName, validateLanguage, validateRepoUrl, formatValidationError, formatValidationErrors, VALIDATION_CODES, validateVersion, bumpVersion, compareVersions, updateManifest, deriveOptionalProducts, applyMissingProductFix, assertValidManifest } from "../src/manifest.js";
+import { readManifest, writeManifest, validateManifest, validateIcon, validateId, validateName, validateLanguage, validateRepoUrl, formatValidationError, formatValidationErrors, VALIDATION_CODES, validateVersion, bumpVersion, compareVersions, isBelowStable, updateManifest, deriveOptionalProducts, applyMissingProductFix, assertValidManifest } from "../src/manifest.js";
 import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "../src/catalogs.js";
 import { ManifestError, ManifestNotFoundError, ManifestParseError } from "../src/errors.js";
 import { rm, readFile, writeFile } from "node:fs/promises";
@@ -882,6 +882,35 @@ describe("compareVersions", () => {
     expect(compareVersions(undefined, "1.0.0")).toBeNull();
     expect(compareVersions("1.0.0", null)).toBeNull();
     expect(compareVersions(123, "1.0.0")).toBeNull();
+  });
+});
+
+// --- isBelowStable ---
+
+describe("isBelowStable", () => {
+  it("is true for versions below 1.0.0", () => {
+    expect(isBelowStable("0.0.1")).toBe(true);
+    expect(isBelowStable("0.9.9")).toBe(true);
+    expect(isBelowStable("0.0.0")).toBe(true);
+  });
+
+  it("is false at and above 1.0.0", () => {
+    expect(isBelowStable("1.0.0")).toBe(false);
+    expect(isBelowStable("1.0.1")).toBe(false);
+    expect(isBelowStable("2.3.4")).toBe(false);
+  });
+
+  it("is false for an unparseable version (nothing to offer)", () => {
+    expect(isBelowStable("not-a-version")).toBe(false);
+    expect(isBelowStable("")).toBe(false);
+    expect(isBelowStable("1.0")).toBe(false);
+  });
+
+  it("ignores pre-release and build metadata", () => {
+    expect(isBelowStable("0.9.0-beta")).toBe(true);
+    expect(isBelowStable("1.0.0-rc.1")).toBe(false);
+    expect(isBelowStable("0.9.0+build.1")).toBe(true);
+    expect(isBelowStable("1.0.0+build.1")).toBe(false);
   });
 });
 

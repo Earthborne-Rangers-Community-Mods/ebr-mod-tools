@@ -20,6 +20,7 @@ const gitMocks = vi.hoisted(() => ({
   stageFile: vi.fn(),
   commit: vi.fn(),
   push: vi.fn(),
+  getCommitAuthorEmail: vi.fn(),
 }));
 
 vi.mock("../src/git.js", () => gitMocks);
@@ -27,7 +28,8 @@ vi.mock("../src/git.js", () => gitMocks);
 // Import AFTER mocks are set up
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { publishMod } from "../src/workflows.js";
+import { publishMod, findOpenRegistryPrs } from "../src/workflows.js";
+import { classifyCommitIdentity } from "../src/workflows.js";
 import { buildRegistryEntry } from "../src/registry.js";
 import { ManifestError, GithubError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "../src/errors.js";
 
@@ -105,6 +107,7 @@ function setupGitMocks() {
   gitMocks.stageFile.mockResolvedValue(undefined);
   gitMocks.commit.mockResolvedValue(undefined);
   gitMocks.push.mockResolvedValue(undefined);
+  gitMocks.getCommitAuthorEmail.mockResolvedValue(null);
 }
 
 /** Standard publishMod options with an injected fetch and a temp clone dir. */
@@ -142,6 +145,58 @@ describe("publishMod", () => {
     expect(result.entry.id).toBe("test-mod");
     expect(result.entry.latestVersion).toBe("1.0.0");
     expect(result.includedModWarnings).toEqual([]);
+    expect(result.identityWarning).toBeNull();
+  });
+
+  it("warns when the registry commit is a no-reply for a different account", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGitMocks();
+    // Fork owner is "test-user"; the registry commit's author email is another
+    // account's GitHub no-reply address.
+    gitMocks.getCommitAuthorEmail.mockResolvedValue("5299523+other-user@users.noreply.github.com");
+
+    const result = await publishMod(await publishOpts(dir));
+
+    expect(result.identityWarning).toEqual({
+      email: "5299523+other-user@users.noreply.github.com",
+      login: "test-user",
+    });
+  });
+
+  it("does not warn when the commit email is the fork owner's own no-reply", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGitMocks();
+    gitMocks.getCommitAuthorEmail.mockResolvedValue("111+test-user@users.noreply.github.com");
+
+    const result = await publishMod(await publishOpts(dir));
+
+    expect(result.identityWarning).toBeNull();
+  });
+
+  it("does not warn when the commit email is the fork owner's legacy no-reply (no numeric prefix)", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGitMocks();
+    // Legacy GitHub no-reply form: login@users.noreply.github.com (no ID+ prefix).
+    // This exercises the else branch of classifyCommitIdentity (plus < 0).
+    gitMocks.getCommitAuthorEmail.mockResolvedValue("test-user@users.noreply.github.com");
+
+    const result = await publishMod(await publishOpts(dir));
+
+    expect(result.identityWarning).toBeNull();
+  });
+
+  it("does not warn for a non-no-reply email that cannot be verified offline", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGitMocks();
+    gitMocks.getCommitAuthorEmail.mockResolvedValue("someone@example.com");
+
+    const result = await publishMod(await publishOpts(dir));
+
+    expect(result.identityWarning).toBeNull();
   });
 
   it("writes the entry into the clone on the publish branch and pushes it", async () => {
@@ -652,5 +707,151 @@ describe("publishMod PR worker", () => {
     expect(result.createdPr).toBeNull();
     const postCall = fetchImpl.mock.calls.find((c) => c[1]?.method === "POST");
     expect(postCall).toBeUndefined();
+  });
+});
+
+// --- Anonymous open-PR lookup ---
+
+describe("findOpenRegistryPrs", () => {
+  const OPEN_PR = { number: 7, html_url: "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pull/7" };
+
+  it("returns the open PR's url and number when one exists", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, [OPEN_PR]));
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([{ url: OPEN_PR.html_url, number: 7 }]);
+  });
+
+  it("returns every open PR when there is more than one", async () => {
+    const second = { number: 9, html_url: "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pull/9" };
+    const fetchImpl = vi.fn(async () => jsonResponse(200, [OPEN_PR, second]));
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([
+      { url: OPEN_PR.html_url, number: 7 },
+      { url: second.html_url, number: 9 },
+    ]);
+  });
+
+  it("queries the fork owner's publish branch as the PR head", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, [OPEN_PR]));
+
+    await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    const url = String(fetchImpl.mock.calls[0][0]);
+    expect(url).toContain("/repos/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pulls");
+    expect(url).toContain("state=open");
+    expect(url).toContain(encodeURIComponent("test-user:publish/test-mod"));
+  });
+
+  it("returns an empty array when no PR is open", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, []));
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([]);
+  });
+
+  it("returns an empty array when the fork URL has no owner", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, [OPEN_PR]));
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: "not-a-github-url", modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("degrades to an empty array on a non-2xx response (e.g. rate limit)", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(403, { message: "rate limited" }));
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([]);
+  });
+
+  it("degrades to an empty array when the fetch throws", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("network down");
+    });
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([]);
+  });
+
+  it("degrades to an empty array on a malformed body (not an array)", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { unexpected: true }));
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([]);
+  });
+
+  it("drops malformed PR entries (missing number or html_url) and keeps the rest", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, [{ html_url: OPEN_PR.html_url }, { number: 9 }, OPEN_PR]),
+    );
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([{ url: OPEN_PR.html_url, number: 7 }]);
+  });
+
+  it("returns all valid entries when valid and malformed entries are mixed", async () => {
+    const second = { number: 9, html_url: "https://github.com/Earthborne-Rangers-Community-Mods/ebr-mod-registry/pull/9" };
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, [OPEN_PR, { html_url: second.html_url }, second]),
+    );
+
+    const result = await findOpenRegistryPrs({ registryForkUrl: FORK_URL, modId: "test-mod", fetchImpl });
+
+    expect(result).toEqual([
+      { url: OPEN_PR.html_url, number: 7 },
+      { url: second.html_url, number: 9 },
+    ]);
+  });
+});
+
+// --- Commit identity classification ---
+
+describe("classifyCommitIdentity", () => {
+  it("returns ok for the login's own numeric no-reply", () => {
+    expect(classifyCommitIdentity("1234+octocat@users.noreply.github.com", "octocat")).toBe("ok");
+  });
+
+  it("returns ok for the login's legacy no-reply", () => {
+    expect(classifyCommitIdentity("octocat@users.noreply.github.com", "octocat")).toBe("ok");
+  });
+
+  it("is case-insensitive on the login", () => {
+    expect(classifyCommitIdentity("1234+OctoCat@users.noreply.github.com", "octocat")).toBe("ok");
+  });
+
+  it("returns mismatch for a no-reply belonging to a different account", () => {
+    expect(classifyCommitIdentity("5299523+work-account@users.noreply.github.com", "octocat")).toBe("mismatch");
+  });
+
+  it("returns unknown for a non-no-reply address", () => {
+    expect(classifyCommitIdentity("someone@example.com", "octocat")).toBe("unknown");
+  });
+
+  it("returns unknown for a null email", () => {
+    expect(classifyCommitIdentity(null, "octocat")).toBe("unknown");
+  });
+
+  it("returns unknown for an empty login", () => {
+    expect(classifyCommitIdentity("1234+octocat@users.noreply.github.com", "")).toBe("unknown");
+  });
+
+  it("returns unknown for an empty email string", () => {
+    // The function signature admits string | null; empty string must also be unknown.
+    expect(classifyCommitIdentity("", "octocat")).toBe("unknown");
+  });
+
+  it("does not treat a login as a substring match of a longer login", () => {
+    // "cat" must not match "octocat@users.noreply.github.com".
+    expect(classifyCommitIdentity("octocat@users.noreply.github.com", "cat")).toBe("mismatch");
   });
 });

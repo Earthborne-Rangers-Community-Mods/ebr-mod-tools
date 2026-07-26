@@ -33,6 +33,9 @@ function rendererCsp() {
       // The renderer also fetches the public registry (registry.json) anonymously
       // over raw.githubusercontent
       const registryHost = "https://raw.githubusercontent.com";
+      // Publishing POSTs to the Cloudflare PR worker so it can open the registry
+      // PR on the user's behalf, so its origin must be an allowed connect target.
+      const prWorker = "https://ebr-mod-pr.ebr-mods.workers.dev";
       // The emoji picker loads its emoji database from a same-origin blob: URL
       // (the data ships bundled and is handed to the picker via URL.createObjectURL,
       // so nothing is fetched from the network). blob: URLs can only be minted by
@@ -40,8 +43,8 @@ function rendererCsp() {
       // not widen the network surface.
       const blobSrc = "blob:";
       const connectSrc = isDev
-        ? `'self' ${blobSrc} ${githubApi} ${registryHost} ws: wss:`
-        : `'self' ${blobSrc} ${githubApi} ${registryHost}`;
+        ? `'self' ${blobSrc} ${githubApi} ${registryHost} ${prWorker} ws: wss:`
+        : `'self' ${blobSrc} ${githubApi} ${registryHost} ${prWorker}`;
       const content =
         [
           "default-src 'self'",

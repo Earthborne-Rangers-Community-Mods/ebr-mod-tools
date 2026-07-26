@@ -51,7 +51,7 @@ class SaveFlow {
   progress = $state<string | null>(null);
 
   /** Whether the save dialog is open. */
-  get open() {
+  get isOpen() {
     return this.dir !== null;
   }
 

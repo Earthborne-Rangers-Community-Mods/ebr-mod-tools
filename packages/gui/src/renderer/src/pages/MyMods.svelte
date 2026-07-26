@@ -6,6 +6,7 @@
   import { typeName } from "../lib/modtypes.js";
   import ObsidianButton from "../components/ObsidianButton.svelte";
   import SaveControl from "../components/SaveControl.svelte";
+  import PublishBadge from "../components/PublishBadge.svelte";
   import DirtyMarker from "../components/DirtyMarker.svelte";
   import { basename } from "node:path";
   import * as m from "../lib/paraglide/messages.js";
@@ -124,6 +125,7 @@
                 <span class="mod-name">{mf.name}<DirtyMarker dir={mod.dir} /></span>
                 <span class="mod-meta">
                   {typeName(mf.type ?? "")} &middot; v{mf.version}
+                  <PublishBadge dir={mod.dir} />
                 </span>
               </span>
             </button>

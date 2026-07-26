@@ -11,13 +11,13 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { listFilesRecursive, sanitizePathSegment, realPathSafe, realPathOfDestination, isPathInside } from "./filesystem.js";
 import { readManifest, writeManifest, assertValidManifest, updateManifest, compareVersions } from "./manifest.js";
-import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase } from "./git.js";
+import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase, getCommitAuthorEmail } from "./git.js";
 import { getAuthenticatedUser, forkRepo, normalizeGithubUrl, borrowCredentialToken } from "./github.js";
 import { ManifestError, GithubError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry, fetchRegistry } from "./registry.js";
 import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
 import { CONFIG_DIR } from "./config.js";
-import type { Manifest, RawManifest, Registry, RegistryEntry, PrResult, IncludedMod, IncludedCampaign, ProgressCallback, ProgressOptions, ManifestChange, IncludedModWarning, IncludedCampaignUpdate, IncludedModUpdate } from "./types.js";
+import type { Manifest, RawManifest, Registry, RegistryEntry, PrResult, IncludedMod, IncludedCampaign, ProgressCallback, ProgressOptions, ManifestChange, IncludedModWarning, IncludedCampaignUpdate, IncludedModUpdate, IdentityWarning } from "./types.js";
 
 // --- Constants ---
 
@@ -27,6 +27,8 @@ const DEFAULT_REGISTRY_REPO = "ebr-mod-registry";
 const MODS_DIR = "mods";
 const REGISTRY_BASE_BRANCH = "main";
 const DEFAULT_PR_WORKER_URL = "https://ebr-mod-pr.ebr-mods.workers.dev/create-pr";
+/** Anonymous GitHub REST API base, used for the read-only open-PR lookup. */
+const GITHUB_API_BASE = "https://api.github.com";
 /** Upstream registry clone URL (git remote target for the tokenless publish). */
 const REGISTRY_UPSTREAM_URL = `https://github.com/${DEFAULT_REGISTRY_OWNER}/${DEFAULT_REGISTRY_REPO}.git`;
 /** Default local working clone of the user's registry fork. */
@@ -39,6 +41,13 @@ const RAW_CONTENT_BASE = "https://raw.githubusercontent.com";
  */
 export function getModBranchName(modId: string): string {
   return `mod/${modId}`;
+}
+
+/**
+ * Derive the registry publish branch name for a mod from its ID.
+ */
+export function publishBranchName(modId: string): string {
+  return `publish/${modId}`;
 }
 
 // --- scaffoldMod ---
@@ -319,6 +328,33 @@ export function forkOwnerFromUrl(forkUrl: string): string | null {
 }
 
 /**
+ * Classify a commit email against the GitHub account a publish belongs to.
+ *
+ * A GitHub no-reply address is either `login@users.noreply.github.com` or
+ * `ID+login@users.noreply.github.com`, so the account login is the local part
+ * (or the segment after `+`). Comparing that parsed login - rather than a
+ * suffix match - avoids a shorter login matching a longer one (`cat` vs
+ * `octocat`).
+ *
+ * - "ok": the email is `login`'s own GitHub no-reply address.
+ * - "mismatch": the email is a GitHub no-reply address for a *different* login,
+ *   so the commit will be attributed to that other account. This is the
+ *   high-confidence case worth warning about.
+ * - "unknown": no email, or a non-no-reply address that cannot be verified
+ *   offline (it may be a real address verified on `login`'s account).
+ */
+export function classifyCommitIdentity(email: string | null, login: string): "ok" | "mismatch" | "unknown" {
+  if (!email || !login) return "unknown";
+  const at = email.lastIndexOf("@");
+  if (at < 0) return "unknown";
+  if (email.slice(at + 1).toLowerCase() !== "users.noreply.github.com") return "unknown";
+  const local = email.slice(0, at);
+  const plus = local.indexOf("+");
+  const emailLogin = (plus >= 0 ? local.slice(plus + 1) : local).toLowerCase();
+  return emailLogin === login.toLowerCase() ? "ok" : "mismatch";
+}
+
+/**
  * Read a single mod's published registry entry over anonymous HTTPS.
  *
  * Mirrors the app's CDN read path (`raw.githubusercontent.com`). Used by the
@@ -480,7 +516,7 @@ async function writeRegistryEntry(
 export async function publishMod(
   { dir, registryForkUrl, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO, cloneDir = DEFAULT_REGISTRY_CLONE_DIR, prWorkerUrl = DEFAULT_PR_WORKER_URL, fetchImpl = fetch }: { dir: string; registryForkUrl: string; force?: boolean; registryOwner?: string; registryRepo?: string; cloneDir?: string; prWorkerUrl?: string | null; fetchImpl?: typeof fetch },
   { onProgress }: ProgressOptions = {},
-): Promise<{ createdPr: PrResult | null; prAlreadyExists: boolean; compareUrl: string; entry: RegistryEntry; commitHash: string; isUpdate: boolean; includedModWarnings: IncludedModWarning[] }> {
+): Promise<{ createdPr: PrResult | null; prAlreadyExists: boolean; compareUrl: string; entry: RegistryEntry; commitHash: string; isUpdate: boolean; includedModWarnings: IncludedModWarning[]; identityWarning: IdentityWarning | null }> {
   // 1. Read and validate manifest
   onProgress?.({ step: "validate", message: "Validating ebr-mod.json..." });
   const manifest = assertValidManifest(await readManifest(dir));
@@ -561,13 +597,22 @@ export async function publishMod(
   const entryJson = JSON.stringify(entry, null, 2) + "\n";
 
   // 8. Write the entry into a local clone of the fork and push it.
-  const branchName = `publish/${manifest.id}`;
+  const branchName = publishBranchName(manifest.id);
   await writeRegistryEntry({
     cloneDir, registryForkUrl, branchName, modId: manifest.id, entryJson,
     message: isUpdate
       ? `Update ${manifest.name} to v${manifest.version}`
       : `Add ${manifest.name} v${manifest.version}`,
   }, { onProgress });
+
+  // Detect a misattributed registry commit: the commit just made in the clone
+  // carries the git identity of a different GitHub account than the one that
+  // owns this fork. Surfaced as a non-blocking warning; the push already ran.
+  let identityWarning: IdentityWarning | null = null;
+  const commitEmail = await getCommitAuthorEmail(cloneDir);
+  if (commitEmail && classifyCommitIdentity(commitEmail, forkOwner) === "mismatch") {
+    identityWarning = { email: commitEmail, login: forkOwner };
+  }
 
   // 9. Convenience tag on the local mod repo
   try {
@@ -603,7 +648,53 @@ export async function publishMod(
     }
   }
 
-  return { createdPr, prAlreadyExists, compareUrl, entry, commitHash, isUpdate, includedModWarnings };
+  return { createdPr, prAlreadyExists, compareUrl, entry, commitHash, isUpdate, includedModWarnings, identityWarning };
+}
+
+/**
+ * Look up the open registry PRs for a mod over anonymous HTTPS.
+ *
+ * `ebr publish` pushes to the mod's `publish/<id>` branch on the user's
+ * registry fork and opens a PR against the upstream registry. This queries the
+ * upstream registry's open PRs whose head is `<forkOwner>:publish/<id>`,
+ * surfacing any review still in progress. Normally there is at most one, but a
+ * user in an odd state can have several open at once, so all of them are
+ * returned rather than just the first - otherwise the extras would be hidden
+ * and hard to find.
+ *
+ * This is a courtesy lookup, never a gate: unauthenticated GitHub reads are
+ * rate-limited, so any failure - no configured fork, network error, rate limit,
+ * or a malformed response - degrades to an empty array rather than throwing.
+ *
+ * @param options.registryForkUrl - HTTPS URL of the user's registry fork (its owner is the PR head owner).
+ * @param options.modId - Mod id whose publish branch to look up.
+ * @param options.registryOwner - Upstream registry repo owner.
+ * @param options.registryRepo - Upstream registry repo name.
+ * @param options.apiBase - GitHub REST API base (tests).
+ * @param options.fetchImpl - Injected fetch (tests).
+ * @returns Every open PR's URL and number (empty when none is open).
+ */
+export async function findOpenRegistryPrs(
+  { registryForkUrl, modId, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO, apiBase = GITHUB_API_BASE, fetchImpl = fetch }: { registryForkUrl: string; modId: string; registryOwner?: string; registryRepo?: string; apiBase?: string; fetchImpl?: typeof fetch },
+): Promise<Array<{ url: string; number: number }>> {
+  const forkOwner = forkOwnerFromUrl(registryForkUrl);
+  if (!forkOwner) return [];
+
+  const head = `${forkOwner}:${publishBranchName(modId)}`;
+  const url = `${apiBase}/repos/${registryOwner}/${registryRepo}/pulls?state=open&head=${encodeURIComponent(head)}`;
+  try {
+    const res = await fetchImpl(url, { headers: { Accept: "application/vnd.github+json" } });
+    if (!res.ok) return [];
+    const prs = await res.json();
+    if (!Array.isArray(prs)) return [];
+    // Keep only well-formed entries (string html_url + numeric number); a
+    // malformed one is dropped.
+    return prs
+      .filter((pr) => pr && typeof pr.html_url === "string" && typeof pr.number === "number")
+      .map((pr) => ({ url: pr.html_url as string, number: pr.number as number }));
+  } catch {
+    return [];
+  }
 }
 
 // --- setup / credential workflows ---

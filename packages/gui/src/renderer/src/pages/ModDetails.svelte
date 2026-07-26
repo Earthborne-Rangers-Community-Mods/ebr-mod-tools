@@ -1,12 +1,16 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import BackButton from "../components/BackButton.svelte";
   import ObsidianButton from "../components/ObsidianButton.svelte";
   import SaveControl from "../components/SaveControl.svelte";
+  import PublishBadge from "../components/PublishBadge.svelte";
   import DirtyMarker from "../components/DirtyMarker.svelte";
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { openMods } from "../lib/mods.svelte.js";
+  import { publishStatus } from "../lib/publishstatus.svelte.js";
+  import { publishFlow } from "../lib/publish.svelte.js";
   import { typeName } from "../lib/modtypes.js";
-  import { openPath, openExternal } from "../lib/platform.js";
+  import { openPath, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { showSafeChoice } from "../lib/midcampaign.js";
   import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
   import pencilIcon from "../assets/icons/pencil.svg";
@@ -16,6 +20,19 @@
 
   const entry = $derived(navigation.selectedModDir ? openMods.getByDir(navigation.selectedModDir) : null);
   const mod = $derived(entry?.manifest ?? null);
+
+  // Publish state drives the header chip and the external publish links.
+  $effect(() => {
+    const d = entry?.dir;
+    if (!d) return;
+    untrack(() => {
+      publishStatus.refresh(d);
+      publishStatus.checkPr(d);
+    });
+  });
+
+  const pubStatus = $derived(entry ? publishStatus.get(entry.dir) : null);
+  const modPageUrl = $derived(mod?.id ? `${MOD_MANAGER_URL}mods/${mod.id}` : null);
 
   /**
    * Map a list of ids to their catalog display names, falling back to the id.
@@ -37,32 +54,38 @@
     <p class="banner error" role="alert">{m.moddetails_not_found()}</p>
   {:else}
     <header class="mod-header">
-      <span class="mod-icon" aria-hidden="true">{mod.icon}</span>
-      <div>
-        <h1>{mod.name}<DirtyMarker dir={entry.dir} /></h1>
-        <p class="muted">{typeName(mod.type ?? "")} &middot; v{mod.version} &middot; {mod.id}</p>
-      </div>
-      <div class="header-actions">
-        <SaveControl dir={entry.dir} />
-        <button
-          type="button"
-          class="icon-button"
-          onclick={() => openPath(entry.dir)}
-          aria-label={m.moddetails_open_folder()}
-          title={m.moddetails_open_folder()}
-        >
-          <span class="icon" style={`--icon-mask: url("${folderIcon}")`} aria-hidden="true"></span>
-        </button>
-        <ObsidianButton dir={entry.dir} />
-        <button
-          type="button"
-          class="icon-button"
-          onclick={edit}
-          aria-label={m.moddetails_edit()}
-          title={m.moddetails_edit()}
-        >
-          <span class="icon" style={`--icon-mask: url("${pencilIcon}")`} aria-hidden="true"></span>
-        </button>
+      <div class="mod-header-main">
+        <span class="mod-icon" aria-hidden="true">{mod.icon}</span>
+        <div>
+          <h1>{mod.name}<DirtyMarker dir={entry.dir} /></h1>
+          <p class="muted">
+            {typeName(mod.type ?? "")} &middot; v{mod.version}
+            <PublishBadge dir={entry.dir} />
+            &middot; {mod.id}
+          </p>
+        </div>
+        <div class="header-actions">
+          <SaveControl dir={entry.dir} />
+          <button
+            type="button"
+            class="icon-button"
+            onclick={() => openPath(entry.dir)}
+            aria-label={m.moddetails_open_folder()}
+            title={m.moddetails_open_folder()}
+          >
+            <span class="icon" style={`--icon-mask: url("${folderIcon}")`} aria-hidden="true"></span>
+          </button>
+          <ObsidianButton dir={entry.dir} />
+          <button
+            type="button"
+            class="icon-button"
+            onclick={edit}
+            aria-label={m.moddetails_edit()}
+            title={m.moddetails_edit()}
+          >
+            <span class="icon" style={`--icon-mask: url("${pencilIcon}")`} aria-hidden="true"></span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -167,6 +190,28 @@
         </div>
       {/if}
     </dl>
+
+    <div class="mod-footer">
+      <div class="footer-links">
+        {#if pubStatus?.published && modPageUrl}
+          <button type="button" class="ghost" onclick={() => openExternal(modPageUrl)}>
+            {m.publish_view_on_site()}
+          </button>
+        {/if}
+      </div>
+      <div class="footer-actions">
+        {#each pubStatus?.prs ?? [] as pr}
+          <button type="button" class="ghost" onclick={() => openExternal(pr.url)}>
+            {(pubStatus?.prs?.length ?? 0) > 1 && pr.number != null
+              ? m.publish_view_pr_numbered({ number: pr.number })
+              : m.publish_view_pr()}
+          </button>
+        {/each}
+        <button type="button" class="secondary" onclick={() => publishFlow.start(entry.dir)}>
+          {m.publish_action()}
+        </button>
+      </div>
+    </div>
   {/if}
 </section>
 
@@ -179,9 +224,44 @@
 
   .mod-header {
     display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .mod-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+  }
+
+  .footer-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+
+  .mod-header-main {
+    display: flex;
     align-items: center;
     gap: var(--spacing-md);
   }
+
+  .muted :global(.publish-badge) {
+    vertical-align: middle;
+  }
+
 
   .mod-icon {
     font-size: 2.5rem;

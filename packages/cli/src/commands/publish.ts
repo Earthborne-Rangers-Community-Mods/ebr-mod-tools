@@ -2,8 +2,9 @@ import { Command } from "commander";
 import { confirm, select } from "@inquirer/prompts";
 import open from "open";
 import { getForkUrls } from "core/config.js";
-import { publishMod } from "core/workflows.js";
-import { readManifest, writeManifest, validateManifest, formatValidationError, applyMissingProductFix, VALIDATION_CODES } from "core/manifest.js";
+import { publishMod, saveMod } from "core/workflows.js";
+import { getStatus } from "core/git.js";
+import { readManifest, writeManifest, validateManifest, formatValidationError, applyMissingProductFix, isBelowStable, VALIDATION_CODES } from "core/manifest.js";
 import { OFFICIAL_PRODUCTS } from "core/catalogs.js";
 import { renderCliError } from "./render-error.js";
 import { GithubError, GitError, GitAuthenticationError, UnpushedChangesError, ModIdConflictError, VersionNotHigherError } from "core/errors.js";
@@ -39,6 +40,25 @@ async function publishAction(opts: { force?: boolean }) {
         return;
       }
 
+      // Offer to promote a pre-1.0 mod to a stable 1.0.0 release. Only on a clean
+      // working tree, so the bump commit contains just the version change - never
+      // unrelated pending edits. A dirty tree skips the offer and falls through to
+      // publishMod's unpushed-changes guard below.
+      const manifest = await readManifest(dir);
+      if (manifest.version && isBelowStable(manifest.version) && (await getStatus(dir)).isClean) {
+        const bump = await confirm({
+          message: `This mod is version ${manifest.version}. Bump it to 1.0.0 before publishing?`,
+          default: true,
+        });
+        if (bump) {
+          await saveMod(
+            { dir, commitMessage: "Bump version to 1.0.0", version: "1.0.0" },
+            { onProgress: (p: ProgressEvent) => console.log(p.message) },
+          );
+          console.log("Bumped to 1.0.0 and saved.\n");
+        }
+      }
+
       const result = await publishMod(
         { dir, registryForkUrl: forks.registry, force: opts.force },
         {
@@ -48,6 +68,18 @@ async function publishAction(opts: { force?: boolean }) {
               : console.log(p.message),
         },
       );
+
+      // Report an identity mismatch: the registry commit went out under a
+      // different GitHub account than the one publishing.
+      if (result.identityWarning) {
+        const { email, login } = result.identityWarning;
+        console.log("\x1b[33m");
+        console.log(`\u26A0 This registry commit was made as ${email}, which is a`);
+        console.log(`  GitHub no-reply address for a different account than ${login}.`);
+        console.log(`  It will be attributed to that other account on GitHub.`);
+        console.log(`  Fix your git commit email (git config user.email), then re-run`);
+        console.log(`  publish to replace the commit.\x1b[0m`);
+      }
 
       // Report includedMods warnings
       if (result.includedModWarnings.length > 0) {

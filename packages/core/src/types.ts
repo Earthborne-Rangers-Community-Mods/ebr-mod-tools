@@ -131,6 +131,16 @@ export interface IncludedModWarning {
   message: string;
 }
 
+/**
+ * A warning that the commit made during publish will be attributed to a
+ * different GitHub account than the one publishing. `email` is the git commit
+ * email that was used; `login` is the account the publish belongs to.
+ */
+export interface IdentityWarning {
+  email: string;
+  login: string;
+}
+
 /** Per-entry result of `checkIncludedCampaignsUpdates`. */
 export interface IncludedCampaignUpdate {
   id: string;

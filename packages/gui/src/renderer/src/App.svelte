@@ -13,7 +13,9 @@
   import ConflictResolution from "./pages/ConflictResolution.svelte";
   import UnsavedChangesDialog from "./components/UnsavedChangesDialog.svelte";
   import SaveDialog from "./components/SaveDialog.svelte";
+  import PublishDialog from "./components/PublishDialog.svelte";
   import { saveFlow } from "./lib/save.svelte.js";
+  import { publishFlow } from "./lib/publish.svelte.js";
   import { pick } from "./lib/pick.js";
 
   const PAGES = {
@@ -83,8 +85,12 @@
   <UnsavedChangesDialog onSave={closeSave} onDiscard={closeDiscard} onCancel={closeCancel} />
 {/if}
 
-{#if saveFlow.open}
+{#if saveFlow.isOpen}
   <SaveDialog />
+{/if}
+
+{#if publishFlow.isOpen}
+  <PublishDialog />
 {/if}
 
 <style>

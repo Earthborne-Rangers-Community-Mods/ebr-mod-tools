@@ -508,6 +508,19 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 | null {
   return 0;
 }
 
+/** The first stable release version. Mods below this are pre-1.0 releases. */
+export const STABLE_VERSION = "1.0.0";
+
+/**
+ * Whether a version parses as a valid semver strictly below 1.0.0. An
+ * unparseable version returns false (there is nothing sensible to offer to
+ * bump).
+ */
+export function isBelowStable(version: string): boolean {
+  const cmp = compareVersions(version, STABLE_VERSION);
+  return cmp !== null && cmp < 0;
+}
+
 /**
  * Convert a mod name to a kebab-case identifier.
  */
