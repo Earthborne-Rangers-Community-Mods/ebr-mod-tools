@@ -19,6 +19,10 @@ export type GitStatusEntry = {
   loaded: boolean;
   /** Uncommitted changes exist in the working tree. */
   hasUncommitted: boolean;
+  /**
+   * Tracked changes exist (staged, modified, deleted, or conflicted).
+   */
+  hasTrackedChanges: boolean;
   /** Local commits are not yet on the remote (includes a never-pushed branch). */
   hasUnpushed: boolean;
   /** Message from a failed status read, or null. */
@@ -31,6 +35,7 @@ function blankEntry(dir: string): GitStatusEntry {
     checking: false,
     loaded: false,
     hasUncommitted: false,
+    hasTrackedChanges: false,
     hasUnpushed: false,
     error: null,
   };
@@ -71,8 +76,13 @@ class GitStatusTracker {
       const status = await getStatus(dir);
       const ahead = await getAheadBehind(dir);
       entry.hasUncommitted = !status.isClean;
+      entry.hasTrackedChanges =
+        status.staged.length > 0 ||
+        status.modified.length > 0 ||
+        status.deleted.length > 0 ||
+        status.conflicted.length > 0;
       // getAheadBehind returns null when the upstream tracking ref cannot be
-      // resolved - most commonly a never-pushed branch - so null is treated
+      // resolved (most commonly a never-pushed branch) so null is treated
       // conservatively as "has unpushed work". Otherwise the branch is unpushed
       // when it is ahead of the remote.
       entry.hasUnpushed = ahead === null || ahead.ahead > 0;

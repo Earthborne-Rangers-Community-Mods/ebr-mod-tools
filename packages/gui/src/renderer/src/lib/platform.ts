@@ -43,17 +43,19 @@ export function openPath(dir: string): Promise<boolean> {
 }
 
 /**
- * Tell the main process whether the app currently has unsaved edits, so it knows
- * whether to intercept a window-close attempt. Pushed whenever the state changes.
+ * Tell the main process whether it should block/confirm a window-close attempt -
+ * true when there are unsaved edits or an operation is in progress. Pushed
+ * whenever the state changes.
  */
-export function sendDirty(isDirty: boolean): void {
-  ipcRenderer.send("app:dirty-changed", Boolean(isDirty));
+export function sendCloseGuard(active: boolean): void {
+  ipcRenderer.send("app:close-guard", Boolean(active));
 }
 
 /**
  * Register a handler for the main process's "confirm before closing" request
- * (only sent while there are unsaved edits). The handler prompts the user and
- * calls {@link confirmAppClose} to let the close proceed.
+ * (sent while the close guard is active - unsaved edits or a running operation).
+ * The handler prompts the user and calls {@link confirmAppClose} to let the
+ * close proceed.
  * @returns Unsubscribe function.
  */
 export function onConfirmClose(handler: () => void): () => void {

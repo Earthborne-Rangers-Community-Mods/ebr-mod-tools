@@ -294,6 +294,52 @@ select {
   opacity: 0.55;
 }
 
+/* Custom radio: a filled circle with a centered dot, matching the app's palette
+   instead of the browser default. */
+.radio input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1.5px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.radio input[type="radio"]::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  transform: scale(0);
+  transition: transform var(--transition-fast);
+  background: var(--color-primary-text);
+}
+
+.radio input[type="radio"]:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+
+.radio input[type="radio"]:checked {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.radio input[type="radio"]:checked::before {
+  transform: scale(1);
+}
+
+.radio input[type="radio"]:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 /* --- Buttons --- */
 
 button {

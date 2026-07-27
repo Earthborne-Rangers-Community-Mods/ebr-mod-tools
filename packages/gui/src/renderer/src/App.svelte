@@ -4,7 +4,7 @@
   import { openMods } from "./lib/mods.svelte.js";
   import { setupStore } from "./lib/setup.svelte.js";
   import { modDetailsForm } from "./lib/moddetails.svelte.js";
-  import { sendDirty, onConfirmClose, confirmAppClose } from "./lib/platform.js";
+  import { sendCloseGuard, onConfirmClose, confirmAppClose } from "./lib/platform.js";
   import MyMods from "./pages/MyMods.svelte";
   import Setup from "./pages/Setup.svelte";
   import NewMod from "./pages/NewMod.svelte";
@@ -12,10 +12,13 @@
   import ModEdit from "./pages/ModEdit.svelte";
   import ConflictResolution from "./pages/ConflictResolution.svelte";
   import UnsavedChangesDialog from "./components/UnsavedChangesDialog.svelte";
+  import OperationInProgressDialog from "./components/OperationInProgressDialog.svelte";
   import SaveDialog from "./components/SaveDialog.svelte";
   import PublishDialog from "./components/PublishDialog.svelte";
+  import AddContentDialog from "./components/AddContentDialog.svelte";
   import { saveFlow } from "./lib/save.svelte.js";
   import { publishFlow } from "./lib/publish.svelte.js";
+  import { addContentFlow } from "./lib/addcontent.svelte.js";
   import { pick } from "./lib/pick.js";
 
   const PAGES = {
@@ -28,8 +31,12 @@
   };
 
   const CurrentPage = $derived(pick(PAGES, navigation.route) ?? MyMods);
+  // True while any flow is mid-operation; blocks app close so a commit/push/stamp
+  // is never interrupted by the window closing.
+  const anyFlowBusy = $derived(saveFlow.busy || publishFlow.busy || addContentFlow.busy);
   let startupReady = $state(false);
   let showCloseDialog = $state(false);
+  let showBusyClose = $state(false);
 
   onMount(async () => {
     openMods.init();
@@ -41,17 +48,25 @@
     startupReady = true;
   });
 
-  // Keep the main process informed of unsaved edits so it can guard the close.
+  // Keep the main process informed whether close should be guarded - either
+  // unsaved edits or an operation in progress.
   $effect(() => {
-    sendDirty(modDetailsForm.dirty);
+    sendCloseGuard(modDetailsForm.dirty || anyFlowBusy);
   });
 
-  // The main process asks to confirm before closing while edits are unsaved.
+  // The main process asks to confirm before closing while the guard is active. An
+  // in-progress operation cannot be cancelled, so it takes priority.
   $effect(() => {
     return onConfirmClose(() => {
-      if (modDetailsForm.dirty) showCloseDialog = true;
+      if (anyFlowBusy) showBusyClose = true;
+      else if (modDetailsForm.dirty) showCloseDialog = true;
       else confirmAppClose();
     });
+  });
+
+  // Once the operation finishes, drop the wait notice so the user can close.
+  $effect(() => {
+    if (showBusyClose && !anyFlowBusy) showBusyClose = false;
   });
 
   async function closeSave() {
@@ -85,12 +100,20 @@
   <UnsavedChangesDialog onSave={closeSave} onDiscard={closeDiscard} onCancel={closeCancel} />
 {/if}
 
+{#if showBusyClose}
+  <OperationInProgressDialog onDismiss={() => (showBusyClose = false)} />
+{/if}
+
 {#if saveFlow.isOpen}
   <SaveDialog />
 {/if}
 
 {#if publishFlow.isOpen}
   <PublishDialog />
+{/if}
+
+{#if addContentFlow.isOpen}
+  <AddContentDialog />
 {/if}
 
 <style>

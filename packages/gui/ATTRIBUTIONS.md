@@ -16,8 +16,10 @@ otherwise covered below:
 
 - **open-folder.svg** - [zest](https://www.svgrepo.com/author/zest/), via
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
-- **pencil.svg** - [humbleicons](https://www.svgrepo.com/author/humbleicons/),
-  via [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
+- **pencil.svg** - [zest](https://www.svgrepo.com/author/zest/), via
+  [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
+- **plus.svg** - [zest](https://www.svgrepo.com/author/zest/), via
+  [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 - **upload.svg** - [zest](https://www.svgrepo.com/author/zest/), via
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 
@@ -26,7 +28,6 @@ The MIT-licensed icons above are used under the following license:
 ```
 MIT License
 
-Copyright (c) humbleicons
 Copyright (c) zest
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

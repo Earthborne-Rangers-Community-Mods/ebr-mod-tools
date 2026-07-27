@@ -12,6 +12,6 @@ export { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS, SCAFFOLD_TYPES, SCAFF
 export { getConfig, setConfig, getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults, CONFIG_DIR } from "./config.js";
 export { checkIncludedMods, buildRegistryEntry, fetchRegistry, checkModIdAvailability, REGISTRY_RAW_URL } from "./registry.js";
 export { checkBaseUpdate, applyBaseUpdate, checkIncludedCampaignsUpdates } from "./workflows.js";
-export { includeCampaign, resolveCampaignSource, upsertIncludedCampaign, includeScaffold, computeMissingScaffoldProduct } from "./workflows.js";
+export { includeCampaign, resolveCampaignSource, upsertIncludedCampaign, includeScaffold, planScaffold, addScaffoldProduct, computeMissingScaffoldProduct } from "./workflows.js";
 export { includeMod, resolveModSource, upsertIncludedMod, classifyIncludeSource, remoteNameForRepoUrl, checkIncludedModsUpdates } from "./workflows.js";
 export { ManifestError, ManifestNotFoundError, ManifestParseError, GitError, NotARepoError, GitAuthenticationError, MergeConflictError, NothingToCommitError, DirtyWorkingTreeError, UnpushedChangesError, ConfigError, GithubError, AuthenticationError, ValidationError, ModIdConflictError, BaseRemoteMissingError, IncludeRefNotFoundError, IndexNotCleanError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";

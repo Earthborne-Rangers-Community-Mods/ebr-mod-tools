@@ -24,11 +24,11 @@
       <li class="conflict">
         <p class="path">{file}</p>
         <div class="choices">
-          <label class="choice">
+          <label class="choice radio">
             <input type="radio" name={file} />
             Keep my version
           </label>
-          <label class="choice">
+          <label class="choice radio">
             <input type="radio" name={file} />
             Use incoming version
           </label>

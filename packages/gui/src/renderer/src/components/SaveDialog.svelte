@@ -25,7 +25,7 @@
     <fieldset class="bumps" disabled={saveFlow.busy}>
       <legend>{m.save_version_legend({ version: saveFlow.currentVersion })}</legend>
       {#each BUMPS as type}
-        <label class="bump">
+        <label class="bump radio">
           <input
             type="radio"
             name="bump"
@@ -35,7 +35,7 @@
           <span>{bumpLabel(type)}</span>
         </label>
       {/each}
-      <label class="bump">
+      <label class="bump radio">
         <input
           type="radio"
           name="bump"
@@ -83,9 +83,11 @@
   {/if}
 
   <div class="actions">
-    <button type="button" class="ghost" onclick={() => saveFlow.cancel()} disabled={saveFlow.busy}>
-      {m.save_cancel()}
-    </button>
+    {#if !saveFlow.busy}
+      <button type="button" class="ghost" onclick={() => saveFlow.cancel()}>
+        {m.save_cancel()}
+      </button>
+    {/if}
     <button type="button" class="primary" onclick={() => saveFlow.submit()} disabled={saveFlow.busy}>
       {#if saveFlow.busy}
         {m.save_saving()}

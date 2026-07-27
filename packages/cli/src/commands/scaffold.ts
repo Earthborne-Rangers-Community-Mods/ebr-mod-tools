@@ -1,8 +1,7 @@
 import { Command } from "commander";
 import { select } from "@inquirer/prompts";
-import { includeScaffold, computeMissingScaffoldProduct } from "core/workflows.js";
-import { readManifest, writeManifest } from "core/manifest.js";
-import { stageFile, commit } from "core/git.js";
+import { includeScaffold, computeMissingScaffoldProduct, addScaffoldProduct } from "core/workflows.js";
+import { readManifest } from "core/manifest.js";
 import { KNOWN_SCAFFOLDS, SCAFFOLD_TYPES } from "core/catalogs.js";
 import { renderCliError } from "./render-error.js";
 import {
@@ -57,16 +56,16 @@ async function scaffoldAction(branchArg: string | undefined) {
  *
  * If the scaffold has a catalog entry and its product is not already in
  * either `requiredProducts` or `optionalProducts`, asks the user where to
- * add it (or to skip). On accept, writes the manifest, stages it, and
- * commits with `Add products for <branch>`. Silent no-op when the scaffold
- * has no catalog entry or the manifest already covers the product.
+ * add it (or to skip). On accept, delegates the manifest write and commit to
+ * core `addScaffoldProduct`. Silent no-op when the scaffold has no catalog
+ * entry or the manifest already covers the product.
  */
 async function reconcileScaffoldProducts(dir: string, branch: string) {
   const manifest = await readManifest(dir);
   const product = computeMissingScaffoldProduct(branch, manifest);
   if (!product) return;
 
-  const choice = await select({
+  const choice = await select<"required" | "optional" | "skip">({
     message: `Scaffold "${branch}" uses "${product}", which isn't in your manifest. Add it?`,
     default: "required",
     choices: [
@@ -77,33 +76,10 @@ async function reconcileScaffoldProducts(dir: string, branch: string) {
   });
   if (choice === "skip") return;
 
-  if (choice === "required") {
-    manifest.requiredProducts = mergeUnique(manifest.requiredProducts, [product]);
-  } else {
-    manifest.optionalProducts = mergeUnique(manifest.optionalProducts, [product]);
+  const result = await addScaffoldProduct({ dir, branch, list: choice });
+  if (result.added) {
+    console.log(`  Added "${result.product}" to ${result.list === "required" ? "requiredProducts" : "optionalProducts"}.`);
   }
-  await writeManifest(dir, manifest);
-  await stageFile(dir, "ebr-mod.json");
-  await commit(dir, `Add products for ${branch}`);
-  console.log(`  Added "${product}" to ${choice === "required" ? "requiredProducts" : "optionalProducts"}.`);
-}
-
-/**
- * Merge two arrays of strings, dropping duplicates, preserving order.
- * Returns a new array; never mutates inputs.
- */
-function mergeUnique(existing: string[] | undefined, additions: string[] | undefined): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  const push = (v: string) => {
-    if (typeof v === "string" && !seen.has(v)) {
-      seen.add(v);
-      out.push(v);
-    }
-  };
-  if (Array.isArray(existing)) existing.forEach(push);
-  if (Array.isArray(additions)) additions.forEach(push);
-  return out;
 }
 
 /**

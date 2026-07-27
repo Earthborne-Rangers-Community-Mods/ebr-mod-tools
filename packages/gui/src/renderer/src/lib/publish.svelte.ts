@@ -25,6 +25,7 @@ import {
 } from "core";
 import type { ProgressEvent } from "core/types.js";
 import { runGuarded } from "./guarded.js";
+import { FlowStore } from "./flowstore.svelte.js";
 import { navigation, ROUTES } from "./navigation.svelte.js";
 import { openMods } from "./mods.svelte.js";
 import { setupStore } from "./setup.svelte.js";
@@ -42,20 +43,7 @@ export type PublishResult = {
   isUpdate: boolean;
 };
 
-class PublishFlow {
-  /** Directory of the mod being published; non-null while the dialog is open. */
-  dir = $state<string | null>(null);
-
-  // runGuarded lifecycle fields.
-  /** True while the publish is running. */
-  busy = $state(false);
-  /** Error code from the last run, localized by the component, or null. */
-  errorCode = $state<string | null>(null);
-  /** Detail message from a failed run, surfaced with the error. */
-  errorDetail = $state<string | null>(null);
-  /** Live progress message during the run. */
-  progress = $state<string | null>(null);
-
+class PublishFlow extends FlowStore {
   /** True once a publish has completed, switching the dialog to its result view. */
   done = $state(false);
   /** The completed publish result, or null before completion. */
@@ -69,11 +57,6 @@ class PublishFlow {
   identityWarning = $state<{ email: string; login: string } | null>(null);
   /** Whether to bump a pre-1.0 mod to 1.0.0 before publishing (offered only when below stable). */
   bumpToStable = $state(true);
-
-  /** Whether the publish dialog is open. */
-  get isOpen() {
-    return this.dir !== null;
-  }
 
   /** Version on disk for the mod being published. */
   get currentVersion() {
@@ -94,9 +77,7 @@ class PublishFlow {
   start(dir: string) {
     if (this.busy) return;
     this.dir = dir;
-    this.errorCode = null;
-    this.errorDetail = null;
-    this.progress = null;
+    this.resetStatus();
     this.done = false;
     this.result = null;
     this.warnings = [];
@@ -108,8 +89,7 @@ class PublishFlow {
   cancel() {
     if (this.busy) return;
     this.dir = null;
-    this.errorCode = null;
-    this.errorDetail = null;
+    this.resetStatus();
     this.done = false;
     this.result = null;
     this.warnings = [];

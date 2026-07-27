@@ -9,11 +9,14 @@
   import { openMods } from "../lib/mods.svelte.js";
   import { publishStatus } from "../lib/publishstatus.svelte.js";
   import { publishFlow } from "../lib/publish.svelte.js";
+  import { addContentFlow } from "../lib/addcontent.svelte.js";
+  import { addContentKinds } from "../lib/addcontent.js";
   import { typeName } from "../lib/modtypes.js";
   import { openPath, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { showSafeChoice } from "../lib/midcampaign.js";
   import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
   import pencilIcon from "../assets/icons/pencil.svg";
+  import plusIcon from "../assets/icons/plus.svg";
   import folderIcon from "../assets/icons/open-folder.svg";
   import discordLogo from "../assets/icons/discord-logo.svg";
   import * as m from "../lib/paraglide/messages.js";
@@ -66,6 +69,17 @@
         </div>
         <div class="header-actions">
           <SaveControl dir={entry.dir} />
+          {#if addContentKinds(mod.type).length > 0}
+            <button
+              type="button"
+              class="icon-button"
+              onclick={() => addContentFlow.start(entry.dir, mod.type ?? "")}
+              aria-label={m.addcontent_action()}
+              title={m.addcontent_action()}
+            >
+              <span class="icon" style={`--icon-mask: url("${plusIcon}")`} aria-hidden="true"></span>
+            </button>
+          {/if}
           <button
             type="button"
             class="icon-button"

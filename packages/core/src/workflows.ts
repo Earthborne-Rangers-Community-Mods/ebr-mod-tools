@@ -1412,52 +1412,21 @@ export function computeMissingScaffoldProduct(branch: string, manifest: RawManif
 }
 
 /**
- * Stamp a scaffold template branch into the mod's working tree.
+ * Shared preconditions for stamping a scaffold: `dir` must be a git repo with a
+ * clean *tracked* working tree, and its manifest must carry a usable `name`.
+ * Returns the sanitized name segment substituted into scaffold path
+ * placeholders. Untracked files are allowed (the collision pre-flight handles
+ * them); staged or modified/deleted/conflicted tracked files are not.
  *
- * Clones `ebr-mod-scaffold` shallowly at the target branch, substitutes the
- * mod's `name` field into `__MOD_NAME__` path placeholders, copies the tree
- * into the working directory, stages the changes, and commits with the
- * branch name. Manifest reconciliation against the scaffold's product
- * requirements (if any) is the caller's responsibility -- see
- * {@link computeMissingScaffoldProduct}.
- *
- * Scaffolds are one-shot copies: no manifest tracking (`includedScaffolds`
- * does not exist), no update path. The commit message records the branch
- * so creators can grep history for stamps they applied.
- *
- * Files that already exist in the working tree are skipped (not overwritten).
- * The caller is notified via `onProgress` with step `"conflict"` and can
- * surface the warning to the user. If ALL scaffold files conflict, throws
- * {@link NothingToCommitError}.
- *
- * @param params.dir - Mod directory.
- * @param params.source - Scaffold source (e.g. `map/lure-of-the-valley`).
- * @param params.scaffoldRepoUrl - Override the scaffold repo URL (tests).
- * @throws {ValidationError} If `source` is malformed or the manifest lacks a `name`.
  * @throws {NotARepoError} If `dir` is not a git repository.
- * @throws {IndexNotCleanError} If the index has staged changes when the workflow starts.
- * @throws {ScaffoldRefNotFoundError} If the scaffold branch cannot be cloned.
- * @throws {NothingToCommitError} If every scaffold file already exists (nothing to stamp).
+ * @throws {IndexNotCleanError} If the index has staged changes.
+ * @throws {ValidationError} If tracked files are dirty, or the manifest lacks a usable `name`.
  * @throws {ManifestError} If the manifest is missing or invalid.
  */
-export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_REPO_URL }: { dir: string; source: string; scaffoldRepoUrl?: string }, { onProgress }: ProgressOptions = {}): Promise<{ branch: string; scaffoldCommitHash: string; filesAdded: number; filesSkipped: number }> {
-  if (typeof source !== "string" || !source.trim()) {
-    throw new ValidationError("Scaffold source must be a non-empty string.");
-  }
-  const branch = source.trim();
-
-  // Precondition: dir must be a git repo. (No `base` remote requirement --
-  // scaffolds are not pulled through `base`.)
+async function readScaffoldContext(dir: string): Promise<{ safeModName: string }> {
   if (!(await isRepo(dir))) {
     throw new NotARepoError(dir);
   }
-
-  // Refuse to proceed if there's any dirty *tracked* state in the working
-  // tree. Staged changes get their own typed error; modifications,
-  // deletions, and merge conflicts on tracked files are all reasons to
-  // bail before touching the working tree. Untracked (`created`) files are
-  // intentionally NOT included here -- they're handled by the destination
-  // collision pre-flight below, which skips conflicting paths and warns.
   const status = await getStatus(dir);
   if (status.staged.length > 0) {
     throw new IndexNotCleanError(status.staged);
@@ -1488,6 +1457,194 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
       `Cannot stamp scaffold: ebr-mod.json "name" field "${manifest.name}" does not contain any safe path characters.`,
     );
   }
+  return { safeModName };
+}
+
+/**
+ * Clone a scaffold branch shallowly into `tmpRoot`, mapping a missing branch to
+ * the typed {@link ScaffoldRefNotFoundError}. Any other failure (network, auth,
+ * bad URL, local git) surfaces as its underlying error. The caller owns cleanup
+ * of `tmpRoot`.
+ */
+async function cloneScaffoldBranch(scaffoldRepoUrl: string, tmpRoot: string, branch: string, onProgress?: ProgressCallback): Promise<void> {
+  try {
+    await cloneBranchShallow(scaffoldRepoUrl, tmpRoot, branch, { onProgress });
+  } catch (err) {
+    // Branch-not-found is the common mistake; map it to the typed error so
+    // callers can render a focused hint. Anything else is left as-is so the user
+    // sees the underlying message rather than a misleading "branch not found".
+    const msg = ((err as Error | undefined)?.message || "").toLowerCase();
+    if (msg.includes("remote branch") && msg.includes("not found")) {
+      throw new ScaffoldRefNotFoundError(branch, scaffoldRepoUrl);
+    }
+    if (msg.includes("couldn't find remote ref") || msg.includes("could not find remote ref")) {
+      throw new ScaffoldRefNotFoundError(branch, scaffoldRepoUrl);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Plan a scaffold stamp against a cloned scaffold tree: enumerate its files
+ * (skipping housekeeping files and dot-top-level entries), substitute the mod
+ * name into path placeholders, assert every destination stays inside `dir`, and
+ * split into files to add vs. destinations that already exist. Pure planning --
+ * no writes. Shared by {@link planScaffold} (dry-run) and {@link includeScaffold}
+ * (apply) so the two cannot drift.
+ *
+ * @throws {ValidationError} If any destination resolves outside `dir`.
+ */
+async function enumerateScaffoldPlan(tmpRoot: string, dir: string, safeModName: string): Promise<{ toAdd: Array<{ src: string; dest: string }>; conflicts: string[] }> {
+  const sourceFiles = await listFilesRecursive(tmpRoot, {
+    skipFiles: SCAFFOLD_SKIP_FILES,
+    skipDotTopLevel: true,
+  });
+  const stamped = sourceFiles.map((rel) => ({
+    src: rel,
+    dest: substituteScaffoldPath(rel, safeModName),
+  }));
+
+  // Resolve every destination to an absolute path and assert it stays under
+  // `dir`. Defense in depth on top of the sanitizePathSegment() check on the
+  // mod name: even with a clean name, a scaffold authored upstream that
+  // contains `..` segments in its own paths -- or an intermediate symlink in
+  // the working tree -- must not be allowed to escape it.
+  const dirReal = await realPathSafe(dir);
+  for (const { dest } of stamped) {
+    const absDest = join(dir, ...dest.split("/"));
+    const realDest = await realPathOfDestination(absDest);
+    if (!isPathInside(realDest, dirReal)) {
+      throw new ValidationError(
+        `Scaffold path "${dest}" resolves outside the mod directory. Refusing to stamp.`,
+      );
+    }
+  }
+
+  // Detect destinations that already exist so they can be skipped (never
+  // overwritten) rather than aborting the whole stamp.
+  const conflicts: string[] = [];
+  for (const { dest } of stamped) {
+    const absDest = join(dir, ...dest.split("/"));
+    try {
+      await stat(absDest);
+      conflicts.push(dest);
+    } catch (err) {
+      if (err && (err as NodeJS.ErrnoException).code !== "ENOENT") {
+        // A stat failure that isn't "missing" (e.g. EACCES, ENOTDIR on a path
+        // through a regular file) is a real problem; surface it rather than
+        // treating the path as safe to write.
+        throw err;
+      }
+      // ENOENT means the path is free to write.
+    }
+  }
+  const toAdd = stamped.filter(({ dest }) => !conflicts.includes(dest));
+  return { toAdd, conflicts };
+}
+
+/**
+ * Dry-run a scaffold stamp: clone the branch, plan the file layout, and report
+ * which files would be added and which already exist -- without touching the
+ * working tree.
+ *
+ * @param params.dir - Mod directory.
+ * @param params.source - Scaffold source (e.g. `map/lure-of-the-valley`).
+ * @param params.scaffoldRepoUrl - Override the scaffold repo URL (tests).
+ * @throws {ValidationError} If `source` is malformed, the tree is dirty, or the manifest lacks a `name`.
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {ScaffoldRefNotFoundError} If the scaffold branch cannot be cloned.
+ * @throws {ManifestError} If the manifest is missing or invalid.
+ */
+export async function planScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_REPO_URL }: { dir: string; source: string; scaffoldRepoUrl?: string }, { onProgress }: ProgressOptions = {}): Promise<{ branch: string; scaffoldCommitHash: string; filesToAdd: string[]; filesToSkip: string[] }> {
+  if (typeof source !== "string" || !source.trim()) {
+    throw new ValidationError("Scaffold source must be a non-empty string.");
+  }
+  const branch = source.trim();
+  const { safeModName } = await readScaffoldContext(dir);
+
+  const tmpRoot = await mkdtemp(join(tmpdir(), "ebr-scaffold-plan-"));
+  try {
+    onProgress?.({ step: "clone", message: `Checking template ${branch}...` });
+    await cloneScaffoldBranch(scaffoldRepoUrl, tmpRoot, branch, onProgress);
+    const scaffoldCommitHash = await revparseRef(tmpRoot, "HEAD");
+    const { toAdd, conflicts } = await enumerateScaffoldPlan(tmpRoot, dir, safeModName);
+    return {
+      branch,
+      scaffoldCommitHash,
+      filesToAdd: toAdd.map(({ dest }) => dest),
+      filesToSkip: conflicts,
+    };
+  } finally {
+    try {
+      await rm(tmpRoot, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup -- ignore failures (e.g. Windows file locks).
+    }
+  }
+}
+
+/**
+ * Add a scaffold's implied product to the mod manifest and commit the change.
+ * No-op (returns `added: false`) when the scaffold has no catalog product or
+ * the manifest already covers it in either product list. `list` selects
+ * `requiredProducts` (default) or `optionalProducts`.
+ *
+ * @param params.dir - Mod directory.
+ * @param params.branch - Scaffold branch just stamped.
+ * @param params.list - Which product list to add to. Defaults to `required`.
+ * @throws {ManifestError} If the manifest is missing or invalid.
+ */
+export async function addScaffoldProduct({ dir, branch, list = "required" }: { dir: string; branch: string; list?: "required" | "optional" }, { onProgress }: ProgressOptions = {}): Promise<{ added: boolean; product: string | null; list: "required" | "optional" }> {
+  const manifest = await readManifest(dir);
+  const product = computeMissingScaffoldProduct(branch, manifest);
+  if (!product) return { added: false, product: null, list };
+
+  onProgress?.({ step: "manifest", message: `Adding ${product} to the manifest...` });
+  // computeMissingScaffoldProduct guarantees the product is absent from both
+  // lists, so a plain append cannot introduce a duplicate.
+  if (list === "optional") {
+    manifest.optionalProducts = [...(manifest.optionalProducts ?? []), product];
+  } else {
+    manifest.requiredProducts = [...(manifest.requiredProducts ?? []), product];
+  }
+  await writeManifest(dir, manifest);
+  await stageFile(dir, "ebr-mod.json");
+  await commit(dir, `Add products for ${branch}`);
+  return { added: true, product, list };
+}
+
+/**
+ * Stamp a scaffold template branch into the mod's working tree.
+ *
+ * Clones `ebr-mod-scaffold` shallowly at the target branch, substitutes the
+ * mod's `name` field into `__MOD_NAME__` path placeholders, copies the tree
+ * into the working directory, stages the changes, and commits with the
+ * branch name. 
+ * 
+ * Scaffolds are one-shot copies. The commit message records the branch
+ * so creators can grep history for stamps they applied.
+ *
+ * Files that already exist in the working tree are skipped (not overwritten).
+ * The caller is notified via `onProgress` with step `"conflict"` and can
+ * surface the warning to the user. If ALL scaffold files conflict, throws
+ * {@link NothingToCommitError}.
+ *
+ * @param params.dir - Mod directory.
+ * @param params.source - Scaffold source (e.g. `map/lure-of-the-valley`).
+ * @param params.scaffoldRepoUrl - Override the scaffold repo URL (tests).
+ * @throws {ValidationError} If `source` is malformed or the manifest lacks a `name`.
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {IndexNotCleanError} If the index has staged changes when the workflow starts.
+ * @throws {ScaffoldRefNotFoundError} If the scaffold branch cannot be cloned.
+ * @throws {NothingToCommitError} If every scaffold file already exists (nothing to stamp).
+ * @throws {ManifestError} If the manifest is missing or invalid.
+ */
+export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_REPO_URL }: { dir: string; source: string; scaffoldRepoUrl?: string }, { onProgress }: ProgressOptions = {}): Promise<{ branch: string; scaffoldCommitHash: string; filesAdded: number; filesSkipped: number }> {
+  if (typeof source !== "string" || !source.trim()) {
+    throw new ValidationError("Scaffold source must be a non-empty string.");
+  }
+  const branch = source.trim();
+  const { safeModName } = await readScaffoldContext(dir);
 
   // Clone the scaffold branch into a temp directory.
   const tmpRoot = await mkdtemp(join(tmpdir(), "ebr-scaffold-"));
@@ -1496,76 +1653,19 @@ export async function includeScaffold({ dir, source, scaffoldRepoUrl = SCAFFOLD_
   let conflicts: string[] = [];
   try {
     onProgress?.({ step: "clone", message: `Cloning scaffold ${branch}...` });
-    try {
-      await cloneBranchShallow(scaffoldRepoUrl, tmpRoot, branch, { onProgress });
-    } catch (err) {
-      // Branch-not-found is the common user mistake; map it to the typed
-      // error so the CLI can render a focused hint. Anything else (network
-      // failure, bad URL, auth, local git problem) is left as a GitError so
-      // the user sees the underlying message rather than a misleading
-      // "branch not found" claim.
-      const msg = ((err as Error | undefined)?.message || "").toLowerCase();
-      if (msg.includes("remote branch") && msg.includes("not found")) {
-        throw new ScaffoldRefNotFoundError(branch, scaffoldRepoUrl);
-      }
-      if (msg.includes("couldn't find remote ref") || msg.includes("could not find remote ref")) {
-        throw new ScaffoldRefNotFoundError(branch, scaffoldRepoUrl);
-      }
-      throw err;
-    }
+    await cloneScaffoldBranch(scaffoldRepoUrl, tmpRoot, branch, onProgress);
 
     onProgress?.({ step: "resolve", message: `Resolving ${branch}...` });
     scaffoldCommitHash = await revparseRef(tmpRoot, "HEAD");
 
-    // Enumerate files, applying path substitution.
+    // Enumerate files, applying path substitution and collision detection.
     onProgress?.({ step: "plan", message: "Planning scaffold stamp..." });
-    const sourceFiles = await listFilesRecursive(tmpRoot, {
-      skipFiles: SCAFFOLD_SKIP_FILES,
-      skipDotTopLevel: true,
-    });
-    stamped = sourceFiles.map((rel) => ({
-      src: rel,
-      dest: substituteScaffoldPath(rel, safeModName),
-    }));
+    const plan = await enumerateScaffoldPlan(tmpRoot, dir, safeModName);
+    stamped = plan.toAdd;
+    conflicts = plan.conflicts;
 
-    // Resolve every destination to an absolute path and assert it stays
-    // under `dir`. This is a defense in depth on top of the
-    // sanitizePathSegment() check on `manifest.name`: even with a clean
-    // name, a scaffold authored upstream that contains `..` segments in its
-    // own paths -- or an intermediate symlink in the working tree -- must
-    // not be allowed to escape it.
-    const dirReal = await realPathSafe(dir);
-    for (const { dest } of stamped) {
-      const absDest = join(dir, ...dest.split("/"));
-      const realDest = await realPathOfDestination(absDest);
-      if (!isPathInside(realDest, dirReal)) {
-        throw new ValidationError(
-          `Scaffold path "${dest}" resolves outside the mod directory. Refusing to stamp.`,
-        );
-      }
-    }
-
-    // Pre-flight: detect destinations that already exist. Rather than
-    // aborting the entire stamp, skip conflicting files and warn the caller
-    // so the remaining scaffold content can still land.
-    for (const { dest } of stamped) {
-      const absDest = join(dir, ...dest.split("/"));
-      try {
-        await stat(absDest);
-        conflicts.push(dest);
-      } catch (err) {
-        if (err && (err as NodeJS.ErrnoException).code !== "ENOENT") {
-          // A stat failure that isn't "missing" (e.g. EACCES, ENOTDIR on a
-          // path through a regular file) is a real problem; surface it
-          // rather than treating the path as safe to write.
-          throw err;
-        }
-        // ENOENT means the path is free to write.
-      }
-    }
     if (conflicts.length > 0) {
       onProgress?.({ step: "conflict", message: `Skipping ${conflicts.length} file(s) that already exist`, paths: conflicts });
-      stamped = stamped.filter(({ dest }) => !conflicts.includes(dest));
     }
     if (stamped.length === 0) {
       throw new NothingToCommitError();

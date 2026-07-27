@@ -12,6 +12,7 @@
 import { saveMod, pushMod, bumpVersion, getStatus, validateVersion, NothingToCommitError } from "core";
 import type { ProgressEvent } from "core/types.js";
 import { runGuarded } from "./guarded.js";
+import { FlowStore } from "./flowstore.svelte.js";
 import { openMods } from "./mods.svelte.js";
 import { gitStatus } from "./gitstatus.svelte.js";
 
@@ -26,9 +27,7 @@ export type VersionChoice = BumpType | "custom";
 
 const DEFAULT_MESSAGE = "Updated mod content";
 
-class SaveFlow {
-  /** Directory of the mod being saved; non-null while the dialog is open. */
-  dir = $state<string | null>(null);
+class SaveFlow extends FlowStore {
   /** Whether the open flow commits changes or only pushes. */
   mode = $state<SaveMode>("commit");
   /** Version on disk when the flow opened. */
@@ -39,21 +38,6 @@ class SaveFlow {
   customVersion = $state("");
   /** Commit message for the save. */
   commitMessage = $state(DEFAULT_MESSAGE);
-
-  // runGuarded lifecycle fields.
-  /** True while the save/push is running. */
-  busy = $state(false);
-  /** Error code from the last run, localized by the component, or null. */
-  errorCode = $state<string | null>(null);
-  /** Detail message from a failed run, surfaced with the error. */
-  errorDetail = $state<string | null>(null);
-  /** Live progress message during the run. */
-  progress = $state<string | null>(null);
-
-  /** Whether the save dialog is open. */
-  get isOpen() {
-    return this.dir !== null;
-  }
 
   /** The version a commit-mode save would write. */
   get nextVersion() {
@@ -83,17 +67,14 @@ class SaveFlow {
     this.versionChoice = "patch";
     this.customVersion = this.currentVersion;
     this.commitMessage = DEFAULT_MESSAGE;
-    this.errorCode = null;
-    this.errorDetail = null;
-    this.progress = null;
+    this.resetStatus();
   }
 
   /** Close the dialog. No-op while a run is in flight. */
   cancel() {
     if (this.busy) return;
     this.dir = null;
-    this.errorCode = null;
-    this.errorDetail = null;
+    this.resetStatus();
   }
 
   /** Select how the version is set on save. */

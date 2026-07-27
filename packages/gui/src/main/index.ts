@@ -6,9 +6,9 @@ import { isAllowedExternalUrl } from "./url-allowlist.js";
 
 /** The single main window. */
 let mainWindow: BrowserWindow | null = null;
-/** Latest unsaved-edits state pushed from the renderer; gates the close guard. */
-let hasUnsavedChanges = false;
-/** Windows cleared to close programmatically, bypassing the unsaved-edits guard. */
+/** Latest close-guard state pushed from the renderer - unsaved edits or a running operation; gates the close guard. */
+let closeGuardActive = false;
+/** Windows cleared to close programmatically, bypassing the close guard. */
 const closeAllowed = new WeakSet();
 
 // Window chrome background per theme, mirroring the light/dark --color-bg tokens.
@@ -82,18 +82,18 @@ function createWindow() {
   window.once("ready-to-show", () => window.show());
 
   mainWindow = window;
-  // A fresh window starts with nothing unsaved; only its renderer can raise the
+  // A fresh window starts with nothing to guard; only its renderer can raise the
   // flag again. Resetting here means a recreated window (e.g. macOS re-activate)
   // never inherits a stale `true` from the window that closed before it.
-  hasUnsavedChanges = false;
+  closeGuardActive = false;
 
-  // Guard unsaved edits. We only intercept when the renderer has told us there
-  // are unsaved changes, so a broken or not-yet-loaded renderer can never trap
-  // the window. When we do intercept, the renderer prompts and calls back via
-  // `app:force-close`; membership in `closeAllowed` lets that programmatic close
-  // through.
+  // Guard close while the renderer reports unsaved edits or a running operation.
+  // We only intercept when the renderer has told us to, so a broken or
+  // not-yet-loaded renderer can never trap the window. When we do intercept, the
+  // renderer prompts and calls back via `app:force-close`; membership in
+  // `closeAllowed` lets that programmatic close through.
   window.on("close", (event) => {
-    if (closeAllowed.has(window) || !hasUnsavedChanges) return;
+    if (closeAllowed.has(window) || !closeGuardActive) return;
     event.preventDefault();
     window.webContents.send("app:confirm-close");
   });
@@ -101,13 +101,13 @@ function createWindow() {
   // A crashed renderer can no longer answer the confirm-close prompt, so drop the
   // guard to keep the window closeable.
   window.webContents.on("render-process-gone", () => {
-    hasUnsavedChanges = false;
+    closeGuardActive = false;
   });
 
   // Clear per-window state on teardown so nothing leaks into the next window.
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
-    hasUnsavedChanges = false;
+    closeGuardActive = false;
   });
 
   // Open external links in the user's browser, never inside an Electron window.
@@ -189,10 +189,10 @@ ipcMain.handle("shell:openPath", async (_event, dirPath) => {
   return result === "";
 });
 
-// The renderer reports whether there are unsaved edits, so the close guard only
-// intercepts when there is something to lose.
-ipcMain.on("app:dirty-changed", (_event, dirty) => {
-  hasUnsavedChanges = Boolean(dirty);
+// The renderer reports whether the close guard should be active - unsaved edits
+// or a running operation - so the guard only intercepts when there is a reason.
+ipcMain.on("app:close-guard", (_event, active) => {
+  closeGuardActive = Boolean(active);
 });
 
 // The renderer reports its active theme preference so the next launch can paint

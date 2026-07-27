@@ -10,6 +10,8 @@ import { createProgressCollector, createTempDir } from "./helpers.js";
 import {
   computeMissingScaffoldProduct,
   includeScaffold,
+  planScaffold,
+  addScaffoldProduct,
 } from "../src/workflows.js";
 import {
   ValidationError,
@@ -428,5 +430,185 @@ describe("includeScaffold", () => {
     await expect(
       includeScaffold({ dir, source: branch, scaffoldRepoUrl: remote }),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+// --- planScaffold ---
+
+describe("planScaffold", () => {
+  it("throws ValidationError for a blank source", async () => {
+    const dir = track(await createTempDir("ebr-plan-blank-"));
+    await expect(
+      planScaffold({ dir, source: "   ", scaffoldRepoUrl: "ignored" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("throws NotARepoError when dir is not a git repo", async () => {
+    const dir = track(await createTempDir("ebr-plan-not-repo-"));
+    await expect(
+      planScaffold({ dir, source: "map/foo", scaffoldRepoUrl: "ignored" }),
+    ).rejects.toBeInstanceOf(NotARepoError);
+  });
+
+  it("throws IndexNotCleanError when there are staged changes", async () => {
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    await writeFile(join(dir, "leftover.md"), "wip\n");
+    await simpleGit(dir).add(["leftover.md"]);
+    await expect(
+      planScaffold({ dir, source: "map/foo", scaffoldRepoUrl: "ignored" }),
+    ).rejects.toBeInstanceOf(IndexNotCleanError);
+  });
+
+  it("throws ValidationError when the working tree has unstaged modifications", async () => {
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    await writeFile(join(dir, "ebr-mod.json"), "{}\n");
+    await expect(
+      planScaffold({ dir, source: "map/foo", scaffoldRepoUrl: "ignored" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("throws ScaffoldRefNotFoundError when the scaffold branch does not exist", async () => {
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    const remote = track(await buildScaffoldRemote({
+      branch: "map/exists",
+      files: { "x.md": "hi\n" },
+    }));
+    await expect(
+      planScaffold({ dir, source: "map/does-not-exist", scaffoldRepoUrl: remote }),
+    ).rejects.toBeInstanceOf(ScaffoldRefNotFoundError);
+  });
+
+  it("returns the correct filesToAdd / filesToSkip without writing to the working tree", async () => {
+    const branch = "map/plan-preview";
+    const remote = track(await buildScaffoldRemote({
+      branch,
+      files: {
+        [`Custom Campaigns/${SCAFFOLD_NAME_TOKEN}/new.md`]: "new content\n",
+        [`Custom Campaigns/${SCAFFOLD_NAME_TOKEN}/existing.md`]: "from scaffold\n",
+      },
+    }));
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+
+    // Pre-create one destination so it counts as a conflict (skip).
+    await mkdir(join(dir, "Custom Campaigns", "My Custom Campaign"), { recursive: true });
+    await writeFile(
+      join(dir, "Custom Campaigns", "My Custom Campaign", "existing.md"),
+      "hand-written\n",
+    );
+
+    const result = await planScaffold({ dir, source: branch, scaffoldRepoUrl: remote });
+
+    expect(result.branch).toBe(branch);
+    expect(result.scaffoldCommitHash).toMatch(/^[0-9a-f]{40}$/);
+    expect(result.filesToAdd).toContain("Custom Campaigns/My Custom Campaign/new.md");
+    expect(result.filesToSkip).toContain("Custom Campaigns/My Custom Campaign/existing.md");
+
+    // No writes: the file planScaffold would add must not have been created.
+    await expect(
+      readFile(join(dir, "Custom Campaigns", "My Custom Campaign", "new.md")),
+    ).rejects.toThrow();
+
+    // No commits landed - still on the initial manifest commit only.
+    const log = await simpleGit(dir).log();
+    expect(log.all.length).toBe(1);
+  }, 15000);
+
+  it("rejects manifest.name containing path separators (path traversal guard)", async () => {
+    const branch = "map/plan-traversal";
+    const remote = track(await buildScaffoldRemote({
+      branch,
+      files: { [`${SCAFFOLD_NAME_TOKEN}/file.md`]: "x\n" },
+    }));
+    const dir = track(await buildModRepo({
+      manifest: { ...VALID_MANIFEST, name: "../escape" },
+    }));
+    await expect(
+      planScaffold({ dir, source: branch, scaffoldRepoUrl: remote }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+// --- addScaffoldProduct ---
+
+describe("addScaffoldProduct", () => {
+  it("adds to requiredProducts by default when the product is missing", async () => {
+    // "map/spire-in-bloom" -> product "spire-in-bloom"; absent from VALID_MANIFEST.
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    const result = await addScaffoldProduct({ dir, branch: "map/spire-in-bloom" });
+
+    expect(result.added).toBe(true);
+    expect(result.product).toBe("spire-in-bloom");
+    expect(result.list).toBe("required");
+
+    const raw = JSON.parse(await readFile(join(dir, "ebr-mod.json"), "utf8"));
+    expect(raw.requiredProducts).toContain("spire-in-bloom");
+    expect(raw.optionalProducts ?? []).not.toContain("spire-in-bloom");
+
+    // A commit with the branch name in its message landed.
+    const log = await simpleGit(dir).log();
+    expect(log.all.length).toBe(2);
+    expect(log.latest.message).toContain("map/spire-in-bloom");
+  });
+
+  it("adds to optionalProducts when list is 'optional'", async () => {
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    const result = await addScaffoldProduct({ dir, branch: "map/spire-in-bloom", list: "optional" });
+
+    expect(result.added).toBe(true);
+    expect(result.product).toBe("spire-in-bloom");
+    expect(result.list).toBe("optional");
+
+    const raw = JSON.parse(await readFile(join(dir, "ebr-mod.json"), "utf8"));
+    expect(raw.optionalProducts).toContain("spire-in-bloom");
+    expect(raw.requiredProducts ?? []).not.toContain("spire-in-bloom");
+  });
+
+  it("no-ops when the product is already in requiredProducts", async () => {
+    // VALID_MANIFEST has "core-set" in requiredProducts; "map/lure-of-the-valley" implies "core-set".
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    const result = await addScaffoldProduct({ dir, branch: "map/lure-of-the-valley" });
+
+    expect(result.added).toBe(false);
+    expect(result.product).toBeNull();
+
+    // No commit was made.
+    const log = await simpleGit(dir).log();
+    expect(log.all.length).toBe(1);
+  });
+
+  it("no-ops when the product is already in optionalProducts", async () => {
+    const dir = track(await buildModRepo({
+      manifest: { ...VALID_MANIFEST, optionalProducts: ["spire-in-bloom"] },
+    }));
+    const result = await addScaffoldProduct({ dir, branch: "map/spire-in-bloom" });
+
+    expect(result.added).toBe(false);
+    expect(result.product).toBeNull();
+
+    const log = await simpleGit(dir).log();
+    expect(log.all.length).toBe(1);
+  });
+
+  it("no-ops when the scaffold branch has no catalog product", async () => {
+    // "set/custom-campaign" has no product field in KNOWN_SCAFFOLDS.
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    const result = await addScaffoldProduct({ dir, branch: "set/custom-campaign" });
+
+    expect(result.added).toBe(false);
+    expect(result.product).toBeNull();
+
+    const log = await simpleGit(dir).log();
+    expect(log.all.length).toBe(1);
+  });
+
+  it("no-ops for an unknown scaffold branch", async () => {
+    const dir = track(await buildModRepo({ manifest: VALID_MANIFEST }));
+    const result = await addScaffoldProduct({ dir, branch: "map/nonexistent-branch" });
+
+    expect(result.added).toBe(false);
+    expect(result.product).toBeNull();
+
+    const log = await simpleGit(dir).log();
+    expect(log.all.length).toBe(1);
   });
 });

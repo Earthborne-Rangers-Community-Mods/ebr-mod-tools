@@ -96,9 +96,11 @@
     {/if}
 
     <div class="actions">
-      <button type="button" class="ghost" onclick={() => publishFlow.cancel()} disabled={publishFlow.busy}>
-        {m.publish_cancel()}
-      </button>
+      {#if !publishFlow.busy}
+        <button type="button" class="ghost" onclick={() => publishFlow.cancel()}>
+          {m.publish_cancel()}
+        </button>
+      {/if}
       {#if publishFlow.errorCode === "unsaved-changes"}
         <button type="button" class="primary" onclick={() => publishFlow.saveFirst()} disabled={publishFlow.busy}>
           {m.publish_save_first()}
