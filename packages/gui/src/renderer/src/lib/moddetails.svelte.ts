@@ -306,6 +306,8 @@ class ModDetailsForm {
   async save() {
     if (!this.dir || this.saveState === "saving") return;
     if (!this.#validateRequired()) return;
+    // Claim the in-flight state before the write so a second rapid trigger bails
+    // at the guard above rather than racing a concurrent writeManifest.
     this.saveState = "saving";
     try {
       const manifest = this.#buildManifest();

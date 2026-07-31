@@ -396,6 +396,121 @@ export async function abortMerge(dir: string) {
 }
 
 /**
+ * Predict, without touching the working tree or index, which files would
+ * conflict if `ref` were merged into HEAD.
+ *
+ * Runs `git merge-tree --write-tree --name-only HEAD <ref>`, an in-memory merge
+ * that writes only to the object store. On a clean merge the output is the
+ * merged tree's OID alone; on a conflicting merge the OID is followed by the
+ * conflicting paths (one per line) and then a blank line before informational
+ * messages. simple-git resolves the command even though git exits non-zero on
+ * conflicts, so the paths are parsed from stdout.
+ *
+ * @param ref - Ref to merge into HEAD in the dry run (e.g. "base/campaign/x").
+ * @returns The list of paths that would conflict (empty when the merge is clean).
+ */
+export async function predictMerge(dir: string, ref: string): Promise<{ conflicts: string[] }> {
+  let output: string;
+  try {
+    output = await git(dir).raw(["merge-tree", "--write-tree", "--name-only", "HEAD", ref]);
+  } catch (err) {
+    // simple-git resolves merge-tree's non-zero conflict exit, but if a build
+    // rejects it instead, the conflict listing still rides on the error output.
+    const carried = (err as { message?: string })?.message;
+    if (typeof carried !== "string") throw wrapError("predictMerge", err);
+    output = carried;
+  }
+  return { conflicts: parseMergeTreeConflicts(output) };
+}
+
+/**
+ * Parse the conflicting paths out of `git merge-tree --write-tree --name-only`
+ * output. The first line is the merged tree OID; conflicting paths follow, one
+ * per line, terminated by a blank line (or end of output on a clean merge).
+ */
+function parseMergeTreeConflicts(output: string): string[] {
+  const lines = output.split("\n");
+  const conflicts: string[] = [];
+  // Skip line 0 (the tree OID); collect paths until the first blank line.
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === "") break;
+    conflicts.push(lines[i]);
+  }
+  return conflicts;
+}
+
+/**
+ * Resolve a single conflicted file by taking one side wholesale and staging it.
+ * `side` is "ours" (keep the current branch's version) or "theirs" (take the
+ * incoming version). Equivalent to `git checkout --<side> -- <file>` followed by
+ * `git add -- <file>`. Whole-file only; this is not a hunk-level mergetool.
+ *
+ * @param file - Repo-relative path of the conflicted file.
+ * @param side - "ours" to keep the current version, "theirs" to take incoming.
+ */
+export async function checkoutConflictSide(dir: string, file: string, side: "ours" | "theirs") {
+  try {
+    await git(dir).raw(["checkout", `--${side}`, "--", file]);
+    await git(dir).add([file]);
+  } catch (err) {
+    throw wrapError("checkoutConflictSide", err);
+  }
+}
+
+/**
+ * Read the contents of one side of a conflicted file from the index, without
+ * touching the working tree. "ours" is merge stage 2, "theirs" is stage 3.
+ *
+ * @param file - Repo-relative path of the conflicted file.
+ * @returns The side's text, or null when it cannot be shown as text - the side
+ *   does not exist (add/delete conflicts) or the content is binary.
+ */
+export async function readConflictSide(dir: string, file: string, side: "ours" | "theirs"): Promise<string | null> {
+  const stage = side === "ours" ? 2 : 3;
+  let content: string;
+  try {
+    content = await git(dir).raw(["show", `:${stage}:${file}`]);
+  } catch {
+    return null;
+  }
+  return content.includes("\u0000") ? null : content;
+}
+
+/**
+ * Finalize an in-progress merge by committing with the prepared merge message
+ * (`git commit --no-edit`). All conflicts must already be resolved and staged.
+ *
+ * @returns The new merge commit's full SHA.
+ * @throws {NothingToCommitError} If there is nothing staged to commit.
+ */
+export async function commitMerge(dir: string): Promise<string> {
+  try {
+    await git(dir).raw(["commit", "--no-edit"]);
+  } catch (err) {
+    const msg = (err as Error | undefined)?.message || String(err);
+    if (/nothing to commit/i.test(msg)) {
+      throw new NothingToCommitError();
+    }
+    throw wrapError("commitMerge", err);
+  }
+  return getHeadCommit(dir);
+}
+
+/**
+ * Whether the repository is in the middle of a merge (git has written
+ * `MERGE_HEAD`). True whether or not conflicts remain - it covers both the
+ * unresolved-conflict state and a resolved-but-not-yet-committed merge.
+ */
+export async function isMerging(dir: string): Promise<boolean> {
+  try {
+    const out = await git(dir).raw(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]);
+    return out.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get the working tree status.
  */
 export async function getStatus(dir: string): Promise<{ isClean: boolean; modified: string[]; staged: string[]; conflicted: string[]; created: string[]; deleted: string[] }> {

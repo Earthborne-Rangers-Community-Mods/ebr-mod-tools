@@ -28,7 +28,6 @@ const REQUIRED_FIELDS = [
 ];
 
 const INCLUDED_MOD_REQUIRED_FIELDS = ["id", "name", "author", "version", "repoUrl"];
-const INCLUDED_CAMPAIGN_REQUIRED_FIELDS = ["id", "branch", "commitHash"];
 
 // --- Field validators ---
 // Each returns `true` when valid, or a human-readable error string.
@@ -135,7 +134,6 @@ export const VALIDATION_CODES = Object.freeze({
   ARRAY_ITEM_NOT_STRING: "ARRAY_ITEM_NOT_STRING",
   COLLECTION_MISSING_INCLUDED_MODS: "COLLECTION_MISSING_INCLUDED_MODS",
   INCLUDED_MOD_MISSING_FIELD: "INCLUDED_MOD_MISSING_FIELD",
-  INCLUDED_CAMPAIGN_MISSING_FIELD: "INCLUDED_CAMPAIGN_MISSING_FIELD",
   INVALID_LANGUAGE_TAG: "INVALID_LANGUAGE_TAG",
   UNKNOWN_PRODUCT: "UNKNOWN_PRODUCT",
   CAMPAIGN_MISSING_PRODUCT: "CAMPAIGN_MISSING_PRODUCT",
@@ -299,7 +297,7 @@ export function validateManifest(input: unknown): ValidationErrorInfo[] {
   // collection type requires at least one included mod or campaign
   if (manifest.type === "collection") {
     const hasMods = Array.isArray(manifest.includedMods) && manifest.includedMods.length > 0;
-    const hasCampaigns = Array.isArray(manifest.includedCampaigns) && manifest.includedCampaigns.length > 0;
+    const hasCampaigns = Array.isArray(manifest.campaigns) && manifest.campaigns.length > 0;
     if (!hasMods && !hasCampaigns) {
       errors.push({ code: VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS });
     }
@@ -315,24 +313,6 @@ export function validateManifest(input: unknown): ValidationErrorInfo[] {
         for (const field of INCLUDED_MOD_REQUIRED_FIELDS) {
           if (!mod[field]) {
             errors.push({ code: VALIDATION_CODES.INCLUDED_MOD_MISSING_FIELD, index: i, field });
-          }
-        }
-      }
-    }
-  }
-
-  // Validate includedCampaigns entries when present: each must carry a string
-  // id/branch/commitHash, matching the IncludedCampaign shape assertValidManifest
-  // narrows to.
-  if (manifest.includedCampaigns !== undefined) {
-    if (!Array.isArray(manifest.includedCampaigns)) {
-      errors.push({ code: VALIDATION_CODES.FIELD_NOT_ARRAY, field: "includedCampaigns" });
-    } else {
-      for (let i = 0; i < manifest.includedCampaigns.length; i++) {
-        const entry = manifest.includedCampaigns[i];
-        for (const field of INCLUDED_CAMPAIGN_REQUIRED_FIELDS) {
-          if (!entry || typeof entry[field] !== "string" || entry[field].length === 0) {
-            errors.push({ code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: i, field });
           }
         }
       }
@@ -396,11 +376,9 @@ export function formatValidationError(err: ValidationErrorInfo): string {
     case VALIDATION_CODES.ARRAY_ITEM_NOT_STRING:
       return `"${err.field}[${err.index}]" must be a string.`;
     case VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS:
-      return `Collection mods must include at least one mod or campaign (non-empty "includedMods" or "includedCampaigns").`;
+      return `Collection mods must list at least one mod or campaign (non-empty "includedMods" or "campaigns").`;
     case VALIDATION_CODES.INCLUDED_MOD_MISSING_FIELD:
       return `includedMods[${err.index}] is missing required field: "${err.field}".`;
-    case VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD:
-      return `includedCampaigns[${err.index}] must have a non-empty string "${err.field}".`;
     case VALIDATION_CODES.INVALID_LANGUAGE_TAG:
       return `"language" must be a valid BCP 47 language tag (e.g. "en", "es", "zh-Hans"). Got "${err.value}".`;
     case VALIDATION_CODES.UNKNOWN_PRODUCT:

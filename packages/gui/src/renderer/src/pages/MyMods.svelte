@@ -2,6 +2,8 @@
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { openMods } from "../lib/mods.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";
+  import { gitStatus } from "../lib/gitstatus.svelte.js";
+  import { conflictFlow } from "../lib/conflict.svelte.js";
   import { pickDirectory, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { typeName } from "../lib/modtypes.js";
   import ObsidianButton from "../components/ObsidianButton.svelte";
@@ -47,6 +49,19 @@
   function confirmClose(dir: string) {
     openMods.remove(dir);
     if (confirmDir === dir) confirmDir = null;
+  }
+
+  /**
+   * Open a mod, reading its state from disk to route to the right place: a
+   * mid-merge mod goes to the Conflict page; a mod with a valid manifest opens its
+   * details; a readable-but-broken manifest opens straight in the editor to be
+   * repaired.
+   */
+  async function openMod(dir: string) {
+    if (await conflictFlow.enterFromDisk(dir)) return;
+    const entry = openMods.getByDir(dir);
+    const destination = entry?.status === "ready" ? ROUTES.MOD_DETAILS : ROUTES.MOD_EDIT;
+    navigation.go(destination, { dir });
   }
 </script>
 
@@ -118,11 +133,16 @@
             <button
               type="button"
               class="mod-open"
-              onclick={() => navigation.go(ROUTES.MOD_DETAILS, { dir: mod.dir })}
+              onclick={() => openMod(mod.dir)}
             >
               <span class="mod-icon" aria-hidden="true">{mf.icon}</span>
               <span class="mod-main">
-                <span class="mod-name">{mf.name}<DirtyMarker dir={mod.dir} /></span>
+                <span class="mod-name">
+                  {mf.name}<DirtyMarker dir={mod.dir} />
+                  {#if gitStatus.get(mod.dir)?.merging}
+                    <span class="mid-merge-flag">{m.mymods_mid_merge()}</span>
+                  {/if}
+                </span>
                 <span class="mod-meta">
                   {typeName(mf.type ?? "")} &middot; v{mf.version}
                   <PublishBadge dir={mod.dir} />
@@ -141,7 +161,7 @@
             <button
               type="button"
               class="mod-open"
-              onclick={() => navigation.go(ROUTES.MOD_EDIT, { dir: mod.dir })}
+              onclick={() => openMod(mod.dir)}
             >
               <span class="mod-icon" aria-hidden="true">&#9888;</span>
               <span class="mod-main">
@@ -169,7 +189,7 @@
               </button>
               <button type="button" class="ghost" onclick={cancelClose}>{m.mymods_cancel()}</button>
             {:else}
-              {#if mod.status === "ready"}
+              {#if mod.status === "ready" && !gitStatus.get(mod.dir)?.merging}
                 <SaveControl dir={mod.dir} />
                 <ObsidianButton dir={mod.dir} />
               {/if}
@@ -393,6 +413,20 @@
   .mod-name {
     font-weight: 600;
     font-size: 1.05rem;
+  }
+
+  .mid-merge-flag {
+    display: inline-block;
+    margin-left: var(--spacing-xs);
+    padding: 0.05em 0.5em;
+    border-radius: var(--radius-sm);
+    background: var(--color-error);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
   }
 
   .mod-meta {

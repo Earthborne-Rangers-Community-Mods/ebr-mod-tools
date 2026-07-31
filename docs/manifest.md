@@ -58,7 +58,7 @@ The kind of mod. Determines how it's categorized in the registry browser.
 | `enhancement` | Focused modifications to existing campaign content. Examples include dialog improvements, balance tweaks, QoL fixes, mechanical changes, unofficial errata, or targeted content additions. |
 | `one-day-mission` | A single-session mission designed to be played in one sitting. |
 | `expansion` | New content that significantly extends a campaign. Examples include additional areas, story arcs, encounters, or gameplay systems. |
-| `collection` | Multiple mods merged together into a single experience. The creator has resolved all conflicts by hand. Requires `includedMods`. |
+| `collection` | Multiple mods merged together into a single experience. The creator has resolved all conflicts by hand. Requires at least one entry in `includedMods` or `campaigns`. |
 | `theme` | CSS-only mod that reskins the Obsidian play experience. No content changes. |
 
 ### `description`
@@ -132,7 +132,7 @@ Array of product identifiers that **enhance** the experience but aren't required
 
 ### `includedMods`
 
-Array of objects listing the mods this one is built from. **Required for `collection` type** (must be non-empty). Optional for all other types - any mod can declare its lineage.
+Array of objects listing the mods this one is built from. A `collection` needs at least one entry here or in `campaigns`. Optional for all other types - any mod can declare its lineage. 
 
 Each entry must have these fields:
 
@@ -170,7 +170,7 @@ A single emoji used as a compact visual identity for the mod (e.g., `"🏔️"`,
 
 ## Collection Example
 
-Collections combine multiple mods into a single pre-merged experience. The `includedMods` array is required and must be non-empty.
+Collections combine multiple mods into a single pre-merged experience. A collection must list at least one source: `includedMods`, `campaigns`, or both.
 
 ```json
 {
@@ -211,6 +211,6 @@ Run `ebr validate` or `ebr publish` to check your manifest. The validator checks
 - `safeToAddMidCampaign` is a boolean
 - `language` is a valid BCP 47 tag
 - `repoUrl` is a GitHub URL
-- `collection` type has a non-empty `includedMods` array
+- `collection` type has at least one entry across `includedMods` and `campaigns`
 - Each `includedMods` entry has all required fields (`id`, `name`, `author`, `version`, `repoUrl`)
 - `id` does not exactly match any official campaign id (`OFFICIAL_CAMPAIGNS` catalog)

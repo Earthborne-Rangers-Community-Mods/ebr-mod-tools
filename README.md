@@ -31,7 +31,7 @@ Mods are published with a manifest file which describes which commit the mod man
 | `ebr include [source...]` | Merge a base campaign or another mod into the current mod. Interactive multi-select picker when source omitted. |
 | `ebr scaffold [branch]` | Stamp a reusable template (stubs for map locations + pivotal cards, path sets, etc.) into the current mod. Interactive picker when branch omitted. |
 | `ebr validate` | (Not implemented yet.) Check wikilink resolution, orphan files, manifest correctness |
-| `ebr update` | Check included mods for newer versions and merge updates |
+| `ebr update` | Check included mods and campaigns for newer versions and merge updates |
 
 ## Manifest File
 

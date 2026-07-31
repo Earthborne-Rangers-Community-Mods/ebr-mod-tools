@@ -1,6 +1,7 @@
 import { Command } from "commander";
-import { checkbox } from "@inquirer/prompts";
-import { includeCampaign, includeMod, classifyIncludeSource } from "core/workflows.js";
+import { checkbox, select } from "@inquirer/prompts";
+import { includeCampaign, includeMod, classifyIncludeSource, computeMissingCampaignProducts } from "core/workflows.js";
+import { readManifest } from "core/manifest.js";
 import { fetchRegistry } from "core/registry.js";
 import { OFFICIAL_CAMPAIGNS } from "core/catalogs.js";
 import { renderCliError } from "./render-error.js";
@@ -69,12 +70,14 @@ async function includeAction(sourcesArg: string[] | string | undefined) {
           console.log("Recorded in includedMods.");
         }
       } else {
-        const result = await includeCampaign({ dir, source: current }, { onProgress });
+        const result = await includeCampaign(
+          { dir, source: current, addProductsTo: await askCampaignProducts(dir, current) },
+          { onProgress },
+        );
         if (result.alreadyUpToDate) {
           console.log(`\n${result.branch} is already up to date at ${result.commitHash.slice(0, 7)}.`);
         } else {
           console.log(`\nMerged ${result.branch} at ${result.commitHash.slice(0, 7)}.`);
-          console.log("Recorded in includedCampaigns.");
         }
       }
       completed.push(current);
@@ -93,6 +96,34 @@ async function includeAction(sourcesArg: string[] | string | undefined) {
   } else if (completed.length === 1) {
     console.log("\nReview the changes and run `ebr save` when ready.");
   }
+}
+
+/**
+ * Ask where a campaign's missing products should go, if any are missing.
+ *
+ * Returns the chosen list, or `null` to leave products alone - which is also
+ * the answer when the campaign needs nothing the manifest lacks, or when the
+ * manifest cannot be read (the include itself will surface that error).
+ */
+async function askCampaignProducts(dir: string, campaignId: string): Promise<"required" | "optional" | null> {
+  let missing: string[];
+  try {
+    missing = computeMissingCampaignProducts(campaignId, await readManifest(dir));
+  } catch {
+    return null;
+  }
+  if (missing.length === 0) return null;
+
+  const choice = await select<"required" | "optional" | "skip">({
+    message: `"${campaignId}" needs ${missing.join(", ")}, which your manifest doesn't list. Add ${missing.length > 1 ? "them" : "it"}?`,
+    default: "required",
+    choices: [
+      { name: "Add to requiredProducts", value: "required" },
+      { name: "Add to optionalProducts", value: "optional" },
+      { name: "Skip", value: "skip" },
+    ],
+  });
+  return choice === "skip" ? null : choice;
 }
 
 /**

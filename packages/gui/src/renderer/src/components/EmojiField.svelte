@@ -173,8 +173,8 @@
   }
 
   .trigger:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
+    cursor: default;
+    opacity: var(--opacity-disabled);
   }
 
   .emoji {

@@ -455,64 +455,58 @@ describe("validateManifest", () => {
 
   // --- Collection-specific ---
 
-  it("rejects collection without includedMods or includedCampaigns", () => {
-    const errors = validateManifest(validManifest({ type: "collection" }));
+  it("rejects collection with neither included mods nor target campaigns", () => {
+    const errors = validateManifest(validManifest({ type: "collection", campaigns: [] }));
     expect(codes(errors)).toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
   });
 
-  it("rejects collection with both includedMods and includedCampaigns empty", () => {
+  it("rejects collection with both includedMods and campaigns empty", () => {
     const errors = validateManifest(
-      validManifest({ type: "collection", includedMods: [], includedCampaigns: [] }),
+      validManifest({ type: "collection", includedMods: [], campaigns: [] }),
     );
     expect(codes(errors)).toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
   });
 
-  it("accepts collection with non-empty includedCampaigns and empty includedMods", () => {
+  it("accepts collection with non-empty campaigns and empty includedMods", () => {
     const errors = validateManifest(
       validManifest({
         type: "collection",
         includedMods: [],
-        includedCampaigns: [
-          { id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" },
-        ],
+        campaigns: ["lure-of-the-valley"],
       }),
     );
     expect(codes(errors)).not.toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
   });
 
-  it("accepts collection with both includedMods and includedCampaigns non-empty", () => {
+  it("accepts collection with non-empty includedMods and no target campaigns", () => {
     const errors = validateManifest(
       validManifest({
         type: "collection",
+        campaigns: [],
         includedMods: [
           { id: "x", name: "X", author: "A", version: "1.0.0", repoUrl: "https://github.com/a/b" },
         ],
-        includedCampaigns: [
-          { id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" },
-        ],
       }),
     );
     expect(codes(errors)).not.toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
   });
 
-  it("accepts collection with both non-empty includedMods and non-empty includedCampaigns", () => {
+  it("accepts collection with both non-empty includedMods and non-empty campaigns", () => {
     const errors = validateManifest(
       validManifest({
         type: "collection",
+        campaigns: ["lure-of-the-valley"],
         includedMods: [
           { id: "some-mod", name: "Some Mod", author: "Author", version: "1.0.0", repoUrl: "https://github.com/author/ebr-some-mod" },
-        ],
-        includedCampaigns: [
-          { id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" },
         ],
       }),
     );
     expect(codes(errors)).not.toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
   });
 
-  it("rejects collection where includedCampaigns is a non-array and includedMods is absent", () => {
+  it("rejects collection where campaigns is a non-array and includedMods is absent", () => {
     const errors = validateManifest(
-      validManifest({ type: "collection", includedCampaigns: "not-an-array" }),
+      validManifest({ type: "collection", campaigns: "not-an-array" }),
     );
     expect(codes(errors)).toContain(VALIDATION_CODES.COLLECTION_MISSING_INCLUDED_MODS);
   });
@@ -548,70 +542,6 @@ describe("validateManifest", () => {
     );
     expect(errors.filter((e) => e.code === VALIDATION_CODES.INCLUDED_MOD_MISSING_FIELD && e.index === 0)).toEqual([]);
     expect(errors.filter((e) => e.code === VALIDATION_CODES.INCLUDED_MOD_MISSING_FIELD && e.index === 1).length).toBeGreaterThanOrEqual(4);
-  });
-
-  // --- includedCampaigns entry validation (INCLUDED_CAMPAIGN_MISSING_FIELD) ---
-
-  it("rejects an includedCampaigns entry missing commitHash", () => {
-    const errors = validateManifest(
-      validManifest({
-        type: "collection",
-        includedCampaigns: [{ id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley" }],
-      }),
-    );
-    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "commitHash" })).toBe(true);
-  });
-
-  it("rejects an includedCampaigns entry with empty-string id", () => {
-    const errors = validateManifest(
-      validManifest({
-        type: "collection",
-        includedCampaigns: [{ id: "", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" }],
-      }),
-    );
-    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "id" })).toBe(true);
-  });
-
-  it("rejects an includedCampaigns entry with non-string branch", () => {
-    const errors = validateManifest(
-      validManifest({
-        type: "collection",
-        includedCampaigns: [{ id: "lure-of-the-valley", branch: 42, commitHash: "abc1234" }],
-      }),
-    );
-    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "branch" })).toBe(true);
-  });
-
-  it("rejects a null includedCampaigns entry - fires for all three required fields", () => {
-    const errors = validateManifest(
-      validManifest({
-        type: "collection",
-        includedCampaigns: [null],
-      }),
-    );
-    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "id" })).toBe(true);
-    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "branch" })).toBe(true);
-    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "commitHash" })).toBe(true);
-  });
-
-  it("reports errors at the correct index for a second malformed includedCampaigns entry", () => {
-    const errors = validateManifest(
-      validManifest({
-        type: "collection",
-        includedCampaigns: [
-          { id: "lure-of-the-valley", branch: "campaign/lure-of-the-valley", commitHash: "abc1234" },
-          { id: "shadow-of-the-storm", branch: "campaign/shadow-of-the-storm" }, // missing commitHash
-        ],
-      }),
-    );
-    expect(errors.filter((e) => e.code === VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD && e.index === 0)).toEqual([]);
-    expect(hasError(errors, { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 1, field: "commitHash" })).toBe(true);
-  });
-
-  it("fires FIELD_NOT_ARRAY (not INCLUDED_CAMPAIGN_MISSING_FIELD) when includedCampaigns is a non-array", () => {
-    const errors = validateManifest(validManifest({ includedCampaigns: "not-an-array" }));
-    expect(hasError(errors, { code: VALIDATION_CODES.FIELD_NOT_ARRAY, field: "includedCampaigns" })).toBe(true);
-    expect(errors.filter((e) => e.code === VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD)).toEqual([]);
   });
 
   // --- language ---
@@ -734,7 +664,6 @@ describe("formatValidationError", () => {
       { code: VALIDATION_CODES.CAMPAIGN_MISSING_PRODUCT, field: "requiredProducts", value: "spire-in-bloom", campaign: "spire-in-bloom" },
       { code: VALIDATION_CODES.FIELD_NOT_NUMBER, field: "schemaVersion" },
       { code: VALIDATION_CODES.ARRAY_ITEM_NOT_STRING, field: "campaigns", index: 0 },
-      { code: VALIDATION_CODES.INCLUDED_CAMPAIGN_MISSING_FIELD, index: 0, field: "commitHash" },
     ];
     for (const err of testCases) {
       const msg = formatValidationError(err);

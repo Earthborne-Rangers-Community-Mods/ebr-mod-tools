@@ -73,21 +73,11 @@ export class GitAuthenticationError extends GitError {
 
 export class MergeConflictError extends GitError {
   conflictedFiles: string[];
-  // Optional include-context, attached by the include workflows when a
-  // merge conflict interrupts a campaign or mod include.
-  campaignId?: string;
-  branch?: string;
-  commitHash?: string;
-  modId?: string;
   /** @param conflictedFiles - Paths with merge conflicts. */
   constructor(conflictedFiles: string[]) {
     super("merge", "Merge resulted in conflicts that must be resolved manually.");
     this.name = "MergeConflictError";
     this.conflictedFiles = conflictedFiles;
-    this.campaignId = undefined;
-    this.branch = undefined;
-    this.commitHash = undefined;
-    this.modId = undefined;
   }
 }
 

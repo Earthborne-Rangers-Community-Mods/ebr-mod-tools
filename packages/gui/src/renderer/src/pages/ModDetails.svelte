@@ -11,6 +11,8 @@
   import { publishFlow } from "../lib/publish.svelte.js";
   import { addContentFlow } from "../lib/addcontent.svelte.js";
   import { addContentKinds } from "../lib/addcontent.js";
+  import { gitStatus } from "../lib/gitstatus.svelte.js";
+  import { conflictFlow } from "../lib/conflict.svelte.js";
   import { typeName } from "../lib/modtypes.js";
   import { openPath, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { showSafeChoice } from "../lib/midcampaign.js";
@@ -31,11 +33,14 @@
     untrack(() => {
       publishStatus.refresh(d);
       publishStatus.checkPr(d);
+      gitStatus.ensure(d);
     });
   });
 
   const pubStatus = $derived(entry ? publishStatus.get(entry.dir) : null);
   const modPageUrl = $derived(mod?.id ? `${MOD_MANAGER_URL}mods/${mod.id}` : null);
+  // A mid-merge mod must be resolved before anything else can be built on it.
+  const merging = $derived(entry ? gitStatus.get(entry.dir)?.merging === true : false);
 
   /**
    * Map a list of ids to their catalog display names, falling back to the id.
@@ -68,17 +73,19 @@
           </p>
         </div>
         <div class="header-actions">
-          <SaveControl dir={entry.dir} />
-          {#if addContentKinds(mod.type).length > 0}
-            <button
-              type="button"
-              class="icon-button"
-              onclick={() => addContentFlow.start(entry.dir, mod.type ?? "")}
-              aria-label={m.addcontent_action()}
-              title={m.addcontent_action()}
-            >
-              <span class="icon" style={`--icon-mask: url("${plusIcon}")`} aria-hidden="true"></span>
-            </button>
+          {#if !merging}
+            <SaveControl dir={entry.dir} />
+            {#if addContentKinds(mod.type).length > 0}
+              <button
+                type="button"
+                class="icon-button"
+                onclick={() => addContentFlow.start(entry.dir, mod.type ?? "")}
+                aria-label={m.addcontent_action()}
+                title={m.addcontent_action()}
+              >
+                <span class="icon" style={`--icon-mask: url("${plusIcon}")`} aria-hidden="true"></span>
+              </button>
+            {/if}
           {/if}
           <button
             type="button"
@@ -89,19 +96,33 @@
           >
             <span class="icon" style={`--icon-mask: url("${folderIcon}")`} aria-hidden="true"></span>
           </button>
-          <ObsidianButton dir={entry.dir} />
-          <button
-            type="button"
-            class="icon-button"
-            onclick={edit}
-            aria-label={m.moddetails_edit()}
-            title={m.moddetails_edit()}
-          >
-            <span class="icon" style={`--icon-mask: url("${pencilIcon}")`} aria-hidden="true"></span>
-          </button>
+          {#if !merging}
+            <ObsidianButton dir={entry.dir} />
+            <button
+              type="button"
+              class="icon-button"
+              onclick={edit}
+              aria-label={m.moddetails_edit()}
+              title={m.moddetails_edit()}
+            >
+              <span class="icon" style={`--icon-mask: url("${pencilIcon}")`} aria-hidden="true"></span>
+            </button>
+          {/if}
         </div>
       </div>
     </header>
+
+    {#if merging}
+      <div class="merge-banner" role="alert">
+        <div class="merge-banner-text">
+          <span class="merge-banner-title">{m.moddetails_mid_merge_title()}</span>
+          <span class="merge-banner-body">{m.moddetails_mid_merge_body()}</span>
+        </div>
+        <button type="button" class="primary" onclick={() => conflictFlow.enterFromDisk(entry.dir)}>
+          {m.moddetails_mid_merge_resolve()}
+        </button>
+      </div>
+    {/if}
 
     <dl class="details">
       <div class="row wide">
@@ -221,9 +242,11 @@
               : m.publish_view_pr()}
           </button>
         {/each}
-        <button type="button" class="secondary" onclick={() => publishFlow.start(entry.dir)}>
-          {m.publish_action()}
-        </button>
+        {#if !merging}
+          <button type="button" class="secondary" onclick={() => publishFlow.start(entry.dir)}>
+            {m.publish_action()}
+          </button>
+        {/if}
       </div>
     </div>
   {/if}
@@ -240,6 +263,34 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-sm);
+  }
+
+  .merge-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    padding: var(--spacing-md);
+    border: 1px solid var(--color-error);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--color-error) 12%, var(--color-surface));
+  }
+
+  .merge-banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .merge-banner-title {
+    font-weight: 700;
+    color: var(--color-error);
+  }
+
+  .merge-banner-body {
+    color: var(--color-text);
+    font-size: 0.9rem;
   }
 
   .mod-footer {

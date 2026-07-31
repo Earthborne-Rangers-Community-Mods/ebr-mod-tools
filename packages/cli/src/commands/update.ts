@@ -18,7 +18,7 @@ import type { ProgressEvent } from "core/types.js";
 
 type UpdateSummary = {
   base: { updated: boolean; skipped: boolean };
-  campaigns: { updated: string[]; skipped: string[]; upToDate: string[]; missing: string[]; notAttempted: string[] };
+  campaigns: { updated: string[]; skipped: string[]; upToDate: string[]; notAttempted: string[] };
   mods: { updated: string[]; skipped: string[]; upToDate: string[]; missing: string[]; ahead: string[]; notAttempted: string[] };
   conflicted: { id: string; files: string[] } | null;
 };
@@ -39,7 +39,6 @@ async function updateAction() {
       updated: [],
       skipped: [],
       upToDate: [],
-      missing: [],
       notAttempted: [],
     },
     mods: {
@@ -84,12 +83,6 @@ async function updateAction() {
       for (let i = 0; i < updates.length; i++) {
         const u = updates[i];
 
-        if (u.missing) {
-          console.warn(`\nCampaign "${u.id}" wasn't found in the official base content - skipping.`);
-          summary.campaigns.missing.push(u.id);
-          continue;
-        }
-
         if (!u.updateAvailable) {
           console.log(`\nCampaign "${u.id}" is up to date.`);
           summary.campaigns.upToDate.push(u.id);
@@ -108,7 +101,7 @@ async function updateAction() {
 
         try {
           const result = await includeCampaign(
-            { dir, source: u.branch },
+            { dir, source: u.id },
             { onProgress },
           );
           if (result.alreadyUpToDate) {
@@ -261,7 +254,6 @@ function printSummary(s: UpdateSummary) {
   if (s.campaigns.updated.length > 0) lines.push(`Campaigns updated: ${s.campaigns.updated.join(", ")}`);
   if (s.campaigns.upToDate.length > 0) lines.push(`Already up to date: ${s.campaigns.upToDate.join(", ")}`);
   if (s.campaigns.skipped.length > 0) lines.push(`Skipped (you said no): ${s.campaigns.skipped.join(", ")}`);
-  if (s.campaigns.missing.length > 0) lines.push(`Skipped (not in official base content): ${s.campaigns.missing.join(", ")}`);
   if (s.mods.updated.length > 0) lines.push(`Mods updated: ${s.mods.updated.join(", ")}`);
   if (s.mods.upToDate.length > 0) lines.push(`Mods already up to date: ${s.mods.upToDate.join(", ")}`);
   if (s.mods.skipped.length > 0) lines.push(`Mods skipped (you said no): ${s.mods.skipped.join(", ")}`);

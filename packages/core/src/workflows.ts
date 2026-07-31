@@ -10,14 +10,14 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile, stat, rm } from "node:fs/
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { listFilesRecursive, sanitizePathSegment, realPathSafe, realPathOfDestination, isPathInside } from "./filesystem.js";
-import { readManifest, writeManifest, assertValidManifest, updateManifest, compareVersions } from "./manifest.js";
-import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase, getCommitAuthorEmail } from "./git.js";
+import { readManifest, writeManifest, assertValidManifest, updateManifest, compareVersions, applyMissingProductFix } from "./manifest.js";
+import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase, getCommitAuthorEmail, predictMerge, checkoutConflictSide, commitMerge } from "./git.js";
 import { getAuthenticatedUser, forkRepo, normalizeGithubUrl, borrowCredentialToken } from "./github.js";
 import { ManifestError, GithubError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry, fetchRegistry } from "./registry.js";
 import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
 import { CONFIG_DIR } from "./config.js";
-import type { Manifest, RawManifest, Registry, RegistryEntry, PrResult, IncludedMod, IncludedCampaign, ProgressCallback, ProgressOptions, ManifestChange, IncludedModWarning, IncludedCampaignUpdate, IncludedModUpdate, IdentityWarning } from "./types.js";
+import type { Manifest, RawManifest, Registry, RegistryEntry, PrResult, IncludedMod, ProgressCallback, ProgressOptions, ManifestChange, IncludedModWarning, IncludedCampaignUpdate, IncludedModUpdate, IdentityWarning } from "./types.js";
 
 // --- Constants ---
 
@@ -846,73 +846,76 @@ async function assertBaseRepo(dir: string) {
   }
 }
 
+const CAMPAIGN_BRANCH_PREFIX = "campaign/";
+
 /**
- * Walk every entry in `manifest.includedCampaigns` and report which ones
+ * Report which official campaigns are merged into this mod and which of those
  * have new commits available on `base/<branch>`.
  *
- * Reuses the existing `base` remote (added by `ebr new`). Fetches once,
- * then per-entry checks whether the remote branch tip is already an
- * ancestor of HEAD - same shape as {@link checkBaseUpdate}.
+ * Inclusion is read from git history rather than from the manifest. Mod
+ * branches are cut from the shell `main`, and campaign branches diverge from
+ * `main` without ever being merged back, so HEAD shares an ancestor with a
+ * campaign branch beyond `main` only when that campaign was merged in. A
+ * campaign absorbed indirectly - by including a mod that had itself included
+ * the campaign - counts as merged, because its commits genuinely are in this
+ * history and updating the campaign is the way to move them forward.
  *
- * Entries whose branch cannot be resolved on the remote (deleted or
- * renamed upstream) are returned with `missing: true` so the caller can
- * warn-and-skip rather than abort the whole walk.
+ * Campaigns whose branch is absent from the remote are skipped: there is no
+ * branch to detect a merge against and none to update from.
  *
  * @param params.dir - Mod directory (must be a git repo with a `base` remote).
  * @throws {NotARepoError} If `dir` is not a git repository.
  * @throws {BaseRemoteMissingError} If no `base` remote is configured.
- * @throws {ManifestError} If the manifest is missing or invalid.
  */
 export async function checkIncludedCampaignsUpdates({ dir }: { dir: string }, { onProgress }: ProgressOptions = {}): Promise<{ updates: IncludedCampaignUpdate[] }> {
   await assertBaseRepo(dir);
 
-  const manifest = await readManifest(dir);
-  const entries = Array.isArray(manifest.includedCampaigns) ? manifest.includedCampaigns : [];
-
-  if (entries.length === 0) {
-    return { updates: [] };
-  }
-
   onProgress?.({ step: "fetch", message: `Fetching ${BASE_REMOTE_NAME}...` });
   await fetchRemote(dir, BASE_REMOTE_NAME, { onProgress });
 
+  const shellRef = `${BASE_REMOTE_NAME}/main`;
   const updates: IncludedCampaignUpdate[] = [];
-  for (const entry of entries) {
-    const remoteRef = `${BASE_REMOTE_NAME}/${entry.branch}`;
-    onProgress?.({ step: "check", message: `Checking ${entry.branch}...` });
+
+  for (const campaign of OFFICIAL_CAMPAIGNS) {
+    const branch = `${CAMPAIGN_BRANCH_PREFIX}${campaign.id}`;
+    const remoteRef = `${BASE_REMOTE_NAME}/${branch}`;
+    onProgress?.({ step: "check", message: `Checking ${branch}...` });
 
     let latestSha;
     try {
       latestSha = await revparseRef(dir, remoteRef);
     } catch {
-      updates.push({
-        id: entry.id,
-        branch: entry.branch,
-        oldCommitHash: entry.commitHash,
-        newCommitHash: null,
-        updateAvailable: false,
-        missing: true,
-      });
       continue;
     }
 
-    const upToDate = await isAncestor(dir, remoteRef, "HEAD");
+    if (!(await campaignMerged(dir, remoteRef, shellRef))) continue;
+
     updates.push({
-      id: entry.id,
-      branch: entry.branch,
-      oldCommitHash: entry.commitHash,
+      id: campaign.id,
+      branch,
       newCommitHash: latestSha,
-      updateAvailable: !upToDate,
-      missing: false,
+      updateAvailable: !(await isAncestor(dir, remoteRef, "HEAD")),
     });
   }
 
   return { updates };
 }
 
-// --- includeCampaign ---
+/**
+ * Whether the campaign identified by `campaignRef` has been merged into this mod.
+ *
+ * Rests on the repo invariant that campaign branches diverge from the shell
+ * `main` and are never merged back into it. The common ancestor of HEAD and a
+ * campaign branch therefore lies beyond `main` exactly when that campaign has
+ * been merged in; otherwise it is the point on `main` the two share.
+ */
+async function campaignMerged(dir: string, campaignRef: string, shellRef: string): Promise<boolean> {
+  const base = await mergeBase(dir, "HEAD", campaignRef);
+  if (!base) return false;
+  return !(await isAncestor(dir, base, shellRef));
+}
 
-const CAMPAIGN_BRANCH_PREFIX = "campaign/";
+// --- includeCampaign ---
 
 /**
  * Resolve an `ebr include` campaign source into a campaign id and its branch.
@@ -941,43 +944,97 @@ export function resolveCampaignSource(source: string): { campaignId: string; bra
 }
 
 /**
- * Insert or replace an entry in `includedCampaigns` keyed by `id`.
- * Pure helper - exported for tests.
+ * Add a campaign id to the manifest's `campaigns` list if not already there,
+ * preserving order. Returns the original array untouched when the id is already
+ * present, so callers can use reference equality to detect a no-op.
  */
-export function upsertIncludedCampaign(existing: IncludedCampaign[] | undefined, entry: IncludedCampaign): IncludedCampaign[] {
-  const list = Array.isArray(existing) ? [...existing] : [];
-  const idx = list.findIndex((e) => e && e.id === entry.id);
-  if (idx >= 0) {
-    list[idx] = entry;
-  } else {
-    list.push(entry);
+export function upsertCampaignTarget(existing: string[] | undefined, campaignId: string): string[] {
+  const list = Array.isArray(existing) ? existing : [];
+  return list.includes(campaignId) ? list : [...list, campaignId];
+}
+
+/**
+ * Products an official campaign needs that the manifest does not already list in
+ * either `requiredProducts` or `optionalProducts`. Empty when the campaign is
+ * not in the catalog or every product it needs is already covered.
+ *
+ * @param campaignId - Official campaign id.
+ */
+export function computeMissingCampaignProducts(
+  campaignId: string,
+  manifest: RawManifest,
+  catalog: ReadonlyArray<{ id: string; requiredProducts?: readonly string[] }> = OFFICIAL_CAMPAIGNS,
+): string[] {
+  const entry = catalog.find((c) => c && c.id === campaignId);
+  const needs = entry?.requiredProducts;
+  if (!needs) return [];
+  const have = new Set([
+    ...(Array.isArray(manifest.requiredProducts) ? manifest.requiredProducts : []),
+    ...(Array.isArray(manifest.optionalProducts) ? manifest.optionalProducts : []),
+  ]);
+  return needs.filter((p) => !have.has(p));
+}
+
+/**
+ * Record the campaign as one this mod targets, and optionally add the products
+ * it needs, then write and stage `ebr-mod.json`.
+ *
+ * Staging rather than committing is what lets this serve both include paths: on
+ * a clean merge the caller's commit picks it up, and on a conflicted merge it
+ * rides along in the index so the user's `git merge --continue` folds it into
+ * the merge commit. Aborting the merge discards it with everything else, which
+ * is the right outcome for an include the user backed out of.
+ *
+ * No-op when nothing would change.
+ *
+ * @param params.addProductsTo - Product list to add to, or `null` to leave
+ *   products alone.
+ * @returns Whether the manifest was written.
+ */
+async function recordCampaignInManifest(
+  { dir, manifest, campaignId, addProductsTo }: { dir: string; manifest: RawManifest; campaignId: string; addProductsTo: "required" | "optional" | null },
+  { onProgress }: ProgressOptions = {},
+): Promise<boolean> {
+  const campaigns = upsertCampaignTarget(manifest.campaigns, campaignId);
+  const missingProducts = addProductsTo ? computeMissingCampaignProducts(campaignId, manifest) : [];
+  // `upsertCampaignTarget` hands back the original array when the id is already
+  // there, so reference equality is the "nothing to add" signal. Skipping the
+  // write here is what keeps a re-include a true no-op rather than an empty
+  // manifest commit.
+  if (campaigns === manifest.campaigns && missingProducts.length === 0) return false;
+
+  onProgress?.({ step: "manifest", message: "Updating the manifest..." });
+  manifest.campaigns = campaigns;
+  if (missingProducts.length > 0 && addProductsTo) {
+    applyMissingProductFix(manifest, missingProducts, addProductsTo);
   }
-  return list;
+  await writeManifest(dir, manifest);
+  await stageFile(dir, "ebr-mod.json");
+  return true;
 }
 
 /**
  * Include an official campaign branch into the current mod.
  *
- * Order of operations is deliberate: we merge first, then write the
- * manifest. That way an aborted merge or unrelated git failure leaves the
- * manifest untouched.
- *
- * 1. Validate (clean index, manifest readable, base remote present).
+ * 1. Validate (clean index, base remote present).
  * 2. Fetch base, resolve `base/campaign/<id>` to a commit hash.
  * 3. `git merge --no-commit` the campaign ref.
- *    - On {@link MergeConflictError}: write the manifest update and stage it
- *      so the user's `git merge --continue` produces a merge commit that
- *      includes both the campaign content and the includedCampaigns update.
- *      Rethrow with `campaignId`/`branch`/`commitHash` attached.
- *    - On any other error: rethrow unchanged. The manifest hasn't been
- *      touched and `git merge --abort` (if needed) restores the tree.
- * 4. Merge succeeded. Write+stage the manifest update and commit. If the
- *    merge produced no changes AND the manifest was byte-identical (the
- *    re-include case), the commit fails with NothingToCommitError; we
- *    swallow it and return `alreadyUpToDate: true`.
+ *    - On {@link MergeConflictError}: stage the manifest update into the
+ *      in-progress merge so the user's `git merge --continue` folds it into the
+ *      merge commit, then rethrow with `campaignId`/`branch`/`commitHash`
+ *      attached. `git merge --abort` instead discards both the merge and the
+ *      staged manifest update.
+ *    - On any other error: rethrow unchanged. Nothing was written or staged.
+ * 4. Merge succeeded; write the manifest update and commit both together. When
+ *    the campaign was already merged at this exact commit and the manifest
+ *    needs no change, there is nothing to commit and
+ *    NothingToCommitError surfaces; we swallow it and return
+ *    `alreadyUpToDate: true`.
  *
  * @param params.dir - Mod directory.
  * @param params.source - Official campaign id (e.g. "lure-of-the-valley").
+ * @param params.addProductsTo - Which product list to add the campaign's
+ *   required products to, or `null` (default) to leave products alone.
  * @throws {ValidationError} If `source` is malformed.
  * @throws {NotARepoError} If `dir` is not a git repository.
  * @throws {BaseRemoteMissingError} If no `base` remote is configured.
@@ -987,7 +1044,7 @@ export function upsertIncludedCampaign(existing: IncludedCampaign[] | undefined,
  * @throws {GitError} For other git failures.
  * @throws {ManifestError} If the manifest is missing or invalid.
  */
-export async function includeCampaign({ dir, source }: { dir: string; source: string }, { onProgress }: ProgressOptions = {}): Promise<{ campaignId: string; branch: string; commitHash: string; alreadyUpToDate: boolean }> {
+export async function includeCampaign({ dir, source, addProductsTo = null }: { dir: string; source: string; addProductsTo?: "required" | "optional" | null }, { onProgress }: ProgressOptions = {}): Promise<{ campaignId: string; branch: string; commitHash: string; alreadyUpToDate: boolean }> {
   const { campaignId, branch } = resolveCampaignSource(source);
   const remoteRef = `${BASE_REMOTE_NAME}/${branch}`;
 
@@ -1002,7 +1059,7 @@ export async function includeCampaign({ dir, source }: { dir: string; source: st
     throw new IndexNotCleanError(status.staged);
   }
 
-  // Read manifest up front so a missing/invalid manifest fails before we touch git.
+  // Read up front so a missing or invalid manifest fails before the network.
   const manifest = await readManifest(dir);
 
   onProgress?.({ step: "fetch", message: `Fetching ${BASE_REMOTE_NAME}...` });
@@ -1016,7 +1073,6 @@ export async function includeCampaign({ dir, source }: { dir: string; source: st
     throw new IncludeRefNotFoundError(remoteRef);
   }
 
-  const entry: IncludedCampaign = { id: campaignId, branch, commitHash };
   const shortSha = commitHash.slice(0, 7);
 
   onProgress?.({ step: "merge", message: `Merging ${remoteRef}...` });
@@ -1024,38 +1080,23 @@ export async function includeCampaign({ dir, source }: { dir: string; source: st
     await merge(dir, remoteRef, { onProgress, noCommit: true });
   } catch (err) {
     if (err instanceof MergeConflictError) {
-      // Conflict path: write+stage the manifest so `git merge --continue`
-      // includes it in the resulting merge commit. The user resolves
-      // conflicts on the campaign content, then runs `--continue`.
-      onProgress?.({ step: "manifest", message: "Updating includedCampaigns..." });
-      manifest.includedCampaigns = upsertIncludedCampaign(manifest.includedCampaigns, entry);
-      await writeManifest(dir, manifest);
-      await stageFile(dir, "ebr-mod.json");
-
-      err.campaignId = campaignId;
-      err.branch = branch;
-      err.commitHash = commitHash;
+      // Stage the manifest into the conflicted merge so `git merge --continue`
+      // commits it alongside the resolved content.
+      await recordCampaignInManifest({ dir, manifest, campaignId, addProductsTo }, { onProgress });
       throw err;
     }
-    // Any other failure: manifest is untouched, working tree is clean
-    // (or whatever git left it in). Bail cleanly without rollback.
+    // Any other failure: the working tree is clean (or whatever git left it
+    // in). Bail cleanly without rollback.
     throw err;
   }
 
-  // Merge succeeded (real merge with MERGE_HEAD set, or a no-op when the
-  // campaign was already merged at this exact commit hash). Write+stage the
-  // manifest and finalize with a commit.
-  onProgress?.({ step: "manifest", message: "Updating includedCampaigns..." });
-  manifest.includedCampaigns = upsertIncludedCampaign(manifest.includedCampaigns, entry);
-  await writeManifest(dir, manifest);
-  await stageFile(dir, "ebr-mod.json");
+  await recordCampaignInManifest({ dir, manifest, campaignId, addProductsTo }, { onProgress });
 
   onProgress?.({ step: "commit", message: "Committing include..." });
   try {
-    // With MERGE_HEAD set, this produces the merge commit (combining merge
-    // changes + our staged manifest). Without it (re-include of an already-
-    // merged campaign with byte-identical manifest), this is a regular
-    // commit that throws NothingToCommitError.
+    // With MERGE_HEAD set, this produces the merge commit. Without it
+    // (re-include of an already-merged campaign), the merge staged nothing
+    // and this throws NothingToCommitError.
     await commit(dir, `Include ${branch} at ${shortSha}`);
     return { campaignId, branch, commitHash, alreadyUpToDate: false };
   } catch (err) {
@@ -1064,6 +1105,100 @@ export async function includeCampaign({ dir, source }: { dir: string; source: st
     }
     throw err;
   }
+}
+
+/**
+ * Predict, without modifying the working tree, whether including an official
+ * campaign would conflict.
+ *
+ * Resolves the campaign branch on the `base` remote (fetching it), then runs an
+ * in-memory `git merge-tree` dry run against HEAD.
+ *
+ * A campaign is reported alreadyUpToDate when the remote content is already in
+ * HEAD.
+ *
+ * @param params.dir - Mod directory.
+ * @param params.source - Official campaign id (e.g. "lure-of-the-valley").
+ * @throws {ValidationError} If `source` is malformed.
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {BaseRemoteMissingError} If no `base` remote is configured.
+ * @throws {IncludeRefNotFoundError} If the campaign branch cannot be resolved on `base`.
+ */
+export async function predictCampaignInclude({ dir, source }: { dir: string; source: string }, { onProgress }: ProgressOptions = {}): Promise<{ campaignId: string; branch: string; commitHash: string; conflicts: string[]; alreadyUpToDate: boolean }> {
+  const { campaignId, branch } = resolveCampaignSource(source);
+  const remoteRef = `${BASE_REMOTE_NAME}/${branch}`;
+
+  await assertBaseRepo(dir);
+
+  onProgress?.({ step: "fetch", message: `Fetching ${BASE_REMOTE_NAME}...` });
+  await fetchRemote(dir, BASE_REMOTE_NAME, { onProgress });
+
+  onProgress?.({ step: "resolve", message: `Resolving ${remoteRef}...` });
+  let commitHash;
+  try {
+    commitHash = await revparseRef(dir, remoteRef);
+  } catch {
+    throw new IncludeRefNotFoundError(remoteRef);
+  }
+
+  // Nothing to do if the campaign's content is already in HEAD.
+  onProgress?.({ step: "preview", message: "Checking for conflicts..." });
+  if (await isAncestor(dir, remoteRef, "HEAD")) {
+    return { campaignId, branch, commitHash, conflicts: [], alreadyUpToDate: true };
+  }
+
+  const { conflicts } = await predictMerge(dir, remoteRef);
+
+  return { campaignId, branch, commitHash, conflicts, alreadyUpToDate: false };
+}
+
+/** Conflict markers git writes into a file it could not auto-merge. */
+const CONFLICT_MARKER = /^(<{7}|={7}|>{7})/m;
+
+/**
+ * Finalize an in-progress merge that stopped on conflicts.
+ *
+ * For each still-conflicted file: if the caller chose a side in `resolutions`,
+ * that side is taken wholesale and staged; otherwise the working copy is
+ * inspected for conflict markers - a file the user already blended by hand (no
+ * markers left) is staged as-is, while one that still carries markers is
+ * reported back as unresolved. When every file is resolved, the merge is
+ * committed with its prepared message.
+ *
+ * @param params.dir - Mod directory with an in-progress conflicted merge.
+ * @param params.resolutions - Map of conflicted path to the side to keep.
+ * @returns The new merge commit's SHA.
+ * @throws {MergeConflictError} If any file still carries conflict markers and
+ *   was not assigned a side - its `conflictedFiles` lists what remains.
+ */
+export async function finishMerge({ dir, resolutions }: { dir: string; resolutions: Record<string, "ours" | "theirs"> }, { onProgress }: ProgressOptions = {}): Promise<{ commitHash: string }> {
+  const status = await getStatus(dir);
+  const unresolved: string[] = [];
+
+  for (const file of status.conflicted) {
+    const side = resolutions[file];
+    if (side === "ours" || side === "theirs") {
+      onProgress?.({ step: "resolve", message: `Resolving ${file}...` });
+      await checkoutConflictSide(dir, file, side);
+      continue;
+    }
+    // No side chosen: accept a hand-blended file (markers gone), else flag it.
+    const contents = await readFile(join(dir, file), "utf8").catch(() => "");
+    if (CONFLICT_MARKER.test(contents)) {
+      unresolved.push(file);
+    } else {
+      onProgress?.({ step: "resolve", message: `Staging ${file}...` });
+      await stageFile(dir, file);
+    }
+  }
+
+  if (unresolved.length > 0) {
+    throw new MergeConflictError(unresolved);
+  }
+
+  onProgress?.({ step: "commit", message: "Finishing merge..." });
+  const commitHash = await commitMerge(dir);
+  return { commitHash };
 }
 
 // --- includeMod ---
@@ -1248,8 +1383,6 @@ export async function includeMod({ dir, source, registry }: { dir: string; sourc
       // Real content conflicts remain. Hand them to the author with the
       // manifest already resolved and staged.
       err.conflictedFiles = otherConflicts;
-      err.modId = includedEntry.id;
-      err.commitHash = commitHash;
       throw err;
     }
     // Any other failure: manifest untouched, merge aborts cleanly.

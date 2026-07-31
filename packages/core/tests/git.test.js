@@ -22,6 +22,11 @@ import {
   getRemoteUrl,
   remoteExists,
   isGitAuthError,
+  isAncestor,
+  predictMerge,
+  checkoutConflictSide,
+  commitMerge,
+  isMerging,
 } from "../src/git.js";
 import {
   GitError,
@@ -379,6 +384,201 @@ describe("abortMerge", () => {
 
     const content = await readFile(join(tmpDir, "shared.txt"), "utf-8");
     expect(content).toBe("main version");
+  });
+});
+
+// --- predictMerge ---
+
+describe("predictMerge", () => {
+  let tmpDir;
+  beforeEach(async () => {
+    tmpDir = await createTempDir();
+    await initTestRepo(tmpDir);
+    await commitFile(tmpDir, "shared.txt", "original content", "initial commit");
+  });
+  afterEach(async () => { await rm(tmpDir, { recursive: true, force: true }); });
+
+  it("reports no conflicts for a clean merge", async () => {
+    const git = simpleGit(tmpDir);
+    await git.checkoutLocalBranch("feature");
+    await commitFile(tmpDir, "new-file.txt", "feature content", "feature commit");
+    await git.checkout("-");
+
+    const { conflicts } = await predictMerge(tmpDir, "feature");
+    expect(conflicts).toEqual([]);
+  });
+
+  it("lists conflicting paths without touching the working tree", async () => {
+    const git = simpleGit(tmpDir);
+    await commitFile(tmpDir, "other.txt", "original other", "add other.txt");
+
+    await git.checkoutLocalBranch("feature");
+    await writeFile(join(tmpDir, "shared.txt"), "feature version");
+    await writeFile(join(tmpDir, "other.txt"), "feature other");
+    await stageAll(tmpDir);
+    await commit(tmpDir, "feature changes");
+
+    await git.checkout("-");
+    await writeFile(join(tmpDir, "shared.txt"), "main version");
+    await writeFile(join(tmpDir, "other.txt"), "main other");
+    await stageAll(tmpDir);
+    await commit(tmpDir, "main changes");
+
+    const { conflicts } = await predictMerge(tmpDir, "feature");
+    expect(conflicts).toContain("shared.txt");
+    expect(conflicts).toContain("other.txt");
+    expect(conflicts).toHaveLength(2);
+
+    // The dry run must not modify the working tree or leave a merge in progress.
+    const status = await getStatus(tmpDir);
+    expect(status.isClean).toBe(true);
+    expect(await readFile(join(tmpDir, "shared.txt"), "utf-8")).toBe("main version");
+  });
+});
+
+// --- checkoutConflictSide + commitMerge ---
+
+describe("checkoutConflictSide and commitMerge", () => {
+  let tmpDir;
+  beforeEach(async () => {
+    tmpDir = await createTempDir();
+    await initTestRepo(tmpDir);
+    await commitFile(tmpDir, "shared.txt", "original content", "initial commit");
+  });
+  afterEach(async () => { await rm(tmpDir, { recursive: true, force: true }); });
+
+  /** Put the repo into a conflicted merge on shared.txt and return the git handle. */
+  async function startConflict() {
+    const git = simpleGit(tmpDir);
+    await git.checkoutLocalBranch("feature");
+    await commitFile(tmpDir, "shared.txt", "feature version", "feature change");
+    await git.checkout("-");
+    await commitFile(tmpDir, "shared.txt", "main version", "main change");
+    try { await merge(tmpDir, "feature"); } catch { /* conflict expected */ }
+    return git;
+  }
+
+  it("keeps our version when resolving with 'ours' and commits the merge", async () => {
+    await startConflict();
+
+    await checkoutConflictSide(tmpDir, "shared.txt", "ours");
+    // Resolving stages the file, clearing the conflict.
+    let status = await getStatus(tmpDir);
+    expect(status.conflicted).toEqual([]);
+
+    const sha = await commitMerge(tmpDir);
+    expect(sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(await readFile(join(tmpDir, "shared.txt"), "utf-8")).toBe("main version");
+
+    status = await getStatus(tmpDir);
+    expect(status.isClean).toBe(true);
+  });
+
+  it("takes the incoming version when resolving with 'theirs'", async () => {
+    await startConflict();
+
+    await checkoutConflictSide(tmpDir, "shared.txt", "theirs");
+    await commitMerge(tmpDir);
+
+    expect(await readFile(join(tmpDir, "shared.txt"), "utf-8")).toBe("feature version");
+  });
+});
+
+// --- isMerging ---
+
+describe("isMerging", () => {
+  let tmpDir;
+  beforeEach(async () => {
+    tmpDir = await createTempDir();
+    await initTestRepo(tmpDir);
+    await commitFile(tmpDir, "shared.txt", "original content", "initial commit");
+  });
+  afterEach(async () => { await rm(tmpDir, { recursive: true, force: true }); });
+
+  it("returns false on a clean repo with no merge in progress", async () => {
+    expect(await isMerging(tmpDir)).toBe(false);
+  });
+
+  it("returns true while a conflicted merge is in progress", async () => {
+    const git = simpleGit(tmpDir);
+    await git.checkoutLocalBranch("feature");
+    await commitFile(tmpDir, "shared.txt", "feature version", "feature change");
+    await git.checkout("-");
+    await commitFile(tmpDir, "shared.txt", "main version", "main change");
+    try { await merge(tmpDir, "feature"); } catch { /* conflict expected */ }
+
+    expect(await isMerging(tmpDir)).toBe(true);
+  });
+
+  it("returns true when conflicts are resolved but the merge is not yet committed", async () => {
+    // Validates the resolved-but-uncommitted state: MERGE_HEAD present,
+    // zero conflicted files.
+    const git = simpleGit(tmpDir);
+    await git.checkoutLocalBranch("feature");
+    await commitFile(tmpDir, "shared.txt", "feature version", "feature change");
+    await git.checkout("-");
+    await commitFile(tmpDir, "shared.txt", "main version", "main change");
+    try { await merge(tmpDir, "feature"); } catch { /* conflict expected */ }
+
+    await checkoutConflictSide(tmpDir, "shared.txt", "ours");
+    // Conflicts staged / resolved - MERGE_HEAD still present.
+    expect(await isMerging(tmpDir)).toBe(true);
+  });
+
+  it("returns false again once the merge is committed", async () => {
+    const git = simpleGit(tmpDir);
+    await git.checkoutLocalBranch("feature");
+    await commitFile(tmpDir, "shared.txt", "feature version", "feature change");
+    await git.checkout("-");
+    await commitFile(tmpDir, "shared.txt", "main version", "main change");
+    try { await merge(tmpDir, "feature"); } catch { /* conflict expected */ }
+
+    await checkoutConflictSide(tmpDir, "shared.txt", "ours");
+    await commitMerge(tmpDir);
+
+    expect(await isMerging(tmpDir)).toBe(false);
+  });
+
+  it("returns false when the merge state cannot be read", async () => {
+    // A non-repo cannot be inspected for MERGE_HEAD. isMerging answers only "is a
+    // merge in progress"; an unreadable repo reports `false` (not merging) rather
+    // than throwing.
+    const nonRepo = await createTempDir();
+    try {
+      expect(await isMerging(nonRepo)).toBe(false);
+    } finally {
+      await rm(nonRepo, { recursive: true, force: true });
+    }
+  });
+});
+
+// --- isAncestor ---
+
+describe("isAncestor", () => {
+  let tmpDir;
+  beforeEach(async () => {
+    tmpDir = await createTempDir();
+    await initTestRepo(tmpDir);
+    await commitFile(tmpDir, "base.txt", "initial", "initial commit");
+  });
+  afterEach(async () => { await rm(tmpDir, { recursive: true, force: true }); });
+
+  it("accepts a raw SHA as ancestor and returns true when it precedes HEAD", async () => {
+    const ancestorSha = await getHeadCommit(tmpDir);
+    await commitFile(tmpDir, "later.txt", "later", "later commit");
+
+    expect(await isAncestor(tmpDir, ancestorSha, "HEAD")).toBe(true);
+  });
+
+  it("accepts a raw SHA as ancestor and returns false when the commit is not in HEAD history", async () => {
+    const git = simpleGit(tmpDir);
+    await git.checkoutLocalBranch("other");
+    await commitFile(tmpDir, "other.txt", "other", "commit on other branch");
+    const divergedSha = await getHeadCommit(tmpDir);
+    await git.checkout("-");
+    await commitFile(tmpDir, "main.txt", "main", "advance main after diverge");
+
+    expect(await isAncestor(tmpDir, divergedSha, "HEAD")).toBe(false);
   });
 });
 

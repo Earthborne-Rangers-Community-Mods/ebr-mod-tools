@@ -15,13 +15,6 @@ export interface IncludedMod {
   repoUrl: string;
 }
 
-/** A mod's included official-campaign entry. */
-export interface IncludedCampaign {
-  id: string;
-  branch: string;
-  commitHash: string;
-}
-
 /**
  * The parsed `ebr-mod.json` manifest. Fields marked required here are the
  * manifest's required fields (enforced at authoring time by `validateManifest`
@@ -44,7 +37,6 @@ export interface Manifest {
   authorDiscord?: string;
   tags?: string[];
   optionalProducts?: string[];
-  includedCampaigns?: IncludedCampaign[];
   includedMods?: IncludedMod[];
   midCampaignNotes?: string;
   icon?: string;
@@ -145,10 +137,8 @@ export interface IdentityWarning {
 export interface IncludedCampaignUpdate {
   id: string;
   branch: string;
-  oldCommitHash: string;
-  newCommitHash: string | null;
+  newCommitHash: string;
   updateAvailable: boolean;
-  missing: boolean;
 }
 
 /** Per-entry result of `checkIncludedModsUpdates`. */
