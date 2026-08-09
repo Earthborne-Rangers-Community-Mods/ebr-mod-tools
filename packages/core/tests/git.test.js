@@ -27,6 +27,7 @@ import {
   checkoutConflictSide,
   commitMerge,
   isMerging,
+  getLocalGitIdentity,
 } from "../src/git.js";
 import {
   GitError,
@@ -170,6 +171,48 @@ describe("stageAll / commit / getHeadCommit", () => {
       expect(err).toBeInstanceOf(GitError);
       expect(err.operation).toBe("commit");
     }
+  });
+
+  it("stamps the commit with an explicit identity override, ignoring the repo's own config", async () => {
+    await writeFile(join(tmpDir, "test.txt"), "hello");
+    await stageAll(tmpDir);
+    await commit(tmpDir, "override commit", {
+      identity: { name: "Real Login", email: "1+real-login@users.noreply.github.com" },
+    });
+
+    const show = await simpleGit(tmpDir).raw(["show", "-s", "--format=%an%x09%ae", "HEAD"]);
+    expect(show.trim()).toBe("Real Login\t1+real-login@users.noreply.github.com");
+  });
+
+  it("falls back to the repo's own config when no identity is passed", async () => {
+    await writeFile(join(tmpDir, "test.txt"), "hello");
+    await stageAll(tmpDir);
+    await commit(tmpDir, "ambient commit");
+
+    const show = await simpleGit(tmpDir).raw(["show", "-s", "--format=%an%x09%ae", "HEAD"]);
+    expect(show.trim()).toBe("Test User\ttest@example.com");
+  });
+});
+
+// --- getLocalGitIdentity ---
+
+describe("getLocalGitIdentity", () => {
+  let tmpDir;
+  beforeEach(async () => {
+    tmpDir = await createTempDir();
+    await initTestRepo(tmpDir);
+  });
+  afterEach(async () => { await rm(tmpDir, { recursive: true, force: true }); });
+
+  it("reads the repo's configured user.name/user.email", async () => {
+    const identity = await getLocalGitIdentity(tmpDir);
+    expect(identity).toEqual({ name: "Test User", email: "test@example.com" });
+  });
+
+  it("reflects a locally overridden email distinct from what was first configured", async () => {
+    await simpleGit(tmpDir).addConfig("user.email", "override@example.com");
+    const identity = await getLocalGitIdentity(tmpDir);
+    expect(identity).toEqual({ name: "Test User", email: "override@example.com" });
   });
 });
 

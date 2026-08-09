@@ -69,13 +69,23 @@ function wrapError(operation: string, err: unknown) {
 /**
  * Verify a token and return the authenticated user's info.
  */
-export async function getAuthenticatedUser(token: string): Promise<{ login: string; name: string | null }> {
+export async function getAuthenticatedUser(token: string): Promise<{ id: number; login: string; name: string | null }> {
   try {
     const { data } = await octokit(token).rest.users.getAuthenticated();
-    return { login: data.login, name: data.name };
+    return { id: data.id, login: data.login, name: data.name };
   } catch (err) {
     throw wrapError("getAuthenticatedUser", err);
   }
+}
+
+/**
+ * Derive a GitHub-issued no-reply commit email from an account's numeric id
+ * and login, e.g. `1234+octocat@users.noreply.github.com`. Committing under
+ * this address attributes the commit to the account on GitHub without
+ * exposing a real email.
+ */
+export function deriveNoReplyEmail(id: number, login: string): string {
+  return `${id}+${login}@users.noreply.github.com`;
 }
 
 /**

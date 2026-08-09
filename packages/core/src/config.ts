@@ -149,6 +149,43 @@ export async function clearAuthorDefaults({ configDir = CONFIG_DIR }: { configDi
   await writeConfigFile(configDir, config);
 }
 
+// --- GitHub identity ---
+
+/**
+ * Get the stored authenticated GitHub identity (numeric id, login, and the
+ * derived no-reply commit email), set during `ebr setup`.
+ */
+export async function getGithubIdentity({ configDir = CONFIG_DIR }: { configDir?: string } = {}): Promise<{ id: number | null; login: string | null; noReplyEmail: string | null }> {
+  const config = await getConfig({ configDir });
+  return {
+    id: config.githubId ?? null,
+    login: config.githubLogin ?? null,
+    noReplyEmail: config.githubNoReplyEmail ?? null,
+  };
+}
+
+/**
+ * Store the authenticated GitHub identity.
+ */
+export async function setGithubIdentity({ id, login, noReplyEmail }: { id: number; login: string; noReplyEmail: string }, { configDir = CONFIG_DIR }: { configDir?: string } = {}): Promise<void> {
+  const config = await getConfig({ configDir });
+  config.githubId = id;
+  config.githubLogin = login;
+  config.githubNoReplyEmail = noReplyEmail;
+  await writeConfigFile(configDir, config);
+}
+
+/**
+ * Remove the stored GitHub identity.
+ */
+export async function clearGithubIdentity({ configDir = CONFIG_DIR }: { configDir?: string } = {}): Promise<void> {
+  const config = await getConfig({ configDir });
+  delete config.githubId;
+  delete config.githubLogin;
+  delete config.githubNoReplyEmail;
+  await writeConfigFile(configDir, config);
+}
+
 // --- Internal helpers ---
 
 /**

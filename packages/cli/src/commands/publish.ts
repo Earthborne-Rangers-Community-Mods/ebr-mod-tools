@@ -1,8 +1,8 @@
 import { Command } from "commander";
 import { confirm, select } from "@inquirer/prompts";
 import open from "open";
-import { getForkUrls } from "core/config.js";
-import { publishMod, saveMod } from "core/workflows.js";
+import { getForkUrls, getGithubIdentity } from "core/config.js";
+import { publishMod, saveMod, previewIdentityOverride } from "core/workflows.js";
 import { getStatus } from "core/git.js";
 import { readManifest, writeManifest, validateManifest, formatValidationError, applyMissingProductFix, isBelowStable, VALIDATION_CODES } from "core/manifest.js";
 import { OFFICIAL_PRODUCTS } from "core/catalogs.js";
@@ -40,6 +40,22 @@ async function publishAction(opts: { force?: boolean }) {
         return;
       }
 
+      // Resolve the stored commit identity (set during `ebr setup`) once, so
+      // both the version-bump save and the registry-entry commit stamp it
+      // explicitly. Warn if it will override what the local git config would
+      // otherwise stamp.
+      const storedIdentity = await getGithubIdentity();
+      const identity = storedIdentity.login && storedIdentity.noReplyEmail
+        ? { name: storedIdentity.login, email: storedIdentity.noReplyEmail }
+        : null;
+      const override = await previewIdentityOverride({ dir, identity });
+      if (override) {
+        console.log("\x1b[33m");
+        console.log(`\u26A0 Commits from this publish will be attributed to ${override.name} <${override.email}>,`);
+        console.log(`  not your local git config (${override.localName ?? "unset"} <${override.localEmail ?? "unset"}>).`);
+        console.log(`  Run \`ebr setup\` again if this isn't the account you expect.\x1b[0m`);
+      }
+
       // Offer to promote a pre-1.0 mod to a stable 1.0.0 release. Only on a clean
       // working tree, so the bump commit contains just the version change - never
       // unrelated pending edits. A dirty tree skips the offer and falls through to
@@ -52,7 +68,7 @@ async function publishAction(opts: { force?: boolean }) {
         });
         if (bump) {
           await saveMod(
-            { dir, commitMessage: "Bump version to 1.0.0", version: "1.0.0" },
+            { dir, commitMessage: "Bump version to 1.0.0", version: "1.0.0", identity },
             { onProgress: (p: ProgressEvent) => console.log(p.message) },
           );
           console.log("Bumped to 1.0.0 and saved.\n");
@@ -60,7 +76,7 @@ async function publishAction(opts: { force?: boolean }) {
       }
 
       const result = await publishMod(
-        { dir, registryForkUrl: forks.registry, force: opts.force },
+        { dir, registryForkUrl: forks.registry, force: opts.force, identity },
         {
           onProgress: (p: ProgressEvent) =>
             p.step === "create-pr-failed"

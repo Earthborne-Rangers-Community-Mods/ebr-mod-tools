@@ -23,6 +23,7 @@ import {
   parseCredentialFill,
   borrowCredentialToken,
   clearCredential,
+  deriveNoReplyEmail,
 } from "../src/github.js";
 import {
   GithubError,
@@ -54,13 +55,13 @@ beforeEach(() => {
 // --- getAuthenticatedUser ---
 
 describe("getAuthenticatedUser", () => {
-  it("returns login and name on success", async () => {
+  it("returns id, login, and name on success", async () => {
     mocks.getAuthenticated.mockResolvedValue({
-      data: { login: "test-user", name: "Test User" },
+      data: { id: 1234, login: "test-user", name: "Test User" },
     });
 
     const result = await getAuthenticatedUser(TOKEN);
-    expect(result).toEqual({ login: "test-user", name: "Test User" });
+    expect(result).toEqual({ id: 1234, login: "test-user", name: "Test User" });
   });
 
   it("throws AuthenticationError on 401", async () => {
@@ -81,6 +82,14 @@ describe("getAuthenticatedUser", () => {
     const err = await getAuthenticatedUser(TOKEN).catch((e) => e);
     expect(err).toBeInstanceOf(GithubError);
     expect(err).not.toBeInstanceOf(AuthenticationError);
+  });
+});
+
+// --- deriveNoReplyEmail ---
+
+describe("deriveNoReplyEmail", () => {
+  it("combines the numeric id and login into a GitHub no-reply address", () => {
+    expect(deriveNoReplyEmail(1234, "octocat")).toBe("1234+octocat@users.noreply.github.com");
   });
 });
 

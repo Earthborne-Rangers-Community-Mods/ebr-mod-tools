@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { forkOwnerFromUrl, forkUrlFor, resolveCredentialLogin, ensureFork } from "../src/workflows.js";
+import { forkOwnerFromUrl, forkUrlFor, resolveCredentialLogin, resolveCredentialIdentity, ensureFork } from "../src/workflows.js";
 
 // --- forkOwnerFromUrl ---
 
@@ -84,6 +84,61 @@ describe("resolveCredentialLogin", () => {
 
     // Opt-in: interactive - allow the helper to prompt for a sign-in.
     await resolveCredentialLogin({ interactive: true, borrowTokenImpl, getUserImpl });
+    expect(borrowTokenImpl).toHaveBeenLastCalledWith(expect.objectContaining({ interactive: true }));
+  });
+});
+
+// --- resolveCredentialIdentity ---
+
+describe("resolveCredentialIdentity", () => {
+  it("returns the id and login of the borrowed credential", async () => {
+    const borrowTokenImpl = vi.fn(async () => "ghs_borrowed");
+    const getUserImpl = vi.fn(async () => ({ id: 1234, login: "CredUser" }));
+
+    const identity = await resolveCredentialIdentity({ borrowTokenImpl, getUserImpl });
+
+    expect(identity).toEqual({ id: 1234, login: "CredUser" });
+    expect(getUserImpl).toHaveBeenCalledWith("ghs_borrowed");
+  });
+
+  it("returns null when no credential can be borrowed", async () => {
+    const borrowTokenImpl = vi.fn(async () => null);
+    const getUserImpl = vi.fn();
+
+    const identity = await resolveCredentialIdentity({ borrowTokenImpl, getUserImpl });
+
+    expect(identity).toBeNull();
+    expect(getUserImpl).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the borrowed token cannot resolve a user", async () => {
+    const borrowTokenImpl = vi.fn(async () => "ghs_borrowed");
+    const getUserImpl = vi.fn(async () => { throw new Error("bad credentials"); });
+
+    const identity = await resolveCredentialIdentity({ borrowTokenImpl, getUserImpl });
+
+    expect(identity).toBeNull();
+  });
+
+  it("returns null when GET /user resolves without a login or id field", async () => {
+    const borrowTokenImpl = vi.fn(async () => "ghs_borrowed");
+    const getUserImpl = vi.fn(async () => ({ login: "CredUser" }));
+
+    const identity = await resolveCredentialIdentity({ borrowTokenImpl, getUserImpl });
+
+    expect(identity).toBeNull();
+  });
+
+  it("is a passive probe by default and threads the interactive flag through", async () => {
+    const borrowTokenImpl = vi.fn(async () => "ghs_borrowed");
+    const getUserImpl = vi.fn(async () => ({ id: 1234, login: "CredUser" }));
+
+    // Default: passive - never prompts.
+    await resolveCredentialIdentity({ borrowTokenImpl, getUserImpl });
+    expect(borrowTokenImpl).toHaveBeenLastCalledWith(expect.objectContaining({ interactive: false }));
+
+    // Opt-in: interactive - allow the helper to prompt for a sign-in.
+    await resolveCredentialIdentity({ interactive: true, borrowTokenImpl, getUserImpl });
     expect(borrowTokenImpl).toHaveBeenLastCalledWith(expect.objectContaining({ interactive: true }));
   });
 });

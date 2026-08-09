@@ -71,6 +71,20 @@
     <p class="body">{m.save_push_body()}</p>
   {/if}
 
+  {#if saveFlow.identityOverride}
+    <div class="warnings identity-warning">
+      <p class="warnings-title">{m.identity_override_title()}</p>
+      <p class="identity-body">
+        {m.identity_override_body({
+          name: saveFlow.identityOverride.name,
+          email: saveFlow.identityOverride.email,
+          localName: saveFlow.identityOverride.localName ?? m.identity_override_unset(),
+          localEmail: saveFlow.identityOverride.localEmail ?? m.identity_override_unset(),
+        })}
+      </p>
+    </div>
+  {/if}
+
   {#if saveFlow.busy && saveFlow.progress}
     <p class="progress" aria-live="polite">{saveFlow.progress}</p>
   {/if}
@@ -158,6 +172,29 @@
   .progress {
     margin: 0;
     color: var(--color-text-muted);
+    font-size: 0.875rem;
+  }
+
+  .warnings {
+    margin: 0;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-alt, var(--color-surface));
+  }
+
+  .warnings-title {
+    margin: 0 0 var(--spacing-xs);
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .identity-warning {
+    border-color: var(--color-warning, var(--color-border));
+  }
+
+  .identity-body {
+    margin: 0;
     font-size: 0.875rem;
   }
 

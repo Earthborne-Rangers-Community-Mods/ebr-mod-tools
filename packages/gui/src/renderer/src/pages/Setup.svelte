@@ -101,6 +101,9 @@
     {:else}
       <p class="detail">{m.setup_no_account()}</p>
     {/if}
+    {#if setupStore.identity.noReplyEmail}
+      <p class="detail">{m.setup_commit_email({ email: setupStore.identity.noReplyEmail })}</p>
+    {/if}
     <div class="card-actions">
       <button type="button" class="secondary" disabled={setupStore.busy} onclick={() => setupStore.checkStatus()}>
         {m.setup_check_status()}

@@ -176,3 +176,33 @@ export interface PrResult {
   url?: string;
   alreadyExists?: boolean;
 }
+
+/** The git identity a tool-initiated commit is stamped with. */
+export interface CommitIdentity {
+  name: string;
+  email: string;
+}
+
+/**
+ * The authenticated GitHub identity persisted in `~/.ebr/` during setup:
+ * the numeric account id, its login, and the no-reply email derived from
+ * them (`<id>+<login>@users.noreply.github.com`). Fields are nullable
+ * because setup may not have run yet.
+ */
+export interface GithubIdentity {
+  id: number | null;
+  login: string | null;
+  noReplyEmail: string | null;
+}
+
+/**
+ * Reports that a tool-initiated commit will be stamped with a different
+ * identity than the one the local git config would otherwise use, so the
+ * caller can warn the user before the commit lands.
+ */
+export interface IdentityOverridePreview {
+  name: string;
+  email: string;
+  localName: string | null;
+  localEmail: string | null;
+}

@@ -9,12 +9,13 @@
  *
  * The pure logic lives in `core`; this is the front-end orchestration layer.
  */
-import { saveMod, pushMod, bumpVersion, getStatus, validateVersion, NothingToCommitError } from "core";
-import type { ProgressEvent } from "core/types.js";
+import { saveMod, pushMod, bumpVersion, getStatus, validateVersion, previewIdentityOverride, NothingToCommitError } from "core";
+import type { ProgressEvent, IdentityOverridePreview } from "core/types.js";
 import { runGuarded } from "./guarded.js";
 import { FlowStore } from "./flowstore.svelte.js";
 import { openMods } from "./mods.svelte.js";
 import { gitStatus } from "./gitstatus.svelte.js";
+import { setupStore } from "./setup.svelte.js";
 
 /** Whether the flow commits new work or only pushes already-committed work. */
 export type SaveMode = "commit" | "push";
@@ -38,6 +39,11 @@ class SaveFlow extends FlowStore {
   customVersion = $state("");
   /** Commit message for the save. */
   commitMessage = $state(DEFAULT_MESSAGE);
+  /**
+   * Set when the stored commit identity (from Setup) would stamp the commit
+   * differently than the local git config would.
+   */
+  identityOverride = $state<IdentityOverridePreview | null>(null);
 
   /** The version a commit-mode save would write. */
   get nextVersion() {
@@ -67,7 +73,9 @@ class SaveFlow extends FlowStore {
     this.versionChoice = "patch";
     this.customVersion = this.currentVersion;
     this.commitMessage = DEFAULT_MESSAGE;
+    this.identityOverride = null;
     this.resetStatus();
+    if (mode === "commit") this.#loadIdentityOverride(dir);
   }
 
   /** Close the dialog. No-op while a run is in flight. */
@@ -80,6 +88,18 @@ class SaveFlow extends FlowStore {
   /** Select how the version is set on save. */
   setVersionChoice(choice: VersionChoice) {
     this.versionChoice = choice;
+  }
+
+  /** Check the stored commit identity against the mod's git config. */
+  async #loadIdentityOverride(dir: string) {
+    const { login, noReplyEmail } = setupStore.identity;
+    const identity = login && noReplyEmail ? { name: login, email: noReplyEmail } : null;
+    try {
+      const preview = await previewIdentityOverride({ dir, identity });
+      if (this.dir === dir) this.identityOverride = preview;
+    } catch {
+      // Best-effort banner; a failed check just leaves it hidden.
+    }
   }
 
   /**
@@ -113,7 +133,9 @@ class SaveFlow extends FlowStore {
                 ? this.customVersion.trim()
                 : bumpVersion(this.currentVersion, this.versionChoice);
             const commitMessage = this.commitMessage.trim() || DEFAULT_MESSAGE;
-            await saveMod({ dir, commitMessage, version }, { onProgress });
+            const { login, noReplyEmail } = setupStore.identity;
+            const identity = login && noReplyEmail ? { name: login, email: noReplyEmail } : null;
+            await saveMod({ dir, commitMessage, version, identity }, { onProgress });
           }
         } else {
           // Push mode only ever pushes. If the tree became dirty since the dialog

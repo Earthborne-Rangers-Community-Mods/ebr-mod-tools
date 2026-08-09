@@ -53,7 +53,7 @@ packages/
       git.ts        # Git operations wrapper (simple-git)
       github.ts     # GitHub API wrapper (@octokit/rest)
       manifest.ts   # Read/write/validate ebr-mod.json
-      config.ts     # Fork URLs and author defaults storage (~/.ebr/)
+      config.ts     # Fork URLs, author defaults, and GitHub commit identity storage (~/.ebr/)
       catalogs.ts   # Official campaign and product catalogs
       registry.ts   # Registry entry building and validation
       errors.ts     # Typed error classes

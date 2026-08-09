@@ -88,6 +88,20 @@
       </label>
     {/if}
 
+    {#if publishFlow.identityOverride}
+      <div class="warnings identity-warning">
+        <p class="warnings-title">{m.identity_override_title()}</p>
+        <p class="identity-body">
+          {m.identity_override_body({
+            name: publishFlow.identityOverride.name,
+            email: publishFlow.identityOverride.email,
+            localName: publishFlow.identityOverride.localName ?? m.identity_override_unset(),
+            localEmail: publishFlow.identityOverride.localEmail ?? m.identity_override_unset(),
+          })}
+        </p>
+      </div>
+    {/if}
+
     {#if publishFlow.busy && publishFlow.progress}
       <p class="progress" aria-live="polite">{publishFlow.progress}</p>
     {/if}

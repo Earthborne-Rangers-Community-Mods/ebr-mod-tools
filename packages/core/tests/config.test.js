@@ -11,6 +11,9 @@ import {
   getAuthorDefaults,
   setAuthorDefaults,
   clearAuthorDefaults,
+  getGithubIdentity,
+  setGithubIdentity,
+  clearGithubIdentity,
   CONFIG_DIR,
 } from "../src/config.js";
 import { ConfigError } from "../src/errors.js";
@@ -436,5 +439,103 @@ describe("clearAuthorDefaults", () => {
   it("does not throw when no author defaults exist", async () => {
     await writeConfigFile(tmpDir, { githubToken: "ghp_test" });
     await expect(clearAuthorDefaults({ configDir: tmpDir })).resolves.not.toThrow();
+  });
+});
+
+// --- getGithubIdentity / setGithubIdentity / clearGithubIdentity ---
+
+describe("getGithubIdentity", () => {
+  let tmpDir;
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir("ebr-config-test-");
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns nulls when no config exists", async () => {
+    const result = await getGithubIdentity({ configDir: join(tmpDir, "nonexistent") });
+    expect(result).toEqual({ id: null, login: null, noReplyEmail: null });
+  });
+
+  it("returns stored identity", async () => {
+    await writeConfigFile(tmpDir, {
+      githubId: 1234,
+      githubLogin: "octocat",
+      githubNoReplyEmail: "1234+octocat@users.noreply.github.com",
+    });
+    const result = await getGithubIdentity({ configDir: tmpDir });
+    expect(result).toEqual({
+      id: 1234,
+      login: "octocat",
+      noReplyEmail: "1234+octocat@users.noreply.github.com",
+    });
+  });
+});
+
+describe("setGithubIdentity", () => {
+  let tmpDir;
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir("ebr-config-test-");
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("stores the identity fields", async () => {
+    await setGithubIdentity({
+      id: 1234,
+      login: "octocat",
+      noReplyEmail: "1234+octocat@users.noreply.github.com",
+    }, { configDir: tmpDir });
+    const result = await readConfigFile(tmpDir);
+    expect(result.githubId).toBe(1234);
+    expect(result.githubLogin).toBe("octocat");
+    expect(result.githubNoReplyEmail).toBe("1234+octocat@users.noreply.github.com");
+  });
+
+  it("preserves other config values", async () => {
+    await writeConfigFile(tmpDir, { authorName: "TestCreator" });
+    await setGithubIdentity({
+      id: 1234,
+      login: "octocat",
+      noReplyEmail: "1234+octocat@users.noreply.github.com",
+    }, { configDir: tmpDir });
+    const result = await readConfigFile(tmpDir);
+    expect(result.authorName).toBe("TestCreator");
+    expect(result.githubLogin).toBe("octocat");
+  });
+});
+
+describe("clearGithubIdentity", () => {
+  let tmpDir;
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir("ebr-config-test-");
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("removes the identity fields from config", async () => {
+    await writeConfigFile(tmpDir, {
+      authorName: "TestCreator",
+      githubId: 1234,
+      githubLogin: "octocat",
+      githubNoReplyEmail: "1234+octocat@users.noreply.github.com",
+    });
+    await clearGithubIdentity({ configDir: tmpDir });
+    const result = await readConfigFile(tmpDir);
+    expect(result).toEqual({ authorName: "TestCreator" });
+  });
+
+  it("does not throw when no identity exists", async () => {
+    await writeConfigFile(tmpDir, { authorName: "TestCreator" });
+    await expect(clearGithubIdentity({ configDir: tmpDir })).resolves.not.toThrow();
   });
 });

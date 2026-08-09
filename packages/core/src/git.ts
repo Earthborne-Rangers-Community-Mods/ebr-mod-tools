@@ -5,7 +5,7 @@
 import { simpleGit } from "simple-git";
 import type { SimpleGitProgressEvent, SimpleGitOptions } from "simple-git";
 import { GitError, NotARepoError, GitAuthenticationError, MergeConflictError, NothingToCommitError, DirtyWorkingTreeError } from "./errors.js";
-import type { ProgressCallback, ProgressOptions } from "./types.js";
+import type { ProgressCallback, ProgressOptions, CommitIdentity } from "./types.js";
 
 /** Options for {@link push}. */
 interface PushOptions extends ProgressOptions {
@@ -41,9 +41,14 @@ function progressOption(onProgress?: ProgressCallback): ((event: SimpleGitProgre
 
 /**
  * Create a simple-git instance for a directory.
+ * @param options.identity - When set, overrides `user.name`/`user.email` for
+ *   every command this instance runs, via git's `-c` switch.
  */
-function git(dir: string, { onProgress }: ProgressOptions = {}) {
+function git(dir: string, { onProgress, identity }: { onProgress?: ProgressCallback; identity?: CommitIdentity } = {}) {
   const options: Partial<SimpleGitOptions> = { baseDir: dir, progress: progressOption(onProgress) };
+  if (identity) {
+    options.config = [`user.name=${identity.name}`, `user.email=${identity.email}`];
+  }
   return simpleGit(options);
 }
 
@@ -277,11 +282,14 @@ export async function stageByExtensions(dir: string, extensions: readonly string
 /**
  * Commit staged changes.
  * @param message - Commit message.
+ * @param options.identity - When set, stamps the commit's author/committer
+ *   with this identity explicitly (`-c user.name=... -c user.email=...`)
+ *   instead of inheriting the machine's ambient git config.
  * @throws {NothingToCommitError} If working tree is clean.
  */
-export async function commit(dir: string, message: string) {
+export async function commit(dir: string, message: string, { identity }: { identity?: CommitIdentity } = {}) {
   try {
-    const result = await git(dir).commit(message);
+    const result = await git(dir, { identity }).commit(message);
     // simple-git returns a CommitResult; if nothing was committed, summary is empty
     if (!result.commit) {
       throw new NothingToCommitError();
@@ -660,6 +668,33 @@ export async function getCommitAuthorEmail(dir: string, ref = "HEAD"): Promise<s
   try {
     const email = (await git(dir).raw(["show", "-s", "--format=%ae", ref])).trim();
     return email || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the `user.name`/`user.email` git would use for a commit made in `dir`
+ * right now. Resolved through git's own local -> global -> system precedence,
+ * the same values an unadorned `git commit` would stamp. Either field is
+ * `null` when unset at every level.
+ */
+export async function getLocalGitIdentity(dir: string): Promise<{ name: string | null; email: string | null }> {
+  const [name, email] = await Promise.all([
+    readGitConfigValue(dir, "user.name"),
+    readGitConfigValue(dir, "user.email"),
+  ]);
+  return { name, email };
+}
+
+/**
+ * Read a single git config value, resolved through git's normal precedence.
+ * Returns `null` when the key is unset (or the read fails for any reason).
+ */
+async function readGitConfigValue(dir: string, key: string): Promise<string | null> {
+  try {
+    const value = (await git(dir).raw(["config", key])).trim();
+    return value || null;
   } catch {
     return null;
   }

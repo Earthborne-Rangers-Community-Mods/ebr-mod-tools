@@ -1,10 +1,10 @@
 import { Command } from "commander";
 import { confirm, input } from "@inquirer/prompts";
 import open from "open";
-import { getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults } from "core/config.js";
-import { resolveCredentialLogin, ensureFork, forkUrlFor, forkOwnerFromUrl } from "core/workflows.js";
+import { getForkUrls, setForkUrls, clearForkUrls, getAuthorDefaults, setAuthorDefaults, clearAuthorDefaults, getGithubIdentity, setGithubIdentity, clearGithubIdentity } from "core/config.js";
+import { resolveCredentialLogin, resolveCredentialIdentity, ensureFork, forkUrlFor, forkOwnerFromUrl } from "core/workflows.js";
 import { remoteExists } from "core/git.js";
-import { clearCredential } from "core/github.js";
+import { clearCredential, deriveNoReplyEmail } from "core/github.js";
 import type { ProgressEvent } from "core/types.js";
 
 const ORG = "Earthborne-Rangers-Community-Mods";
@@ -24,6 +24,7 @@ export const setupCommand = new Command("setup")
       if (opts.clear) {
         await clearForkUrls();
         await clearAuthorDefaults();
+        await clearGithubIdentity();
         console.log("Stored data cleared.");
         return;
       }
@@ -70,6 +71,9 @@ async function status() {
   const defaults = await getAuthorDefaults();
   if (defaults.author) console.log(`Default author: ${defaults.author}`);
   if (defaults.authorDiscord) console.log(`Default Discord: ${defaults.authorDiscord}`);
+
+  const identity = await getGithubIdentity();
+  if (identity.noReplyEmail) console.log(`Commit email: ${identity.noReplyEmail}`);
 }
 
 /**
@@ -139,9 +143,9 @@ async function interactive() {
 
   // 2. A sign-in window may open; read the account git is signed in as.
   console.log("\nA GitHub sign-in window may open - complete it to continue.");
-  const detectedLogin = await resolveCredentialLogin({ interactive: true });
+  const detectedIdentity = await resolveCredentialIdentity({ interactive: true });
 
-  const login = await resolveAccount(detectedLogin);
+  const login = await resolveAccount(detectedIdentity?.login ?? null);
   if (!login) return;
 
   // 3. Explain forks and ask before creating them.
@@ -169,6 +173,17 @@ async function interactive() {
     registry: forkUrlFor(login, REGISTRY_REPO),
   });
 
+  // Persist the commit identity the confirmed account resolves to, so
+  // tool-initiated commits (`ebr save`, `ebr publish`) can stamp it explicitly
+  // instead of inheriting the machine's ambient git config.
+  if (detectedIdentity && detectedIdentity.login === login) {
+    await setGithubIdentity({
+      id: detectedIdentity.id,
+      login: detectedIdentity.login,
+      noReplyEmail: deriveNoReplyEmail(detectedIdentity.id, detectedIdentity.login),
+    });
+  }
+
   // 5. Author defaults - offer to update them if they're already set.
   const existingDefaults = await getAuthorDefaults();
   if (existingDefaults.author) {
@@ -184,11 +199,13 @@ async function interactive() {
 
   const forks = await getForkUrls();
   const defaults = await getAuthorDefaults();
+  const identity = await getGithubIdentity();
   console.log("\nSetup complete.");
   if (forks.baseContent) console.log(`  Mod project fork: ${forks.baseContent}`);
   if (forks.registry) console.log(`  Mod registry fork:    ${forks.registry}`);
   if (defaults.author) console.log(`  Default author:    ${defaults.author}`);
   if (defaults.authorDiscord) console.log(`  Default Discord:   ${defaults.authorDiscord}`);
+  if (identity.noReplyEmail) console.log(`  Commit email:      ${identity.noReplyEmail}`);
 }
 
 /**

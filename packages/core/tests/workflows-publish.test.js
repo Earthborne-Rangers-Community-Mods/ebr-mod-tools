@@ -218,6 +218,29 @@ describe("publishMod", () => {
     expect(written.latestVersion).toBe("1.0.0");
   });
 
+  it("stamps the registry-entry commit with the provided identity", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGitMocks();
+    const cloneDir = await createTempDir("ebr-clone-");
+    const identity = { name: "Real Login", email: "1+real-login@users.noreply.github.com" };
+
+    await publishMod(await publishOpts(dir, { cloneDir, identity }));
+
+    expect(gitMocks.commit).toHaveBeenCalledWith(cloneDir, expect.any(String), { identity });
+  });
+
+  it("commits without an identity override when none is provided", async () => {
+    const dir = await createTempDir();
+    await writeManifestFile(dir, validManifest());
+    setupGitMocks();
+    const cloneDir = await createTempDir("ebr-clone-");
+
+    await publishMod(await publishOpts(dir, { cloneDir }));
+
+    expect(gitMocks.commit).toHaveBeenCalledWith(cloneDir, expect.any(String), { identity: undefined });
+  });
+
   it("reuses an existing clone instead of re-cloning", async () => {
     const dir = await createTempDir();
     await writeManifestFile(dir, validManifest());

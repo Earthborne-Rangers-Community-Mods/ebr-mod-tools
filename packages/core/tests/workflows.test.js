@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import simpleGit from "simple-git";
-import { scaffoldMod, scaffoldModIntoClone, saveMod, pushMod, getModBranchName } from "../src/workflows.js";
+import { scaffoldMod, scaffoldModIntoClone, saveMod, pushMod, getModBranchName, previewIdentityOverride } from "../src/workflows.js";
 import { readManifest, buildManifest, toId } from "../src/manifest.js";
 import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push, getAheadBehind } from "../src/git.js";
 import { ManifestError, NothingToCommitError, GitError, ValidationError, ForkOutOfSyncError } from "../src/errors.js";
@@ -625,6 +625,66 @@ describe("saveMod", () => {
     });
     const manifest = await readManifest(tmpDir);
     expect(manifest.repoUrl).toBe("https://github.com/creator/my-mod");
+  });
+
+  it("stamps the commit with an explicit identity instead of the repo's own config", async () => {
+    await writeFile(join(tmpDir, "file.md"), "content");
+
+    await saveMod({
+      dir: tmpDir,
+      commitMessage: "identity save",
+      identity: { name: "Real Login", email: "1+real-login@users.noreply.github.com" },
+    });
+
+    const show = await simpleGit(tmpDir).raw(["show", "-s", "--format=%an%x09%ae", "HEAD"]);
+    expect(show.trim()).toBe("Real Login\t1+real-login@users.noreply.github.com");
+  });
+});
+
+// --- previewIdentityOverride ---
+
+describe("previewIdentityOverride", () => {
+  let tmpDir;
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir("ebr-identity-");
+    await initTestRepo(tmpDir);
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns null when no identity is configured", async () => {
+    expect(await previewIdentityOverride({ dir: tmpDir, identity: null })).toBeNull();
+  });
+
+  it("returns null when the identity already matches the local git config", async () => {
+    const identity = { name: "Test User", email: "test@example.com" };
+    expect(await previewIdentityOverride({ dir: tmpDir, identity })).toBeNull();
+  });
+
+  it("returns null when the identity matches case-insensitively", async () => {
+    const identity = { name: "TEST USER", email: "TEST@EXAMPLE.COM" };
+    expect(await previewIdentityOverride({ dir: tmpDir, identity })).toBeNull();
+  });
+
+  it("returns null when the local git config has nothing set", async () => {
+    const identity = { name: "Real Login", email: "1+real-login@users.noreply.github.com" };
+    const getLocalIdentityImpl = async () => ({ name: null, email: null });
+    const preview = await previewIdentityOverride({ dir: tmpDir, identity }, { getLocalIdentityImpl });
+    expect(preview).toBeNull();
+  });
+
+  it("returns the local and override identities when they differ", async () => {
+    const identity = { name: "Real Login", email: "1+real-login@users.noreply.github.com" };
+    const preview = await previewIdentityOverride({ dir: tmpDir, identity });
+    expect(preview).toEqual({
+      name: "Real Login",
+      email: "1+real-login@users.noreply.github.com",
+      localName: "Test User",
+      localEmail: "test@example.com",
+    });
   });
 });
 

@@ -11,13 +11,13 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { listFilesRecursive, sanitizePathSegment, realPathSafe, realPathOfDestination, isPathInside } from "./filesystem.js";
 import { readManifest, writeManifest, assertValidManifest, updateManifest, compareVersions, applyMissingProductFix } from "./manifest.js";
-import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase, getCommitAuthorEmail, predictMerge, checkoutConflictSide, commitMerge } from "./git.js";
+import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase, getCommitAuthorEmail, getLocalGitIdentity, predictMerge, checkoutConflictSide, commitMerge } from "./git.js";
 import { getAuthenticatedUser, forkRepo, normalizeGithubUrl, borrowCredentialToken } from "./github.js";
 import { ManifestError, GithubError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry, fetchRegistry } from "./registry.js";
 import { ALLOWED_EXTENSIONS, OFFICIAL_CAMPAIGNS, SCAFFOLD_NAME_TOKEN, KNOWN_SCAFFOLDS, SCAFFOLD_SKIP_FILES } from "./catalogs.js";
 import { CONFIG_DIR } from "./config.js";
-import type { Manifest, RawManifest, Registry, RegistryEntry, PrResult, IncludedMod, ProgressCallback, ProgressOptions, ManifestChange, IncludedModWarning, IncludedCampaignUpdate, IncludedModUpdate, IdentityWarning } from "./types.js";
+import type { Manifest, RawManifest, Registry, RegistryEntry, PrResult, IncludedMod, ProgressCallback, ProgressOptions, ManifestChange, IncludedModWarning, IncludedCampaignUpdate, IncludedModUpdate, IdentityWarning, CommitIdentity, IdentityOverridePreview } from "./types.js";
 
 // --- Constants ---
 
@@ -185,10 +185,12 @@ export async function scaffoldMod({ dir, manifest, forkUrl, baseRepoUrl = BASE_R
  * @param options.dir - Mod directory containing ebr-mod.json.
  * @param options.commitMessage - Commit message.
  * @param options.version - Target version to set (omit or null to skip).
+ * @param options.identity - Stored GitHub identity to stamp the commit with
+ *   explicitly. Omit to fall back to the ambient config.
  * @param callbacks.onProgress - Progress callback.
  * @throws {NothingToCommitError} If there are no changes to commit.
  */
-export async function saveMod({ dir, commitMessage, version }: { dir: string; commitMessage: string; version?: string }, { onProgress }: ProgressOptions = {}): Promise<{ commitHash: string; manifestChanges: ManifestChange[] }> {
+export async function saveMod({ dir, commitMessage, version, identity = null }: { dir: string; commitMessage: string; version?: string; identity?: CommitIdentity | null }, { onProgress }: ProgressOptions = {}): Promise<{ commitHash: string; manifestChanges: ManifestChange[] }> {
   // 1. Detect repoUrl from origin remote
   const remoteUrl = await getRemoteUrl(dir, "origin");
   const repoUrl = normalizeGithubUrl(remoteUrl);
@@ -202,7 +204,7 @@ export async function saveMod({ dir, commitMessage, version }: { dir: string; co
 
   // 4. Commit
   onProgress?.({ step: "commit", message: "Committing..." });
-  await commit(dir, commitMessage);
+  await commit(dir, commitMessage, { identity: identity ?? undefined });
 
   // 5. Push (setting the upstream tracking branch on the first push)
   await pushMod(dir, { onProgress });
@@ -439,9 +441,11 @@ async function prepareCloneForPublish(cloneDir: string, forkCloneUrl: string, br
  * @param params.branchName - Publish branch (e.g. "publish/my-mod").
  * @param params.entryJson - Serialized registry entry (with trailing newline).
  * @param params.message - Commit message.
+ * @param params.identity - Stored GitHub identity to stamp the commit with
+ *   explicitly, instead of inheriting the machine's ambient git config.
  */
 async function writeRegistryEntry(
-  { cloneDir, registryForkUrl, branchName, modId, entryJson, message }: { cloneDir: string; registryForkUrl: string; branchName: string; modId: string; entryJson: string; message: string },
+  { cloneDir, registryForkUrl, branchName, modId, entryJson, message, identity = null }: { cloneDir: string; registryForkUrl: string; branchName: string; modId: string; entryJson: string; message: string; identity?: CommitIdentity | null },
   { onProgress }: ProgressOptions = {},
 ) {
   const forkCloneUrl = registryForkUrl.endsWith(".git") ? registryForkUrl : `${registryForkUrl}.git`;
@@ -475,7 +479,7 @@ async function writeRegistryEntry(
   await mkdir(modsDir, { recursive: true });
   await writeFile(join(modsDir, `${modId}.json`), entryJson, "utf-8");
   await stageFile(cloneDir, `${MODS_DIR}/${modId}.json`);
-  await commit(cloneDir, message);
+  await commit(cloneDir, message, { identity: identity ?? undefined });
 
   onProgress?.({ step: "push", message: "Pushing to your fork..." });
   await push(cloneDir, { remote: "origin", branch: branchName, force: true });
@@ -510,11 +514,13 @@ async function writeRegistryEntry(
  * @param options.registryRepo - Upstream registry repo name.
  * @param options.cloneDir - Local working clone of the registry fork.
  * @param options.prWorkerUrl - GitHub App PR worker endpoint. Pass null to skip the worker and always use the compare URL.
+ * @param options.identity - Stored GitHub identity to stamp the registry-entry
+ *   commit with explicitly. Omit to fall back to the ambient config.
  * @param options.fetchImpl - Injected fetch (tests).
  * @param callbacks.onProgress - Progress callback ({ step, message }).
  */
 export async function publishMod(
-  { dir, registryForkUrl, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO, cloneDir = DEFAULT_REGISTRY_CLONE_DIR, prWorkerUrl = DEFAULT_PR_WORKER_URL, fetchImpl = fetch }: { dir: string; registryForkUrl: string; force?: boolean; registryOwner?: string; registryRepo?: string; cloneDir?: string; prWorkerUrl?: string | null; fetchImpl?: typeof fetch },
+  { dir, registryForkUrl, force = false, registryOwner = DEFAULT_REGISTRY_OWNER, registryRepo = DEFAULT_REGISTRY_REPO, cloneDir = DEFAULT_REGISTRY_CLONE_DIR, prWorkerUrl = DEFAULT_PR_WORKER_URL, identity = null, fetchImpl = fetch }: { dir: string; registryForkUrl: string; force?: boolean; registryOwner?: string; registryRepo?: string; cloneDir?: string; prWorkerUrl?: string | null; identity?: CommitIdentity | null; fetchImpl?: typeof fetch },
   { onProgress }: ProgressOptions = {},
 ): Promise<{ createdPr: PrResult | null; prAlreadyExists: boolean; compareUrl: string; entry: RegistryEntry; commitHash: string; isUpdate: boolean; includedModWarnings: IncludedModWarning[]; identityWarning: IdentityWarning | null }> {
   // 1. Read and validate manifest
@@ -599,7 +605,7 @@ export async function publishMod(
   // 8. Write the entry into a local clone of the fork and push it.
   const branchName = publishBranchName(manifest.id);
   await writeRegistryEntry({
-    cloneDir, registryForkUrl, branchName, modId: manifest.id, entryJson,
+    cloneDir, registryForkUrl, branchName, modId: manifest.id, entryJson, identity,
     message: isUpdate
       ? `Update ${manifest.name} to v${manifest.version}`
       : `Add ${manifest.name} v${manifest.version}`,
@@ -733,6 +739,56 @@ export async function resolveCredentialLogin({ runImpl, interactive = false, get
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve the authenticated GitHub identity (numeric id and login) the same
+ * way {@link resolveCredentialLogin} resolves the login alone. Used by
+ * `ebr setup` to persist the identity a tool-initiated commit is stamped
+ * with, in addition to confirming which account the forks belong to.
+ *
+ * Returns `null` when no credential is available or the response is missing
+ * either field.
+ *
+ * @param options.runImpl - Injected command runner (tests).
+ * @param options.interactive - When true, allow the helper to prompt for a sign-in.
+ */
+export async function resolveCredentialIdentity({ runImpl, interactive = false, getUserImpl = getAuthenticatedUser, borrowTokenImpl = borrowCredentialToken }: { runImpl?: Function; interactive?: boolean; getUserImpl?: (token: string) => Promise<{ id: number; login: string }>; borrowTokenImpl?: (opts?: object) => Promise<string | null> } = {}): Promise<{ id: number; login: string } | null> {
+  const token = await borrowTokenImpl({ runImpl, interactive });
+  if (!token) return null;
+  try {
+    const user = await getUserImpl(token);
+    if (!user?.login || user.id == null) return null;
+    return { id: user.id, login: user.login };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Preview whether a tool-initiated commit's stored identity override would
+ * differ from what the local git config would otherwise stamp on a commit
+ * made in `dir`, so a caller can warn the user before the commit lands.
+ *
+ * Returns `null` when there is nothing to warn about: no identity is
+ * configured yet, the local config already resolves to the same
+ * name/email (case-insensitively - a capitalization difference isn't a
+ * meaningful identity mismatch), or the local config has nothing set at all
+ * (nothing is being overridden in that case - there's no ambient identity to
+ * conflict with).
+ *
+ * @param params.dir - Directory whose effective git config to check.
+ * @param params.identity - The identity that will be stamped, or `null` if none is configured.
+ * @param options.getLocalIdentityImpl - Injected local-identity reader (tests).
+ */
+export async function previewIdentityOverride({ dir, identity }: { dir: string; identity: CommitIdentity | null }, { getLocalIdentityImpl = getLocalGitIdentity }: { getLocalIdentityImpl?: (dir: string) => Promise<{ name: string | null; email: string | null }> } = {}): Promise<IdentityOverridePreview | null> {
+  if (!identity) return null;
+  const local = await getLocalIdentityImpl(dir);
+  if (local.name === null && local.email === null) return null;
+  const sameName = local.name !== null && local.name.toLowerCase() === identity.name.toLowerCase();
+  const sameEmail = local.email !== null && local.email.toLowerCase() === identity.email.toLowerCase();
+  if (sameName && sameEmail) return null;
+  return { name: identity.name, email: identity.email, localName: local.name, localEmail: local.email };
 }
 
 /**

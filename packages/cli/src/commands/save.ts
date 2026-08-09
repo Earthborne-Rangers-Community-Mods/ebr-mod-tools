@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { select, input } from "@inquirer/prompts";
 import { readManifest, bumpVersion } from "core/manifest.js";
-import { saveMod } from "core/workflows.js";
+import { saveMod, previewIdentityOverride } from "core/workflows.js";
+import { getGithubIdentity } from "core/config.js";
 import { renderCliError } from "./render-error.js";
 import { ManifestNotFoundError, NothingToCommitError } from "core/errors.js";
 import type { ProgressEvent } from "core/types.js";
@@ -50,6 +51,21 @@ export const saveCommand = new Command("save")
       }
     }
 
+    // Resolve the stored commit identity (set during `ebr setup`) and warn if
+    // it will override what the local git config would otherwise stamp on
+    // this commit.
+    const storedIdentity = await getGithubIdentity();
+    const identity = storedIdentity.login && storedIdentity.noReplyEmail
+      ? { name: storedIdentity.login, email: storedIdentity.noReplyEmail }
+      : null;
+    const override = await previewIdentityOverride({ dir, identity });
+    if (override) {
+      console.log("\x1b[33m");
+      console.log(`\u26A0 This commit will be attributed to ${override.name} <${override.email}>,`);
+      console.log(`  not your local git config (${override.localName ?? "unset"} <${override.localEmail ?? "unset"}>).`);
+      console.log(`  Run \`ebr setup\` again if this isn't the account you expect.\x1b[0m`);
+    }
+
     // Prompt for commit message if not specified via flag
     const commitMessage = opts.message || await input({
       message: "What changed?",
@@ -58,7 +74,7 @@ export const saveCommand = new Command("save")
 
     try {
       const result = await saveMod(
-        { dir, version, commitMessage },
+        { dir, version, commitMessage, identity },
         { onProgress: (p: ProgressEvent) => console.log(p.message) },
       );
 

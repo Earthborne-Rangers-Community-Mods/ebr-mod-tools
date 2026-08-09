@@ -15,15 +15,20 @@ import {
   getAuthorDefaults,
   setAuthorDefaults,
   clearAuthorDefaults,
+  getGithubIdentity,
+  clearGithubIdentity,
   resolveCredentialLogin,
+  resolveCredentialIdentity,
   ensureFork,
   forkUrlFor,
   forkOwnerFromUrl,
   remoteExists,
   clearCredential,
+  deriveNoReplyEmail,
+  setGithubIdentity,
 } from "core";
 import { runGuarded } from "./guarded.js";
-import type { ProgressEvent } from "core/types.js";
+import type { ProgressEvent, GithubIdentity } from "core/types.js";
 
 /** Upstream org and repos the creator forks. Mirrors the CLI `setup` command. */
 const ORG = "Earthborne-Rangers-Community-Mods";
@@ -52,6 +57,8 @@ class SetupStore {
   /** Last-persisted author defaults, for detecting unsaved edits in the inputs above. */
   savedAuthor = $state("");
   savedAuthorDiscord = $state("");
+  /** Stored commit identity (numeric id, login, derived no-reply email), read from `~/.ebr/`. */
+  identity = $state<GithubIdentity>({ id: null, login: null, noReplyEmail: null });
   /** True while an async operation is running. */
   busy = $state(false);
   /** True only while the passive status check is running (drives the dot's neutral 'checking' state). */
@@ -117,6 +124,7 @@ class SetupStore {
     this.authorDiscord = defaults.authorDiscord ?? "";
     this.savedAuthor = this.author;
     this.savedAuthorDiscord = this.authorDiscord;
+    this.identity = await getGithubIdentity();
   }
 
   /**
@@ -159,7 +167,8 @@ class SetupStore {
         this.settingUpForks = true;
         this.progress = null;
         this.manualForks = [];
-        const login = await resolveCredentialLogin({ interactive: true });
+        const detectedIdentity = await resolveCredentialIdentity({ interactive: true });
+        const login = detectedIdentity?.login ?? null;
         this.credentialsChecked = true;
         this.detectedLogin = login;
         if (!login) {
@@ -190,6 +199,18 @@ class SetupStore {
           baseContent: forkUrlFor(login, BASE_CONTENT_REPO),
           registry: forkUrlFor(login, REGISTRY_REPO),
         });
+
+        // Persist the commit identity this account resolves to, so
+        // tool-initiated commits (save, publish) can stamp it explicitly
+        // instead of inheriting the machine's ambient git config.
+        if (detectedIdentity) {
+          await setGithubIdentity({
+            id: detectedIdentity.id,
+            login: detectedIdentity.login,
+            noReplyEmail: deriveNoReplyEmail(detectedIdentity.id, detectedIdentity.login),
+          });
+        }
+
         await this.#loadConfig();
         this.baseForkReachable = true;
         this.registryForkReachable = true;
@@ -231,11 +252,13 @@ class SetupStore {
     await runGuarded(this, "clear-failed", async () => {
       await clearForkUrls();
       await clearAuthorDefaults();
+      await clearGithubIdentity();
       this.forks = { baseContent: null, registry: null };
       this.author = "";
       this.authorDiscord = "";
       this.savedAuthor = "";
       this.savedAuthorDiscord = "";
+      this.identity = { id: null, login: null, noReplyEmail: null };
       this.detectedLogin = null;
       this.credentialsChecked = false;
       this.baseForkReachable = null;

@@ -16,6 +16,7 @@ import {
   getStatus,
   isBelowStable,
   STABLE_VERSION,
+  previewIdentityOverride,
   UnpushedChangesError,
   ModIdConflictError,
   VersionNotHigherError,
@@ -23,7 +24,7 @@ import {
   ManifestError,
   ValidationError,
 } from "core";
-import type { ProgressEvent } from "core/types.js";
+import type { ProgressEvent, IdentityOverridePreview } from "core/types.js";
 import { runGuarded } from "./guarded.js";
 import { FlowStore } from "./flowstore.svelte.js";
 import { navigation, ROUTES } from "./navigation.svelte.js";
@@ -57,6 +58,11 @@ class PublishFlow extends FlowStore {
   identityWarning = $state<{ email: string; login: string } | null>(null);
   /** Whether to bump a pre-1.0 mod to 1.0.0 before publishing (offered only when below stable). */
   bumpToStable = $state(true);
+  /**
+   * Set when the stored commit identity (from Setup) would stamp the
+   * registry-entry commit differently than the local git config would.
+   */
+  identityOverride = $state<IdentityOverridePreview | null>(null);
 
   /** Version on disk for the mod being published. */
   get currentVersion() {
@@ -82,7 +88,21 @@ class PublishFlow extends FlowStore {
     this.result = null;
     this.warnings = [];
     this.identityWarning = null;
+    this.identityOverride = null;
     this.bumpToStable = true;
+    this.#loadIdentityOverride(dir);
+  }
+
+  /** Check the stored commit identity against the mod's git config. */
+  async #loadIdentityOverride(dir: string) {
+    const { login, noReplyEmail } = setupStore.identity;
+    const identity = login && noReplyEmail ? { name: login, email: noReplyEmail } : null;
+    try {
+      const preview = await previewIdentityOverride({ dir, identity });
+      if (this.dir === dir) this.identityOverride = preview;
+    } catch {
+      // Best-effort banner; a failed check just leaves it hidden.
+    }
   }
 
   /** Close the dialog. No-op while a run is in flight. */
@@ -141,14 +161,16 @@ class PublishFlow extends FlowStore {
       "publish-failed",
       async () => {
         const onProgress = (p: ProgressEvent) => (this.progress = p.message ?? null);
+        const { login, noReplyEmail } = setupStore.identity;
+        const identity = login && noReplyEmail ? { name: login, email: noReplyEmail } : null;
 
         // Promote a pre-1.0 mod to a stable release first, if offered and accepted.
         if (this.needsBump && this.bumpToStable && (await getStatus(dir)).isClean) {
-          await saveMod({ dir, commitMessage: "Bump version to 1.0.0", version: STABLE_VERSION }, { onProgress });
+          await saveMod({ dir, commitMessage: "Bump version to 1.0.0", version: STABLE_VERSION, identity }, { onProgress });
           await openMods.reload(dir);
         }
 
-        const res = await publishMod({ dir, registryForkUrl }, { onProgress });
+        const res = await publishMod({ dir, registryForkUrl, identity }, { onProgress });
 
         this.result = {
           compareUrl: res.compareUrl,
