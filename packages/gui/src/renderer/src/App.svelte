@@ -16,9 +16,11 @@
   import SaveDialog from "./components/SaveDialog.svelte";
   import PublishDialog from "./components/PublishDialog.svelte";
   import AddContentDialog from "./components/AddContentDialog.svelte";
+  import UpdateDialog from "./components/UpdateDialog.svelte";
   import { saveFlow } from "./lib/save.svelte.js";
   import { publishFlow } from "./lib/publish.svelte.js";
   import { addContentFlow } from "./lib/addcontent.svelte.js";
+  import { updateFlow } from "./lib/update.svelte.js";
   import { conflictFlow } from "./lib/conflict.svelte.js";
   import { pick } from "./lib/pick.js";
 
@@ -34,7 +36,9 @@
   const CurrentPage = $derived(pick(PAGES, navigation.route) ?? MyMods);
   // True while any flow is mid-operation; blocks app close so a commit/push/stamp
   // is never interrupted by the window closing.
-  const anyFlowBusy = $derived(saveFlow.busy || publishFlow.busy || addContentFlow.busy || conflictFlow.busy);
+  const anyFlowBusy = $derived(
+    saveFlow.busy || publishFlow.busy || addContentFlow.busy || updateFlow.busy || conflictFlow.busy,
+  );
   let startupReady = $state(false);
   let showCloseDialog = $state(false);
   let showBusyClose = $state(false);
@@ -115,6 +119,10 @@
 
 {#if addContentFlow.isOpen}
   <AddContentDialog />
+{/if}
+
+{#if updateFlow.isOpen}
+  <UpdateDialog />
 {/if}
 
 <style>

@@ -11,6 +11,9 @@
   import { publishFlow } from "../lib/publish.svelte.js";
   import { addContentFlow } from "../lib/addcontent.svelte.js";
   import { addContentKinds } from "../lib/addcontent.js";
+  import { updateStatus } from "../lib/updatestatus.svelte.js";
+  import { updateFlow } from "../lib/update.svelte.js";
+  import { updateCount } from "../lib/updatequeue.js";
   import { gitStatus } from "../lib/gitstatus.svelte.js";
   import { conflictFlow } from "../lib/conflict.svelte.js";
   import { typeName } from "../lib/modtypes.js";
@@ -19,6 +22,7 @@
   import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
   import pencilIcon from "../assets/icons/pencil.svg";
   import plusIcon from "../assets/icons/plus.svg";
+  import updateIcon from "../assets/icons/circled-down-arrow.svg";
   import folderIcon from "../assets/icons/open-folder.svg";
   import discordLogo from "../assets/icons/discord-logo.svg";
   import * as m from "../lib/paraglide/messages.js";
@@ -41,6 +45,17 @@
   const modPageUrl = $derived(mod?.id ? `${MOD_MANAGER_URL}mods/${mod.id}` : null);
   // A mid-merge mod must be resolved before anything else can be built on it.
   const merging = $derived(entry ? gitStatus.get(entry.dir)?.merging === true : false);
+  const updatesAvailable = $derived(entry ? updateCount(updateStatus.get(entry.dir)) : 0);
+
+  // The update check fetches every remote the mod pulls from and adds any that
+  // are missing, so it waits on the git status: mid-merge its answer is unusable
+  // and the update affordances are hidden anyway.
+  $effect(() => {
+    const d = entry?.dir;
+    const status = d ? gitStatus.get(d) : null;
+    if (!d || !status?.loaded || status.merging) return;
+    untrack(() => updateStatus.check(d));
+  });
 
   /**
    * Map a list of ids to their catalog display names, falling back to the id.
@@ -75,10 +90,21 @@
         <div class="header-actions">
           {#if !merging}
             <SaveControl dir={entry.dir} />
+            {#if updatesAvailable > 0}
+              <button
+                type="button"
+                class="primary icon-button"
+                onclick={() => updateFlow.start(entry.dir)}
+                aria-label={m.update_action()}
+                title={m.update_action()}
+              >
+                <span class="icon" style={`--icon-mask: url("${updateIcon}")`} aria-hidden="true"></span>
+              </button>
+            {/if}
             {#if addContentKinds(mod.type).length > 0}
               <button
                 type="button"
-                class="icon-button"
+                class="icon-button secondary"
                 onclick={() => addContentFlow.start(entry.dir, mod.type ?? "")}
                 aria-label={m.addcontent_action()}
                 title={m.addcontent_action()}
@@ -89,7 +115,7 @@
           {/if}
           <button
             type="button"
-            class="icon-button"
+            class="icon-button secondary"
             onclick={() => openPath(entry.dir)}
             aria-label={m.moddetails_open_folder()}
             title={m.moddetails_open_folder()}
@@ -100,7 +126,7 @@
             <ObsidianButton dir={entry.dir} />
             <button
               type="button"
-              class="icon-button"
+              class="icon-button secondary"
               onclick={edit}
               aria-label={m.moddetails_edit()}
               title={m.moddetails_edit()}
@@ -327,7 +353,6 @@
     vertical-align: middle;
   }
 
-
   .mod-icon {
     font-size: 2.5rem;
     line-height: 1;
@@ -338,41 +363,6 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
-  }
-
-  .icon-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    color: var(--color-text);
-    cursor: pointer;
-    transition: background var(--transition-fast), border-color var(--transition-fast);
-  }
-
-  .icon-button:hover {
-    background: var(--color-surface-hover);
-    border-color: var(--color-primary);
-  }
-
-  .icon {
-    display: block;
-    width: 1.25rem;
-    height: 1.25rem;
-    background-color: currentColor;
-    mask-image: var(--icon-mask);
-    mask-repeat: no-repeat;
-    mask-position: center;
-    mask-size: contain;
-    -webkit-mask-image: var(--icon-mask);
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    -webkit-mask-size: contain;
   }
 
   .details {

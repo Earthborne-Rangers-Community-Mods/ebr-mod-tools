@@ -14,6 +14,10 @@ otherwise covered below:
 
 ## MIT License
 
+- **circled-down-arrow.svg** - [zest](https://www.svgrepo.com/author/zest/), via
+  [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
+- **download.svg** - [zest](https://www.svgrepo.com/author/zest/), via
+  [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 - **open-folder.svg** - [zest](https://www.svgrepo.com/author/zest/), via
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 - **pencil.svg** - [zest](https://www.svgrepo.com/author/zest/), via

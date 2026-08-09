@@ -45,13 +45,13 @@
   <div class="save-control">
     <button
       type="button"
-      class="primary save-button"
+      class="primary icon-button"
       onclick={onSave}
       disabled={busyHere}
       aria-label={busyHere ? m.save_saving() : m.save_action()}
       title={busyHere ? m.save_saving() : m.save_action()}
     >
-      <span class="save-icon" style={`--save-mask: url("${uploadIcon}")`} aria-hidden="true"></span>
+      <span class="icon" style={`--icon-mask: url("${uploadIcon}")`} aria-hidden="true"></span>
     </button>
   </div>
 {/if}
@@ -61,31 +61,5 @@
     display: inline-flex;
     align-items: center;
     gap: var(--spacing-sm);
-  }
-
-  .save-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    flex-shrink: 0;
-  }
-
-  .save-icon {
-    display: block;
-    width: 1.15rem;
-    height: 1.15rem;
-    flex-shrink: 0;
-    background-color: currentColor;
-    mask-image: var(--save-mask);
-    mask-repeat: no-repeat;
-    mask-position: center;
-    mask-size: contain;
-    -webkit-mask-image: var(--save-mask);
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    -webkit-mask-size: contain;
   }
 </style>

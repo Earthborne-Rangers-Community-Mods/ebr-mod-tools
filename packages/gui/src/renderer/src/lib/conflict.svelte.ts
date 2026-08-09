@@ -11,6 +11,7 @@ import { runGuarded } from "./guarded.js";
 import { FlowStore } from "./flowstore.svelte.js";
 import { openMods } from "./mods.svelte.js";
 import { gitStatus } from "./gitstatus.svelte.js";
+import { updateStatus } from "./updatestatus.svelte.js";
 import { navigation, ROUTES } from "./navigation.svelte.js";
 
 /** Which side of a conflict to keep, or null while the file is undecided. */
@@ -185,6 +186,9 @@ class ConflictFlow extends FlowStore {
 
   /** Refresh the cached manifest and git status after the tree changed. */
   async #refreshCaches(dir: string) {
+    // HEAD moved either way (the merge committed, or the abort restored it), so
+    // any update check taken before it is no longer trustworthy.
+    updateStatus.invalidate(dir);
     try {
       await openMods.reload(dir);
       await gitStatus.refresh(dir);

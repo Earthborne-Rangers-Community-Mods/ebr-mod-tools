@@ -94,12 +94,12 @@
     </div>
     <button
       type="button"
-      class="account-setup"
+      class="icon-button ghost account-setup"
       onclick={() => navigation.go(ROUTES.SETUP)}
       aria-label={m.mymods_account_setup()}
       title={m.mymods_account_setup()}
     >
-      <span class="gear-icon" style={`--gear-mask: url("${gearIcon}")`} aria-hidden="true"></span>
+      <span class="icon" style={`--icon-mask: url("${gearIcon}")`} aria-hidden="true"></span>
     </button>
   </header>
 
@@ -195,12 +195,12 @@
               {/if}
               <button
                 type="button"
-                class="close-button"
+                class="icon-button ghost"
                 aria-label={m.mymods_remove_from_list_title()}
                 title={m.mymods_remove_from_list_title()}
                 onclick={() => requestClose(mod.dir)}
               >
-                <span aria-hidden="true">&times;</span>
+                <span class="close-icon" aria-hidden="true">&times;</span>
               </button>
             {/if}
           </div>
@@ -271,39 +271,8 @@
 
   /* Icon-only settings button. The account panel is `--color-surface-hover`, so
      hover to the lighter base surface instead of matching the panel. */
-  .account-setup {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast);
-  }
-
   .account-setup:hover {
     background: var(--color-surface);
-    color: var(--color-text);
-  }
-
-  .gear-icon {
-    display: block;
-    width: 1.25rem;
-    height: 1.25rem;
-    background-color: currentColor;
-    mask-image: var(--gear-mask);
-    mask-repeat: no-repeat;
-    mask-position: center;
-    mask-size: contain;
-    -webkit-mask-image: var(--gear-mask);
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    -webkit-mask-size: contain;
   }
 
   .discord-handle {
@@ -464,35 +433,11 @@
     color: var(--color-primary-text);
   }
 
-  .close-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    color: var(--color-text-muted);
-    font-size: 1.5rem;
-    line-height: 1;
-    cursor: pointer;
-    transition: background var(--transition-fast), border-color var(--transition-fast),
-      color var(--transition-fast);
-  }
-
-  .close-button:hover {
-    background: var(--color-surface-hover);
-    border-color: var(--color-primary);
-    color: var(--color-text);
-  }
-
   /* The multiplication-sign glyph sits below its em center; nudge it up so it
      reads as optically centered in the button. */
-  .close-button span {
+  .close-icon {
     display: block;
     line-height: 1;
-    transform: translateY(-0.06em);
+    transform: scale(1.5) translateY(-0.06em);
   }
 </style>
