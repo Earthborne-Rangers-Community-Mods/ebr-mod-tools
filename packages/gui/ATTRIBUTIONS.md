@@ -16,6 +16,8 @@ otherwise covered below:
 
 - **circled-down-arrow.svg** - [zest](https://www.svgrepo.com/author/zest/), via
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
+- **circled-question.svg** - [zest](https://www.svgrepo.com/author/zest/), via
+  [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 - **download.svg** - [zest](https://www.svgrepo.com/author/zest/), via
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 - **open-folder.svg** - [zest](https://www.svgrepo.com/author/zest/), via

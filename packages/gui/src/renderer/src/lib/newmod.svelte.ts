@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { openMods } from "./mods.svelte.js";
 import { setupStore } from "./setup.svelte.js";
 import { navigation, ROUTES } from "./navigation.svelte.js";
+import { onboarding } from "./onboarding.svelte.js";
 import { pickDirectory } from "./platform.js";
 import { runGuarded } from "./guarded.js";
 import { checkModId } from "./registry.js";
@@ -442,6 +443,7 @@ class NewModForm {
     const dir = this.createdModDir;
     this.reset();
     if (dir) {
+      onboarding.notifyNewModCreated();
       navigation.go(ROUTES.MOD_DETAILS, { dir });
     } else {
       navigation.go(ROUTES.MY_MODS);

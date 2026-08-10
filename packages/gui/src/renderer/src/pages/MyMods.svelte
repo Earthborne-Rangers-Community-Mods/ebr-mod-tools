@@ -10,11 +10,14 @@
   import SaveControl from "../components/SaveControl.svelte";
   import PublishBadge from "../components/PublishBadge.svelte";
   import DirtyMarker from "../components/DirtyMarker.svelte";
+  import HelpPanel from "../components/HelpPanel.svelte";
+  import { helpDialog } from "../lib/helpdialog.svelte.js";
   import { basename } from "node:path";
   import * as m from "../lib/paraglide/messages.js";
   import discordLogo from "../assets/icons/discord-logo.svg";
   import githubLogo from "../assets/icons/github-logo.svg";
   import gearIcon from "../assets/icons/gear.svg";
+  import helpIcon from "../assets/icons/circled-question.svg";
 
   let addError = $state<string | null>(null);
   let confirmDir = $state<string | null>(null);
@@ -92,15 +95,26 @@
         {/if}
       </p>
     </div>
-    <button
-      type="button"
-      class="icon-button ghost account-setup"
-      onclick={() => navigation.go(ROUTES.SETUP)}
-      aria-label={m.mymods_account_setup()}
-      title={m.mymods_account_setup()}
-    >
-      <span class="icon" style={`--icon-mask: url("${gearIcon}")`} aria-hidden="true"></span>
-    </button>
+    <div class="account-actions">
+      <button
+        type="button"
+        class="icon-button ghost"
+        onclick={() => helpDialog.open()}
+        aria-label={m.help_button_label()}
+        title={m.help_button_label()}
+      >
+        <span class="icon" style={`--icon-mask: url("${helpIcon}")`} aria-hidden="true"></span>
+      </button>
+      <button
+        type="button"
+        class="icon-button ghost"
+        onclick={() => navigation.go(ROUTES.SETUP)}
+        aria-label={m.mymods_account_setup()}
+        title={m.mymods_account_setup()}
+      >
+        <span class="icon" style={`--icon-mask: url("${gearIcon}")`} aria-hidden="true"></span>
+      </button>
+    </div>
   </header>
 
   <div class="toolbar">
@@ -119,10 +133,7 @@
 
   {#if openMods.entries.length === 0}
     <p class="empty">
-      {m.mymods_empty({
-        openExisting: m.mymods_open_existing(),
-        newMod: m.mymods_new_mod(),
-      })}
+      <HelpPanel />
     </p>
   {:else}
     <ul class="mod-list">
@@ -269,9 +280,15 @@
     color: var(--color-text-muted);
   }
 
-  /* Icon-only settings button. The account panel is `--color-surface-hover`, so
-     hover to the lighter base surface instead of matching the panel. */
-  .account-setup:hover {
+  .account-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+  }
+
+  /* Icon-only settings/help buttons. The account panel is `--color-surface-hover`,
+     so hover to the lighter base surface instead of matching the panel. */
+  .account-actions .icon-button:hover {
     background: var(--color-surface);
   }
 
@@ -326,8 +343,6 @@
     padding: var(--spacing-lg);
     border: 1px dashed var(--color-border);
     border-radius: var(--radius);
-    color: var(--color-text-muted);
-    text-align: center;
   }
 
   .mod-list {

@@ -4,6 +4,7 @@
   import { setupStore } from "../lib/setup.svelte.js";
   import { themeStore, type ThemePreference } from "../lib/theme.svelte.js";
   import { openExternal } from "../lib/platform.js";
+  import { resetNewModExplainerSeen } from "../lib/onboarding.svelte.js";
   import * as m from "../lib/paraglide/messages.js";
   import { pick } from "../lib/pick.js";
   import githubLogo from "../assets/icons/github-logo.svg";
@@ -48,6 +49,15 @@
   async function confirmClearStoredSetup() {
     confirmingClear = false;
     await setupStore.clearStoredSetup();
+  }
+
+  // DEV-only: lets a developer re-trigger the once-only New Mod completion
+  // explainer without clearing localStorage by hand.
+  let devResetDone = $state(false);
+
+  function devResetOnboarding() {
+    resetNewModExplainerSeen();
+    devResetDone = true;
   }
 </script>
 
@@ -236,6 +246,21 @@
       {/each}
     </div>
   </div>
+
+  {#if import.meta.env.DEV}
+    <div class="card">
+      <h2>{m.setup_dev_heading()}</h2>
+      <p class="detail">{m.setup_dev_lead()}</p>
+      <div class="card-actions">
+        <button type="button" class="secondary" onclick={devResetOnboarding}>
+          {m.setup_dev_reset_onboarding()}
+        </button>
+        {#if devResetDone}
+          <span class="detail">{m.setup_dev_done()}</span>
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <div class="clear-row">
     <div class="card-actions">

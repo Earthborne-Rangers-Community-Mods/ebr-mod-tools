@@ -13,10 +13,12 @@
     onCancel: () => void;
     /** id of the element that labels the dialog (aria-labelledby). */
     labelledby?: string;
+    /** CSS max-width for the dialog. Defaults to 26rem. */
+    maxWidth?: string;
     /** Dialog contents. */
     children: Snippet;
   }
-  let { onCancel, labelledby, children }: Props = $props();
+  let { onCancel, labelledby, maxWidth = "26rem", children }: Props = $props();
 
   let dialogEl: HTMLDialogElement;
 
@@ -34,14 +36,19 @@
   }
 </script>
 
-<dialog bind:this={dialogEl} class="dialog" aria-labelledby={labelledby} oncancel={handleCancel}>
+<dialog
+  bind:this={dialogEl}
+  class="dialog"
+  style={`max-width: ${maxWidth}`}
+  aria-labelledby={labelledby}
+  oncancel={handleCancel}
+>
   {@render children()}
 </dialog>
 
 <style>
   .dialog {
     width: 100%;
-    max-width: 26rem;
     /* Pin near the top of the viewport, centered horizontally. */
     margin: 10vh auto auto;
     background: var(--color-surface);

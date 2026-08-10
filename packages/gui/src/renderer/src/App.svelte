@@ -22,7 +22,9 @@
   import { addContentFlow } from "./lib/addcontent.svelte.js";
   import { updateFlow } from "./lib/update.svelte.js";
   import { conflictFlow } from "./lib/conflict.svelte.js";
+  import { helpDialog } from "./lib/helpdialog.svelte.js";
   import { pick } from "./lib/pick.js";
+  import HelpDialog from "./components/HelpDialog.svelte";
 
   const PAGES = {
     [ROUTES.MY_MODS]: MyMods,
@@ -123,6 +125,10 @@
 
 {#if updateFlow.isOpen}
   <UpdateDialog />
+{/if}
+
+{#if helpDialog.isOpen}
+  <HelpDialog />
 {/if}
 
 <style>

@@ -1,7 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import BackButton from "../components/BackButton.svelte";
+  import Modal from "../components/Modal.svelte";
   import ObsidianButton from "../components/ObsidianButton.svelte";
+  import ObsidianDownloadButton from "../components/ObsidianDownloadButton.svelte";
   import SaveControl from "../components/SaveControl.svelte";
   import PublishBadge from "../components/PublishBadge.svelte";
   import DirtyMarker from "../components/DirtyMarker.svelte";
@@ -16,6 +18,7 @@
   import { updateCount } from "../lib/updatequeue.js";
   import { gitStatus } from "../lib/gitstatus.svelte.js";
   import { conflictFlow } from "../lib/conflict.svelte.js";
+  import { onboarding } from "../lib/onboarding.svelte.js";
   import { typeName } from "../lib/modtypes.js";
   import { openPath, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { showSafeChoice } from "../lib/midcampaign.js";
@@ -278,11 +281,47 @@
   {/if}
 </section>
 
+{#if onboarding.showNewModExplainer}
+  <Modal onCancel={() => onboarding.dismissNewModExplainer()} labelledby="new-mod-explainer-title">
+    <p id="new-mod-explainer-title" class="title">{m.newmod_explainer_title()}</p>
+    <p class="body">{m.newmod_explainer_body({ dir: entry?.dir ?? m.newmod_unknown_folder() })}</p>
+    <div class="explainer-actions">
+      <ObsidianDownloadButton />
+      <button type="button" class="secondary" onclick={() => onboarding.learnMoreFromNewModExplainer()}>
+        {m.newmod_explainer_learn_more()}
+      </button>
+      <button type="button" class="primary" onclick={() => onboarding.dismissNewModExplainer()}>
+        {m.newmod_explainer_dismiss()}
+      </button>
+    </div>
+  </Modal>
+{/if}
+
 <style>
   .page {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
+  }
+
+  .title {
+    margin: 0;
+    font-weight: 700;
+    font-size: var(--font-size-md);
+  }
+
+  .body {
+    margin: 0;
+    color: var(--color-text-muted);
+  }
+
+  .explainer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
   }
 
   .mod-header {
