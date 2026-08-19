@@ -43,6 +43,19 @@ export function openPath(dir: string): Promise<boolean> {
 }
 
 /**
+ * Open the OS terminal at a mod's directory, optionally running one
+ * allowlisted command in it first. Main enforces the same allowlist
+ * server-side (`ALLOWED_TERMINAL_COMMANDS`); this type just keeps new
+ * call sites from inventing an arbitrary command string.
+ * @param dir - Absolute path to the mod directory.
+ * @param command - Optional shell command to run before dropping to a prompt.
+ * @returns Whether the terminal was launched.
+ */
+export function openTerminal(dir: string, command?: "git difftool"): Promise<boolean> {
+  return ipcRenderer.invoke("shell:openTerminal", dir, command);
+}
+
+/**
  * Tell the main process whether it should block/confirm a window-close attempt -
  * true when there are unsaved edits or an operation is in progress. Pushed
  * whenever the state changes.

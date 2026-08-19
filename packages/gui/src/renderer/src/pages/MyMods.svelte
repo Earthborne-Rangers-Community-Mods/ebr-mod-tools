@@ -4,7 +4,8 @@
   import { setupStore } from "../lib/setup.svelte.js";
   import { gitStatus } from "../lib/gitstatus.svelte.js";
   import { conflictFlow } from "../lib/conflict.svelte.js";
-  import { pickDirectory, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
+  import { openModFlow } from "../lib/openmod.svelte.js";
+  import { openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { typeName } from "../lib/modtypes.js";
   import ObsidianButton from "../components/ObsidianButton.svelte";
   import SaveControl from "../components/SaveControl.svelte";
@@ -19,27 +20,7 @@
   import gearIcon from "../assets/icons/gear.svg";
   import helpIcon from "../assets/icons/circled-question.svg";
 
-  let addError = $state<string | null>(null);
   let confirmDir = $state<string | null>(null);
-
-  async function openExisting() {
-    addError = null;
-    const dir = await pickDirectory(openMods.pickerDefaultPath);
-    if (!dir) return;
-    const result = await openMods.add(dir);
-    if (!result.ok) {
-      if (result.reason === "not-found") {
-        addError = m.mymods_error_not_a_mod({ folder: basename(dir) });
-      } else if (result.reason === "unreadable") {
-        addError = m.mymods_error_unreadable_detail({
-          folder: basename(dir),
-          detail: result.message ?? m.mymods_invalid_manifest_fallback(),
-        });
-      } else {
-        addError = m.mymods_error_add_failed();
-      }
-    }
-  }
 
   function requestClose(dir: string) {
     confirmDir = dir;
@@ -120,16 +101,12 @@
   <div class="toolbar">
     <h1>{m.mymods_title()}</h1>
     <div class="toolbar-actions">
-      <button type="button" class="secondary" onclick={openExisting}>{m.mymods_open_existing()}</button>
+      <button type="button" class="secondary" onclick={() => openModFlow.open()}>{m.mymods_open_existing()}</button>
       <button type="button" class="primary" onclick={() => navigation.go(ROUTES.NEW_MOD)}>
         {m.mymods_new_mod()}
       </button>
     </div>
   </div>
-
-  {#if addError}
-    <p class="add-error" role="alert">{addError}</p>
-  {/if}
 
   {#if openMods.entries.length === 0}
     <p class="empty">
@@ -328,15 +305,6 @@
   .published-link {
     display: flex;
     justify-content: center;
-  }
-
-  .add-error {
-    margin: 0;
-    padding: var(--spacing-sm) var(--spacing-md);
-    border: 1px solid var(--color-error);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-    color: var(--color-error);
   }
 
   .empty {

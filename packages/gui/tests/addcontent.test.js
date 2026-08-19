@@ -32,4 +32,24 @@ describe("addContentKinds", () => {
   it("returns [] for an unrecognized type", () => {
     expect(addContentKinds("unknown-future-type")).toEqual([]);
   });
+
+  it("does not add include-mod by default (Advanced mode off)", () => {
+    expect(addContentKinds("enhancement")).toEqual(["include-campaign"]);
+  });
+
+  it.each(["enhancement", "one-day-mission", "collection"])(
+    "adds include-mod after include-campaign for '%s' when Advanced mode is on",
+    (type) => {
+      expect(addContentKinds(type, true)).toEqual(["include-campaign", "include-mod"]);
+    },
+  );
+
+  it("adds include-mod after include-campaign for 'expansion' when Advanced mode is on", () => {
+    expect(addContentKinds("expansion", true)).toEqual(["template", "include-campaign", "include-mod"]);
+  });
+
+  it("does not add include-mod for types that lack include-campaign, even with Advanced mode on", () => {
+    expect(addContentKinds("campaign", true)).toEqual(["template"]);
+    expect(addContentKinds("theme", true)).toEqual([]);
+  });
 });

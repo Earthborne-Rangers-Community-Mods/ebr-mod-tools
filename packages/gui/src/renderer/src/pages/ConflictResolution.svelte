@@ -8,6 +8,8 @@
   import { conflictFlow } from "../lib/conflict.svelte.js";
   import BackButton from "../components/BackButton.svelte";
   import Modal from "../components/Modal.svelte";
+  import { advancedMode } from "../lib/advancedmode.svelte.js";
+  import { openTerminal } from "../lib/platform.js";
   import * as m from "../lib/paraglide/messages.js";
 
   const flow = conflictFlow;
@@ -88,9 +90,16 @@
       <button type="button" class="danger" onclick={() => flow.undo()} disabled={flow.busy}>
         {m.conflict_undo()}
       </button>
-      <button type="button" class="primary" onclick={() => flow.finish()} disabled={flow.busy}>
-        {flow.busy ? m.conflict_finishing() : m.conflict_finish()}
-      </button>
+      <div class="footer-right">
+        {#if advancedMode.enabled}
+          <button type="button" class="ghost" onclick={() => openTerminal(flow.dir ?? "")}>
+            {m.conflict_open_terminal()}
+          </button>
+        {/if}
+        <button type="button" class="primary" onclick={() => flow.finish()} disabled={flow.busy}>
+          {flow.busy ? m.conflict_finishing() : m.conflict_finish()}
+        </button>
+      </div>
     </div>
   {/if}
 </section>
@@ -208,6 +217,12 @@
     justify-content: space-between;
     border-top: 1px solid var(--color-border);
     padding-top: var(--spacing-md);
+  }
+
+  .footer-right {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
   }
 
   .title {

@@ -11,7 +11,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { listFilesRecursive, sanitizePathSegment, realPathSafe, realPathOfDestination, isPathInside } from "./filesystem.js";
 import { readManifest, writeManifest, assertValidManifest, updateManifest, compareVersions, applyMissingProductFix } from "./manifest.js";
-import { isRepo, initRepo, addRemote, cloneRepo, cloneBranchShallow, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase, getCommitAuthorEmail, getLocalGitIdentity, predictMerge, checkoutConflictSide, commitMerge } from "./git.js";
+import { isRepo, initRepo, addRemote, cloneRepo, cloneBranch, cloneBranchShallow, listRemoteBranches, fetchRemote, createLocalBranch, checkout, checkoutResetBranch, setRemoteUrl, resetHardAndClean, setUpstreamBranch, stageAll, stageByExtensions, stageFile, commit, push, getHeadCommit, getRemoteUrl, remoteExists, getCurrentBranch, getStatus, getAheadBehind, createTag, hasRemote, isAncestor, merge, revparseRef, mergeBase, getCommitAuthorEmail, getLocalGitIdentity, predictMerge, checkoutConflictSide, commitMerge } from "./git.js";
 import { getAuthenticatedUser, forkRepo, normalizeGithubUrl, borrowCredentialToken } from "./github.js";
 import { ManifestError, GithubError, ModIdConflictError, UnpushedChangesError, ValidationError, NotARepoError, BaseRemoteMissingError, IncludeRefNotFoundError, IndexNotCleanError, NothingToCommitError, MergeConflictError, ForkOutOfSyncError, ScaffoldRefNotFoundError, IncludeModNotFoundError, VersionNotHigherError } from "./errors.js";
 import { checkIncludedMods, buildRegistryEntry, fetchRegistry } from "./registry.js";
@@ -35,6 +35,12 @@ const REGISTRY_UPSTREAM_URL = `https://github.com/${DEFAULT_REGISTRY_OWNER}/${DE
 const DEFAULT_REGISTRY_CLONE_DIR = join(CONFIG_DIR, "registry-clone");
 /** Anonymous CDN base for reading a single mod entry from the upstream registry. */
 const RAW_CONTENT_BASE = "https://raw.githubusercontent.com";
+/**
+ * Repo-relative paths that are per-mod identity rather than shared content:
+ * every mod scaffolds its own copy and customizes it to describe itself, so
+ * an `ebr include <mod>` merge always conflicts on them.
+ */
+const AUTO_KEPT_INCLUDE_PATHS = ["ebr-mod.json", "About this Mod.md"];
 
 /**
  * Derive the git branch name for a mod from its ID.
@@ -48,6 +54,33 @@ export function getModBranchName(modId: string): string {
  */
 export function publishBranchName(modId: string): string {
   return `publish/${modId}`;
+}
+
+/**
+ * List this creator's mod branches on their fork of ebr-mod-base-content.
+ * Only branches under the `mod/` prefix (see {@link getModBranchName}) are
+ * mods; campaign/shell/scaffold branches on the same fork are excluded.
+ * @param forkUrl - HTTPS URL of the creator's fork.
+ * @returns Mod ids (branch names with the `mod/` prefix stripped), sorted.
+ */
+export async function listModBranches(forkUrl: string): Promise<string[]> {
+  const branches = await listRemoteBranches(forkUrl);
+  return branches
+    .filter((b) => b.startsWith("mod/"))
+    .map((b) => b.slice("mod/".length))
+    .filter(Boolean)
+    .sort();
+}
+
+/**
+ * Clone one of the creator's mod branches from their fork into a fresh local
+ * directory, checked out and ready to edit.
+ * @param params.forkUrl - HTTPS URL of the creator's fork.
+ * @param params.modId - Mod id (the branch's `mod/` suffix, as returned by {@link listModBranches}).
+ * @param params.dir - Target directory for the clone.
+ */
+export async function cloneModFromFork({ forkUrl, modId, dir }: { forkUrl: string; modId: string; dir: string }, { onProgress }: ProgressOptions = {}): Promise<void> {
+  await cloneBranch(forkUrl, dir, getModBranchName(modId), { onProgress });
 }
 
 // --- scaffoldMod ---
@@ -1295,14 +1328,36 @@ export function remoteNameForRepoUrl(repoUrl: string): string {
 }
 
 /**
+ * Parse an `ebr include <mod>` source that may be a bare mod id, the mod's
+ * Mod Manager page URL, or a link to its GitHub branch. Both URL forms happen
+ * to end with the mod id as their last path segment, so a bare id is just the
+ * degenerate case of the same rule. This does not validate that the URL is
+ * well-formed or points anywhere real. {@link resolveModSource}'s registry
+ * lookup is the actual validation, and parsing this way keeps it working even
+ * if the site's URL scheme changes later.
+ */
+export function extractModId(input: string): string {
+  const withoutQuery = input.trim().split(/[?#]/)[0] ?? "";
+  const withoutTrailingSlashes = withoutQuery.replace(/\/+$/, "");
+  const segments = withoutTrailingSlashes.split("/").filter(Boolean);
+  const last = segments[segments.length - 1] ?? "";
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
+}
+
+/**
  * Resolve an `ebr include <mod>` source into the registry entry that pins the
  * mod's published `commitHash` and fork `repoUrl`. Mod includes are
  * registry-driven: the registry is the source of truth for which commit a mod
  * version corresponds to.
  *
  * The source is a bare mod id, matched against `registry.mods[].id`. Repo URLs
- * are not accepted - one fork hosts every mod by an author, so a URL cannot
- * identify a single mod.
+ * are not accepted directly - one fork hosts every mod by an author, so a URL
+ * cannot identify a single mod on its own; callers that accept a URL should
+ * run it through {@link extractModId} first.
  *
  * @param registry - Parsed browse-tier registry.
  * @throws {ValidationError} If `source` is empty.
@@ -1351,9 +1406,11 @@ export function upsertIncludedMod(existing: IncludedMod[] | undefined, entry: In
  * repo root, so merging two distinct mods produces a guaranteed add/add (or
  * modify/modify) conflict on the manifest. This is resolved automatically by
  * always keeping OUR manifest plus the new `includedMods` entry; the include
- * never changes the current mod's identity. Genuine content conflicts on other
- * files are left for the author to resolve by hand (manifest already staged so
- * `git merge --continue` rolls it into the merge commit).
+ * never changes the current mod's identity. `About this Mod.md` is likewise
+ * per-mod identity (every mod scaffolds and customizes its own), so it is
+ * resolved the same way. Genuine content conflicts on other files are left
+ * for the author to resolve by hand (manifest already staged so `git merge
+ * --continue` rolls it into the merge commit).
  *
  * @param params.dir - Mod directory.
  * @param params.source - Mod id to include.
@@ -1426,11 +1483,17 @@ export async function includeMod({ dir, source, registry }: { dir: string; sourc
       await writeManifest(dir, manifest);
       await stageFile(dir, "ebr-mod.json");
 
-      const otherConflicts = err.conflictedFiles.filter((f: string) => f !== "ebr-mod.json");
+      // Same reasoning for the mod's own description page: keep ours.
+      if (err.conflictedFiles.includes("About this Mod.md")) {
+        onProgress?.({ step: "about", message: "Keeping your mod description..." });
+        await checkoutConflictSide(dir, "About this Mod.md", "ours");
+      }
+
+      const otherConflicts = err.conflictedFiles.filter((f: string) => !AUTO_KEPT_INCLUDE_PATHS.includes(f));
       if (otherConflicts.length === 0) {
-        // The manifest was the only conflict (the common case for two mods
-        // off the same shell). Finalize the merge ourselves - the author
-        // never sees it.
+        // The manifest and description were the only conflicts (the common case
+        // for two mods off the same shell). Finalize the merge ourselves. The
+        // author never sees it.
         onProgress?.({ step: "commit", message: "Committing include..." });
         await commit(dir, `Include mod ${includedEntry.id} v${includedEntry.version} at ${shortSha}`);
         return { modId: includedEntry.id, includedEntry, commitHash, alreadyUpToDate: false };
@@ -1462,6 +1525,57 @@ export async function includeMod({ dir, source, registry }: { dir: string; sourc
     }
     throw err;
   }
+}
+
+/**
+ * Predict, without modifying the working tree, whether including another mod
+ * would conflict beyond the auto-kept identity files.
+ *
+ * Resolves the mod through the registry (fetching/reusing its fork remote),
+ * then runs an in-memory `git merge-tree` dry run against HEAD. The current
+ * mod's `ebr-mod.json` and `About this Mod.md` always add/add-conflict with
+ * the source's own copies, but {@link includeMod} resolves both
+ * automatically in favor of the current mod's identity, so they are filtered
+ * out of the reported conflicts.
+ *
+ * @param params.dir - Mod directory.
+ * @param params.source - Mod id to include.
+ * @param params.registry - Pre-fetched browse-tier registry, to avoid a
+ *   redundant fetch when the caller already has one.
+ * @throws {NotARepoError} If `dir` is not a git repository.
+ * @throws {ValidationError} If `source` is malformed.
+ * @throws {IncludeModNotFoundError} If the source matches no registry entry.
+ * @throws {GithubError} If the registry cannot be fetched.
+ */
+export async function predictModInclude({ dir, source, registry }: { dir: string; source: string; registry?: Registry }, { onProgress }: ProgressOptions = {}): Promise<{ modId: string; commitHash: string; conflicts: string[]; alreadyUpToDate: boolean }> {
+  if (!(await isRepo(dir))) {
+    throw new NotARepoError(dir);
+  }
+
+  onProgress?.({ step: "registry", message: "Looking up mod in the registry..." });
+  const reg = registry ?? (await fetchRegistry());
+  const { modId, entry: regEntry } = resolveModSource(source, reg);
+
+  const repoUrl = regEntry.repoUrl;
+  const commitHash = regEntry.commitHash;
+  const remoteName = remoteNameForRepoUrl(repoUrl);
+
+  if (!(await hasRemote(dir, remoteName))) {
+    onProgress?.({ step: "remote", message: `Adding remote ${remoteName}...` });
+    await addRemote(dir, remoteName, repoUrl);
+  }
+  onProgress?.({ step: "fetch", message: `Fetching ${remoteName}...` });
+  await fetchRemote(dir, remoteName, { onProgress });
+
+  onProgress?.({ step: "preview", message: "Checking for conflicts..." });
+  if (await isAncestor(dir, commitHash, "HEAD")) {
+    return { modId, commitHash, conflicts: [], alreadyUpToDate: true };
+  }
+
+  const { conflicts } = await predictMerge(dir, commitHash);
+  const realConflicts = conflicts.filter((f) => !AUTO_KEPT_INCLUDE_PATHS.includes(f));
+
+  return { modId, commitHash, conflicts: realConflicts, alreadyUpToDate: false };
 }
 
 /**

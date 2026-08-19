@@ -17,11 +17,13 @@
   import PublishDialog from "./components/PublishDialog.svelte";
   import AddContentDialog from "./components/AddContentDialog.svelte";
   import UpdateDialog from "./components/UpdateDialog.svelte";
+  import OpenModDialog from "./components/OpenModDialog.svelte";
   import { saveFlow } from "./lib/save.svelte.js";
   import { publishFlow } from "./lib/publish.svelte.js";
   import { addContentFlow } from "./lib/addcontent.svelte.js";
   import { updateFlow } from "./lib/update.svelte.js";
   import { conflictFlow } from "./lib/conflict.svelte.js";
+  import { openModFlow } from "./lib/openmod.svelte.js";
   import { helpDialog } from "./lib/helpdialog.svelte.js";
   import { pick } from "./lib/pick.js";
   import HelpDialog from "./components/HelpDialog.svelte";
@@ -39,7 +41,7 @@
   // True while any flow is mid-operation; blocks app close so a commit/push/stamp
   // is never interrupted by the window closing.
   const anyFlowBusy = $derived(
-    saveFlow.busy || publishFlow.busy || addContentFlow.busy || updateFlow.busy || conflictFlow.busy,
+    saveFlow.busy || publishFlow.busy || addContentFlow.busy || updateFlow.busy || conflictFlow.busy || openModFlow.busy,
   );
   let startupReady = $state(false);
   let showCloseDialog = $state(false);
@@ -125,6 +127,10 @@
 
 {#if updateFlow.isOpen}
   <UpdateDialog />
+{/if}
+
+{#if openModFlow.isOpen}
+  <OpenModDialog />
 {/if}
 
 {#if helpDialog.isOpen}

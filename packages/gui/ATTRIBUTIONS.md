@@ -18,7 +18,13 @@ otherwise covered below:
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 - **circled-question.svg** - [zest](https://www.svgrepo.com/author/zest/), via
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
+- **command-prompt.svg** - [zest](https://www.svgrepo.com/author/zest/), via
+  [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
+- **curly-brackets-file.svg** - [zest](https://www.svgrepo.com/author/zest/), via
+  [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 - **download.svg** - [zest](https://www.svgrepo.com/author/zest/), via
+  [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
+- **git-compare.svg** - [zest](https://www.svgrepo.com/author/zest/), via
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).
 - **open-folder.svg** - [zest](https://www.svgrepo.com/author/zest/), via
   [SVG Repo](https://www.svgrepo.com/page/licensing/#MIT).

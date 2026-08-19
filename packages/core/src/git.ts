@@ -138,6 +138,46 @@ export async function cloneBranchShallow(url: string, dir: string, branch: strin
 }
 
 /**
+ * Clone a single branch of a remote repository with full history, checked out
+ * and ready to edit and push. Unlike {@link cloneBranchShallow} (one commit,
+ * disposable scaffold copies), this keeps full history so the clone is fit to
+ * be an ongoing mod working copy.
+ * @param url - Remote URL to clone.
+ * @param dir - Target directory.
+ * @param branch - Branch name to check out (e.g. "mod/expanded-boulder-field").
+ * @param options.onProgress - Progress callback.
+ */
+export async function cloneBranch(url: string, dir: string, branch: string, { onProgress }: ProgressOptions = {}) {
+  try {
+    await simpleGit({ progress: progressOption(onProgress) }).clone(url, dir, [
+      "--branch", branch,
+      "--single-branch",
+    ]);
+  } catch (err) {
+    throw wrapError("cloneBranch", err);
+  }
+}
+
+/**
+ * List the branch names on a remote repository via `git ls-remote --heads`.
+ * Reads public repositories with no local credential.
+ * @param url - HTTPS clone URL (or any git-reachable path).
+ */
+export async function listRemoteBranches(url: string): Promise<string[]> {
+  try {
+    const raw = await simpleGit().listRemote(["--heads", url]);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.replace(/^[0-9a-f]+\s+refs\/heads\//, ""))
+      .filter(Boolean);
+  } catch (err) {
+    throw wrapError("listRemoteBranches", err);
+  }
+}
+
+/**
  * Create a new local branch and check it out.
  * @param branch - Branch name to create.
  * @param startPoint - Ref to branch from (defaults to HEAD).

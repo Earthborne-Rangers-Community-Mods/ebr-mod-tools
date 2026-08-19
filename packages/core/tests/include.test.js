@@ -63,9 +63,11 @@ import {
   computeMissingCampaignProducts,
   classifyIncludeSource,
   remoteNameForRepoUrl,
+  extractModId,
   resolveModSource,
   upsertIncludedMod,
   includeMod,
+  predictModInclude,
   checkIncludedModsUpdates,
 } from "../src/workflows.js";
 import {
@@ -615,6 +617,54 @@ describe("included mods", () => {
     });
   });
 
+  // --- extractModId ---
+
+  describe("extractModId", () => {
+    it("returns a bare id unchanged", () => {
+      expect(extractModId("expanded-boulder-field")).toBe("expanded-boulder-field");
+    });
+
+    it("trims surrounding whitespace on a bare id", () => {
+      expect(extractModId("  expanded-boulder-field  ")).toBe("expanded-boulder-field");
+    });
+
+    it("extracts the id from a Mod Manager site URL", () => {
+      expect(
+        extractModId("https://earthborne-rangers-community-mods.github.io/ebr-mod-manager/mods/familiar-ground"),
+      ).toBe("familiar-ground");
+    });
+
+    it("extracts the id from a GitHub branch URL", () => {
+      expect(
+        extractModId("https://github.com/SunberryKeeper/ebr-mod-base-content/tree/mod/special-delivery"),
+      ).toBe("special-delivery");
+    });
+
+    it("ignores a trailing slash", () => {
+      expect(
+        extractModId("https://earthborne-rangers-community-mods.github.io/ebr-mod-manager/mods/familiar-ground/"),
+      ).toBe("familiar-ground");
+    });
+
+    it("ignores a query string or hash after the id", () => {
+      expect(extractModId("https://example.com/mods/familiar-ground?tab=details")).toBe("familiar-ground");
+      expect(extractModId("https://example.com/mods/familiar-ground#readme")).toBe("familiar-ground");
+    });
+
+    it("returns an empty string for empty or whitespace-only input", () => {
+      expect(extractModId("")).toBe("");
+      expect(extractModId("   ")).toBe("");
+    });
+
+    it("decodes a percent-encoded last segment", () => {
+      expect(extractModId("https://example.com/mods/familiar%20ground")).toBe("familiar ground");
+    });
+
+    it("falls back to the raw segment when percent-decoding fails", () => {
+      expect(extractModId("https://example.com/mods/familiar-ground%")).toBe("familiar-ground%");
+    });
+  });
+
   // --- resolveModSource ---
 
   describe("resolveModSource", () => {
@@ -772,6 +822,25 @@ describe("included mods", () => {
       expect(result.alreadyUpToDate).toBe(false);
     });
 
+    it("also auto-resolves a conflicting 'About this Mod.md' by keeping ours, then commits", async () => {
+      gitMocks.merge.mockRejectedValue(new MergeConflictError(["ebr-mod.json", "About this Mod.md"]));
+
+      const result = await includeMod({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+
+      expect(gitMocks.checkoutConflictSide).toHaveBeenCalledWith(DIR, "About this Mod.md", "ours");
+      expect(gitMocks.stageFile).toHaveBeenCalledWith(DIR, "ebr-mod.json");
+      expect(gitMocks.commit).toHaveBeenCalledTimes(1);
+      expect(result.alreadyUpToDate).toBe(false);
+    });
+
+    it("does not touch 'About this Mod.md' when it is not among the conflicted files", async () => {
+      gitMocks.merge.mockRejectedValue(new MergeConflictError(["ebr-mod.json"]));
+
+      await includeMod({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+
+      expect(gitMocks.checkoutConflictSide).not.toHaveBeenCalled();
+    });
+
     it("re-throws with non-manifest conflicts remaining, after staging our resolved manifest", async () => {
       gitMocks.merge.mockRejectedValue(new MergeConflictError(["ebr-mod.json", "content/foo.md"]));
 
@@ -794,6 +863,26 @@ describe("included mods", () => {
       // No success-path commit when real conflicts remain.
       expect(gitMocks.commit).not.toHaveBeenCalled();
     });
+
+    it("re-throws with non-identity conflicts remaining after resolving both auto-kept files", async () => {
+      gitMocks.merge.mockRejectedValue(
+        new MergeConflictError(["ebr-mod.json", "About this Mod.md", "content/foo.md"]),
+      );
+
+      let err;
+      try {
+        await includeMod({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(MergeConflictError);
+      expect(gitMocks.checkoutConflictSide).toHaveBeenCalledWith(DIR, "About this Mod.md", "ours");
+      // Only the genuine content conflict is surfaced.
+      expect(err.conflictedFiles).toEqual(["content/foo.md"]);
+      expect(gitMocks.commit).not.toHaveBeenCalled();
+    });
+
+
 
     it("does not touch the manifest on a non-conflict merge failure", async () => {
       gitMocks.merge.mockRejectedValue(new Error("network died mid-merge"));
@@ -840,6 +929,75 @@ describe("included mods", () => {
         { id: "solo-mod", name: "Solo Mod", author: "Bob", version: "2.0.0", repoUrl: BOB_FORK },
         { id: "expanded-boulder-field", name: "Expanded Boulder Field", author: "Alice", version: "1.2.0", repoUrl: ALICE_FORK },
       ]);
+    });
+  });
+
+  // --- predictModInclude ---
+
+  describe("predictModInclude", () => {
+    it("throws NotARepoError when dir is not a git repo", async () => {
+      gitMocks.isRepo.mockResolvedValue(false);
+      await expect(
+        predictModInclude({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() }),
+      ).rejects.toBeInstanceOf(NotARepoError);
+      expect(gitMocks.fetchRemote).not.toHaveBeenCalled();
+    });
+
+    it("throws IncludeModNotFoundError for an unknown mod id", async () => {
+      await expect(
+        predictModInclude({ dir: DIR, source: "no-such-mod", registry: makeRegistry() }),
+      ).rejects.toBeInstanceOf(IncludeModNotFoundError);
+    });
+
+    it("adds the fork remote when missing, then fetches it", async () => {
+      gitMocks.hasRemote.mockResolvedValue(false);
+      await predictModInclude({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+      expect(gitMocks.addRemote).toHaveBeenCalledWith(DIR, "inc-alice-ebr-mod-base-content", ALICE_FORK);
+      expect(gitMocks.fetchRemote).toHaveBeenCalledWith(
+        DIR,
+        "inc-alice-ebr-mod-base-content",
+        expect.any(Object),
+      );
+    });
+
+    it("reports alreadyUpToDate when the registry commit is already in HEAD, without a dry-run merge", async () => {
+      gitMocks.isAncestor.mockResolvedValue(true);
+      const result = await predictModInclude({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+      expect(result).toEqual({ modId: "expanded-boulder-field", commitHash: HASH_BOULDER, conflicts: [], alreadyUpToDate: true });
+      expect(gitMocks.isAncestor).toHaveBeenCalledWith(DIR, HASH_BOULDER, "HEAD");
+      expect(gitMocks.predictMerge).not.toHaveBeenCalled();
+    });
+
+    it("filters ebr-mod.json out of the predicted conflicts (includeMod always auto-resolves it)", async () => {
+      gitMocks.predictMerge.mockResolvedValue({ conflicts: ["ebr-mod.json", "content/foo.md"] });
+      const result = await predictModInclude({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+      expect(result.conflicts).toEqual(["content/foo.md"]);
+      expect(result.alreadyUpToDate).toBe(false);
+    });
+
+    it("also filters 'About this Mod.md' out of the predicted conflicts", async () => {
+      gitMocks.predictMerge.mockResolvedValue({
+        conflicts: ["ebr-mod.json", "About this Mod.md", "content/foo.md"],
+      });
+      const result = await predictModInclude({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+      expect(result.conflicts).toEqual(["content/foo.md"]);
+    });
+
+    it("reports no real conflicts for a clean merge", async () => {
+      gitMocks.predictMerge.mockResolvedValue({ conflicts: ["ebr-mod.json"] });
+      const result = await predictModInclude({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+      expect(result.conflicts).toEqual([]);
+    });
+
+    it("only filters the root manifest path, not a same-named file in a subfolder", async () => {
+      gitMocks.predictMerge.mockResolvedValue({ conflicts: ["ebr-mod.json", "content/ebr-mod.json"] });
+      const result = await predictModInclude({ dir: DIR, source: "expanded-boulder-field", registry: makeRegistry() });
+      expect(result.conflicts).toEqual(["content/ebr-mod.json"]);
+    });
+
+    it("falls back to fetchRegistry when no registry is provided", async () => {
+      await predictModInclude({ dir: DIR, source: "expanded-boulder-field" });
+      expect(registryMocks.fetchRegistry).toHaveBeenCalledTimes(1);
     });
   });
 

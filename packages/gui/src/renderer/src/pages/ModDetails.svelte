@@ -20,14 +20,19 @@
   import { conflictFlow } from "../lib/conflict.svelte.js";
   import { onboarding } from "../lib/onboarding.svelte.js";
   import { typeName } from "../lib/modtypes.js";
-  import { openPath, openExternal, MOD_MANAGER_URL } from "../lib/platform.js";
+  import { openPath, openExternal, openTerminal, MOD_MANAGER_URL } from "../lib/platform.js";
   import { showSafeChoice } from "../lib/midcampaign.js";
+  import { advancedMode } from "../lib/advancedmode.svelte.js";
+  import { pullFlow } from "../lib/pull.svelte.js";
   import { OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
   import pencilIcon from "../assets/icons/pencil.svg";
   import plusIcon from "../assets/icons/plus.svg";
   import updateIcon from "../assets/icons/circled-down-arrow.svg";
   import folderIcon from "../assets/icons/open-folder.svg";
   import discordLogo from "../assets/icons/discord-logo.svg";
+  import terminalIcon from "../assets/icons/command-prompt.svg";
+  import difftoolIcon from "../assets/icons/git-compare.svg";
+  import pullIcon from "../assets/icons/download.svg";
   import * as m from "../lib/paraglide/messages.js";
 
   const entry = $derived(navigation.selectedModDir ? openMods.getByDir(navigation.selectedModDir) : null);
@@ -47,8 +52,13 @@
   const pubStatus = $derived(entry ? publishStatus.get(entry.dir) : null);
   const modPageUrl = $derived(mod?.id ? `${MOD_MANAGER_URL}mods/${mod.id}` : null);
   // A mid-merge mod must be resolved before anything else can be built on it.
-  const merging = $derived(entry ? gitStatus.get(entry.dir)?.merging === true : false);
+  const status = $derived(entry ? gitStatus.get(entry.dir) : null);
+  const merging = $derived(status?.merging === true);
   const updatesAvailable = $derived(entry ? updateCount(updateStatus.get(entry.dir)) : 0);
+  const pullingHere = $derived(pullFlow.busy && pullFlow.dir === entry?.dir);
+
+  /** Advanced-mode branch-per-mod explainer */
+  let showBranchExplainer = $state(false);
 
   // The update check fetches every remote the mod pulls from and adds any that
   // are missing, so it waits on the git status: mid-merge its answer is unusable
@@ -93,6 +103,29 @@
         <div class="header-actions">
           {#if !merging}
             <SaveControl dir={entry.dir} />
+            {#if advancedMode.enabled && status?.hasUpstreamChanges}
+              <button
+                type="button"
+                class="icon-button secondary"
+                disabled={pullingHere}
+                onclick={() => pullFlow.pull(entry.dir)}
+                aria-label={pullingHere ? m.moddetails_git_pulling() : m.moddetails_git_pull()}
+                title={pullingHere ? m.moddetails_git_pulling() : m.moddetails_git_pull()}
+              >
+                <span class="icon" style={`--icon-mask: url("${pullIcon}")`} aria-hidden="true"></span>
+              </button>
+            {/if}
+            {#if advancedMode.enabled && status?.hasUncommitted}
+              <button
+                type="button"
+                class="icon-button secondary"
+                onclick={() => openTerminal(entry.dir, "git difftool")}
+                aria-label={m.moddetails_git_difftool()}
+                title={m.moddetails_git_difftool()}
+              >
+                <span class="icon" style={`--icon-mask: url("${difftoolIcon}")`} aria-hidden="true"></span>
+              </button>
+            {/if}
             {#if updatesAvailable > 0}
               <button
                 type="button"
@@ -104,7 +137,7 @@
                 <span class="icon" style={`--icon-mask: url("${updateIcon}")`} aria-hidden="true"></span>
               </button>
             {/if}
-            {#if addContentKinds(mod.type).length > 0}
+            {#if addContentKinds(mod.type, advancedMode.enabled).length > 0}
               <button
                 type="button"
                 class="icon-button secondary"
@@ -125,6 +158,17 @@
           >
             <span class="icon" style={`--icon-mask: url("${folderIcon}")`} aria-hidden="true"></span>
           </button>
+          {#if advancedMode.enabled}
+            <button
+              type="button"
+              class="icon-button secondary"
+              onclick={() => openTerminal(entry.dir)}
+              aria-label={m.moddetails_open_terminal()}
+              title={m.moddetails_open_terminal()}
+            >
+              <span class="icon" style={`--icon-mask: url("${terminalIcon}")`} aria-hidden="true"></span>
+            </button>
+          {/if}
           {#if !merging}
             <ObsidianButton dir={entry.dir} />
             <button
@@ -139,6 +183,20 @@
           {/if}
         </div>
       </div>
+      {#if advancedMode.enabled && status?.branch}
+        <p class="branch-line muted">
+          {m.moddetails_branch_label({ branch: status.branch })}
+          <button
+            type="button"
+            class="link"
+            aria-label={m.moddetails_branch_explainer_alt()}
+            title={m.moddetails_branch_explainer_alt()}
+            onclick={() => (showBranchExplainer = true)}
+          >
+            {m.moddetails_branch_explainer_help()}
+          </button>
+        </p>
+      {/if}
     </header>
 
     {#if merging}
@@ -151,6 +209,10 @@
           {m.moddetails_mid_merge_resolve()}
         </button>
       </div>
+    {/if}
+
+    {#if pullFlow.errorCode && pullFlow.dir === entry.dir}
+      <p class="banner error" role="alert">{m.moddetails_git_pull_failed()}</p>
     {/if}
 
     <dl class="details">
@@ -243,6 +305,29 @@
           </dd>
         </div>
       {/if}
+      {#if mod.includedMods && mod.includedMods.length > 0}
+        <div class="row wide">
+          <dt>{m.moddetails_built_from()}</dt>
+          <dd>
+            <ul class="included-mods-list">
+              {#each mod.includedMods as included (included.id)}
+                <li class="included-mod">
+                  <button
+                    type="button"
+                    class="link included-mod-name"
+                    onclick={() => openExternal(`${MOD_MANAGER_URL}mods/${included.id}`)}
+                  >
+                    {included.name}
+                  </button>
+                  <span class="included-mod-meta">
+                    {m.moddetails_built_from_entry({ version: included.version, author: included.author })}
+                  </span>
+                </li>
+              {/each}
+            </ul>
+          </dd>
+        </div>
+      {/if}
       {#if showSafeChoice(mod.type ?? "")}
         <div class="row wide">
           <dt>{m.midcampaign_legend()}</dt>
@@ -296,6 +381,19 @@
     </div>
   </Modal>
 {/if}
+
+{#if showBranchExplainer}
+  <Modal onCancel={() => (showBranchExplainer = false)} labelledby="branch-explainer-title">
+    <p id="branch-explainer-title" class="title">{m.moddetails_branch_explainer_title()}</p>
+    <p class="body">{m.moddetails_branch_explainer_body({ branch: status?.branch ?? "" })}</p>
+    <div class="explainer-actions">
+      <button type="button" class="primary" onclick={() => (showBranchExplainer = false)}>
+        {m.moddetails_branch_explainer_dismiss()}
+      </button>
+    </div>
+  </Modal>
+{/if}
+
 
 <style>
   .page {
@@ -388,6 +486,14 @@
     gap: var(--spacing-md);
   }
 
+  .branch-line {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+  }
+
   .muted :global(.publish-badge) {
     vertical-align: middle;
   }
@@ -478,6 +584,32 @@
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     color: var(--color-text);
+  }
+
+  .included-mods-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    font-size: var(--font-size-sm);
+    padding: 0;
+    margin: 0;
+  }
+
+  .included-mod {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--spacing-xs);
+  }
+
+  .included-mod-name {
+    font-weight: 600;
+  }
+
+  .included-mod-meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
   }
 
   .safety-safe {

@@ -6,14 +6,16 @@
    */
   import { addContentFlow } from "../lib/addcontent.svelte.js";
   import { addContentKinds } from "../lib/addcontent.js";
+  import { advancedMode } from "../lib/advancedmode.svelte.js";
   import Modal from "./Modal.svelte";
   import Spinner from "./Spinner.svelte";
   import TemplatePanel from "./TemplatePanel.svelte";
   import IncludeCampaignPanel from "./IncludeCampaignPanel.svelte";
+  import IncludeModPanel from "./IncludeModPanel.svelte";
   import * as m from "../lib/paraglide/messages.js";
 
   const flow = addContentFlow;
-  const kinds = $derived(addContentKinds(flow.modType));
+  const kinds = $derived(addContentKinds(flow.modType, advancedMode.enabled));
 </script>
 
 <Modal onCancel={() => flow.cancel()} labelledby="addcontent-title">
@@ -42,6 +44,11 @@
               <span class="option-name">{m.addcontent_campaign_name()}</span>
               <span class="option-desc">{m.addcontent_campaign_desc()}</span>
             </button>
+          {:else if kind === "include-mod"}
+            <button type="button" class="option" onclick={() => flow.chooseKind("include-mod")}>
+              <span class="option-name">{m.addcontent_mod_name()}</span>
+              <span class="option-desc">{m.addcontent_mod_desc()}</span>
+            </button>
           {/if}
         {/each}
       </div>
@@ -51,6 +58,8 @@
     {/if}
   {:else if flow.kind === "include-campaign"}
     <IncludeCampaignPanel />
+  {:else if flow.kind === "include-mod"}
+    <IncludeModPanel />
   {:else}
     <TemplatePanel />
   {/if}

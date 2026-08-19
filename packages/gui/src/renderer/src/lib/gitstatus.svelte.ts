@@ -8,7 +8,7 @@
  * (`getStatus`, `getAheadBehind`) live in core; this store caches their result
  * and exposes it reactively.
  */
-import { getStatus, getAheadBehind, isMerging } from "core";
+import { getStatus, getAheadBehind, isMerging, getCurrentBranch } from "core";
 
 /** Cached git state for one mod directory. */
 export type GitStatusEntry = {
@@ -25,6 +25,14 @@ export type GitStatusEntry = {
   hasTrackedChanges: boolean;
   /** Local commits are not yet on the remote (includes a never-pushed branch). */
   hasUnpushed: boolean;
+  /**
+   * The remote tracking branch has commits not yet merged locally.
+   * Reflects the ahead/behind read from the last refresh, so it can
+   * lag until something else fetches the remote.
+   */
+  hasUpstreamChanges: boolean;
+  /** Current branch name, or null before the first successful read. */
+  branch: string | null;
   /** A merge is in progress. */
   merging: boolean;
   /** Message from a failed status read, or null. */
@@ -39,6 +47,8 @@ function blankEntry(dir: string): GitStatusEntry {
     hasUncommitted: false,
     hasTrackedChanges: false,
     hasUnpushed: false,
+    hasUpstreamChanges: false,
+    branch: null,
     merging: false,
     error: null,
   };
@@ -89,6 +99,8 @@ class GitStatusTracker {
       // conservatively as "has unpushed work". Otherwise the branch is unpushed
       // when it is ahead of the remote.
       entry.hasUnpushed = ahead === null || ahead.ahead > 0;
+      entry.hasUpstreamChanges = ahead !== null && ahead.behind > 0;
+      entry.branch = await getCurrentBranch(dir);
       entry.merging = await isMerging(dir);
       entry.error = null;
       entry.loaded = true;

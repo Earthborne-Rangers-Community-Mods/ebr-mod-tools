@@ -9,6 +9,7 @@ import { gitStatus } from "./gitstatus.svelte.js";
 import { saveFlow } from "./save.svelte.js";
 import { TemplateFlow } from "./template.svelte.js";
 import { IncludeCampaignFlow } from "./includecampaign.svelte.js";
+import { IncludeModFlow } from "./includemod.svelte.js";
 import type { ContentKindFlow } from "./contentkind.svelte.js";
 import type { AddContentKind } from "./addcontent.js";
 
@@ -24,12 +25,18 @@ class AddContentFlow {
   template = new TemplateFlow();
   /** The include-campaign sub-flow. */
   campaign = new IncludeCampaignFlow();
+  /** The include-mod sub-flow (Advanced mode only). */
+  mod = new IncludeModFlow();
 
   constructor() {
     // A sub-flow that routes the user away (a campaign include that hit conflicts)
     // closes the launcher via this callback; the sub-flow has already reset itself.
     // Only merge-capable kinds route away.
     this.campaign.onDismiss = () => {
+      this.dir = null;
+      this.kind = null;
+    };
+    this.mod.onDismiss = () => {
       this.dir = null;
       this.kind = null;
     };
@@ -44,6 +51,7 @@ class AddContentFlow {
   get active(): ContentKindFlow | null {
     if (this.kind === "template") return this.template;
     if (this.kind === "include-campaign") return this.campaign;
+    if (this.kind === "include-mod") return this.mod;
     return null;
   }
 
@@ -78,6 +86,7 @@ class AddContentFlow {
     this.kind = null;
     this.template.reset();
     this.campaign.reset();
+    this.mod.reset();
     // Refresh the dirty state so the save-first gate on the chooser is current.
     gitStatus.refresh(dir);
   }

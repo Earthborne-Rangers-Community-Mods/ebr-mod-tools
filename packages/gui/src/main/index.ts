@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from
 import type { OpenDialogOptions } from "electron";
 import { join } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { isAllowedExternalUrl } from "./url-allowlist.js";
 
 /** The single main window. */
@@ -49,6 +50,46 @@ function writeStoredThemePreference(preference: ThemePreference): void {
 function backgroundForPreference(preference: ThemePreference, systemIsDark: boolean): string {
   const dark = preference === "dark" || (preference === "system" && systemIsDark);
   return dark ? DARK_BG : LIGHT_BG;
+}
+
+/**
+ * Commands the renderer may ask `shell:openTerminal` to run. Kept as a fixed
+ * allowlist rather  than accepting arbitrary text, so the IPC surface cannot
+ * become a shell injection point.
+ */
+const ALLOWED_TERMINAL_COMMANDS = new Set(["git difftool"]);
+
+/**
+ * Launch the OS terminal at `dirPath`, optionally running one allowlisted
+ * command in it before dropping to an interactive prompt. Best-effort per
+ * platform: Windows uses `cmd.exe`, macOS asks Terminal.app via `osascript`,
+ * and Linux tries `x-terminal-emulator` (the Debian/Ubuntu alternatives-system
+ * shim most distros provide). Returns false if the spawn itself throws (e.g.
+ * no terminal emulator found on Linux) or if `command` is not on the
+ * allowlist; it does not confirm the window opened.
+ */
+function openTerminal(dirPath: string, command?: string): boolean {
+  if (command !== undefined && !ALLOWED_TERMINAL_COMMANDS.has(command)) {
+    return false;
+  }
+  try {
+    if (process.platform === "win32") {
+      const args = ["/c", "start", "/D", `"${dirPath}"`, '""', "cmd.exe", "/k"];
+      if (command) args.push(command);
+      spawn("cmd.exe", args, { detached: true, stdio: "ignore", windowsVerbatimArguments: true }).unref();
+    } else if (process.platform === "darwin") {
+      const escaped = dirPath.replace(/(["\\])/g, "\\$1");
+      const shellLine = command ? `cd "${escaped}" && ${command}` : `cd "${escaped}"`;
+      const script = `tell application "Terminal" to do script "${shellLine.replace(/"/g, '\\"')}"`;
+      spawn("osascript", ["-e", script], { detached: true, stdio: "ignore" }).unref();
+    } else {
+      const shellLine = command ? `cd '${dirPath}' && ${command}; exec $SHELL` : `cd '${dirPath}'; exec $SHELL`;
+      spawn("x-terminal-emulator", ["-e", "bash", "-c", shellLine], { detached: true, stdio: "ignore" }).unref();
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -187,6 +228,19 @@ ipcMain.handle("shell:openPath", async (_event, dirPath) => {
   // shell.openPath resolves to "" on success or an error message on failure.
   const result = await shell.openPath(dirPath);
   return result === "";
+});
+
+// Open the OS terminal at a mod's directory, optionally running one allowlisted
+// command in it. `command` is checked against ALLOWED_TERMINAL_COMMANDS
+// rather than interpolated as arbitrary shell text.
+ipcMain.handle("shell:openTerminal", async (_event, dirPath, command) => {
+  if (typeof dirPath !== "string" || !dirPath) {
+    return false;
+  }
+  if (command !== undefined && typeof command !== "string") {
+    return false;
+  }
+  return openTerminal(dirPath, command);
 });
 
 // The renderer reports whether the close guard should be active - unsaved edits

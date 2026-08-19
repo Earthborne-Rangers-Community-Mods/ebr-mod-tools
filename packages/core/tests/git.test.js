@@ -28,6 +28,8 @@ import {
   commitMerge,
   isMerging,
   getLocalGitIdentity,
+  cloneBranch,
+  listRemoteBranches,
 } from "../src/git.js";
 import {
   GitError,
@@ -730,6 +732,72 @@ describe("remoteExists", () => {
 
   it("returns false for an unreachable / nonexistent remote", async () => {
     expect(await remoteExists(join(tmpDir, "does-not-exist"))).toBe(false);
+  });
+});
+
+// --- listRemoteBranches ---
+
+describe("listRemoteBranches", () => {
+  let tmpDir;
+  beforeEach(async () => { tmpDir = await createTempDir(); });
+  afterEach(async () => { await rm(tmpDir, { recursive: true, force: true }); });
+
+  it("lists every branch on a remote (local path acts as a remote)", async () => {
+    await initTestRepo(tmpDir);
+    await commitFile(tmpDir, "test.txt", "hello", "initial commit");
+    const git = simpleGit(tmpDir);
+    await git.checkoutLocalBranch("mod/river-valley");
+    await commitFile(tmpDir, "mod.txt", "mod content", "mod commit");
+    await git.checkout("-");
+
+    const branches = await listRemoteBranches(tmpDir);
+    expect(branches).toEqual(expect.arrayContaining(["mod/river-valley"]));
+  });
+
+  it("returns an empty array for a remote with no branches", async () => {
+    const bare = await createBareRemote();
+    try {
+      expect(await listRemoteBranches(bare)).toEqual([]);
+    } finally {
+      await rm(bare, { recursive: true, force: true });
+    }
+  });
+
+  it("throws GitError for an unreachable remote", async () => {
+    await expect(listRemoteBranches(join(tmpDir, "does-not-exist"))).rejects.toThrow(GitError);
+  });
+});
+
+// --- cloneBranch ---
+
+describe("cloneBranch", () => {
+  let sourceDir;
+  let cloneDir;
+  beforeEach(async () => {
+    sourceDir = await createTempDir();
+    cloneDir = join(await createTempDir(), "clone");
+    await initTestRepo(sourceDir);
+    await commitFile(sourceDir, "main.txt", "main content", "main commit");
+    const git = simpleGit(sourceDir);
+    await git.checkoutLocalBranch("mod/river-valley");
+    await commitFile(sourceDir, "mod.txt", "mod content", "mod commit");
+  });
+  afterEach(async () => {
+    await rm(sourceDir, { recursive: true, force: true });
+    await rm(cloneDir, { recursive: true, force: true });
+  });
+
+  it("clones a single branch, checked out with full history", async () => {
+    await cloneBranch(sourceDir, cloneDir, "mod/river-valley");
+
+    expect(await getCurrentBranch(cloneDir)).toBe("mod/river-valley");
+    expect(await readFile(join(cloneDir, "mod.txt"), "utf-8")).toBe("mod content");
+    const log = await simpleGit(cloneDir).log();
+    expect(log.all.length).toBe(2);
+  });
+
+  it("throws GitError when the branch does not exist on the remote", async () => {
+    await expect(cloneBranch(sourceDir, cloneDir, "mod/does-not-exist")).rejects.toThrow(GitError);
   });
 });
 

@@ -3,6 +3,7 @@
   import { navigation, ROUTES } from "../lib/navigation.svelte.js";
   import { setupStore } from "../lib/setup.svelte.js";
   import { themeStore, type ThemePreference } from "../lib/theme.svelte.js";
+  import { advancedMode } from "../lib/advancedmode.svelte.js";
   import { openExternal } from "../lib/platform.js";
   import { resetNewModExplainerSeen } from "../lib/onboarding.svelte.js";
   import * as m from "../lib/paraglide/messages.js";
@@ -240,6 +241,24 @@
             value={option.value}
             checked={themeStore.preference === option.value}
             onchange={() => themeStore.set(option.value)}
+          />
+          <span>{option.label()}</span>
+        </label>
+      {/each}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>{m.setup_advanced_heading()}</h2>
+    <p class="detail">{m.setup_advanced_lead()}</p>
+    <div class="theme-choice" role="radiogroup" aria-label={m.setup_advanced_heading()}>
+      {#each [{ value: false, label: m.setup_advanced_off }, { value: true, label: m.setup_advanced_on }] as option (String(option.value))}
+        <label class="theme-option" class:selected={advancedMode.enabled === option.value}>
+          <input
+            type="radio"
+            name="advanced-mode"
+            checked={advancedMode.enabled === option.value}
+            onchange={() => advancedMode.set(option.value)}
           />
           <span>{option.label()}</span>
         </label>

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import simpleGit from "simple-git";
-import { scaffoldMod, scaffoldModIntoClone, saveMod, pushMod, getModBranchName, previewIdentityOverride } from "../src/workflows.js";
+import { scaffoldMod, scaffoldModIntoClone, saveMod, pushMod, getModBranchName, listModBranches, cloneModFromFork, previewIdentityOverride } from "../src/workflows.js";
 import { readManifest, buildManifest, toId } from "../src/manifest.js";
 import { initRepo, addRemote, stageAll, commit, getCurrentBranch, push, getAheadBehind } from "../src/git.js";
 import { ManifestError, NothingToCommitError, GitError, ValidationError, ForkOutOfSyncError } from "../src/errors.js";
@@ -135,6 +135,66 @@ describe("modBranchName", () => {
 
   it("handles ids with multiple hyphens", () => {
     expect(getModBranchName("my-cool-new-mod")).toBe("mod/my-cool-new-mod");
+  });
+});
+
+// --- listModBranches / cloneModFromFork ---
+
+describe("listModBranches", () => {
+  let forkDir;
+  beforeEach(async () => {
+    forkDir = await createTempDir();
+    await initTestRepo(forkDir);
+    await commitFile(forkDir, "README.md", "shell content", "shell commit");
+    const git = simpleGit(forkDir);
+    for (const branch of ["mod/expanded-boulder-field", "mod/deeper-spire", "campaign/lure-of-the-valley"]) {
+      await git.checkoutLocalBranch(branch);
+      await commitFile(forkDir, `${branch.replace("/", "-")}.txt`, branch, `${branch} commit`);
+      await git.checkout("-");
+    }
+  });
+  afterEach(async () => { await rm(forkDir, { recursive: true, force: true }); });
+
+  it("returns only mod/ branches, sorted, with the prefix stripped", async () => {
+    expect(await listModBranches(forkDir)).toEqual(["deeper-spire", "expanded-boulder-field"]);
+  });
+
+  it("excludes the shell main branch and non-mod branches", async () => {
+    const branches = await listModBranches(forkDir);
+    expect(branches).not.toContain("main");
+    expect(branches).not.toContain("lure-of-the-valley");
+  });
+});
+
+describe("cloneModFromFork", () => {
+  let forkDir;
+  let cloneDir;
+  beforeEach(async () => {
+    forkDir = await createTempDir();
+    cloneDir = join(await createTempDir(), "clone");
+    await initTestRepo(forkDir);
+    await commitFile(forkDir, "README.md", "shell content", "shell commit");
+    const git = simpleGit(forkDir);
+    await git.checkoutLocalBranch("mod/expanded-boulder-field");
+    await commitFile(forkDir, "ebr-mod.json", '{"id":"expanded-boulder-field"}', "mod commit");
+  });
+  afterEach(async () => {
+    await rm(forkDir, { recursive: true, force: true });
+    await rm(cloneDir, { recursive: true, force: true });
+  });
+
+  it("clones the mod's branch into the target directory, checked out", async () => {
+    await cloneModFromFork({ forkUrl: forkDir, modId: "expanded-boulder-field", dir: cloneDir });
+
+    expect(await getCurrentBranch(cloneDir)).toBe("mod/expanded-boulder-field");
+    const manifest = await readManifest(cloneDir);
+    expect(manifest.id).toBe("expanded-boulder-field");
+  });
+
+  it("throws GitError for a mod id with no matching branch", async () => {
+    await expect(
+      cloneModFromFork({ forkUrl: forkDir, modId: "does-not-exist", dir: cloneDir }),
+    ).rejects.toThrow(GitError);
   });
 });
 

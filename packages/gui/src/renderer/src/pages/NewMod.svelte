@@ -13,6 +13,7 @@
     STORY_CAMPAIGNS,
   } from "../lib/newmod.svelte.js";
   import { typeName, typeDesc } from "../lib/modtypes.js";
+  import { advancedMode } from "../lib/advancedmode.svelte.js";
   import { MOD_TYPES, OFFICIAL_CAMPAIGNS, OFFICIAL_PRODUCTS } from "core";
   import * as m from "../lib/paraglide/messages.js";
   import { pick } from "../lib/pick.js";
@@ -21,6 +22,9 @@
   const form = newModForm;
 
   onMount(() => form.reset());
+
+  // Collections are a power-user surface, gated behind advanced mode
+  const typeChoices = $derived(MOD_TYPES.filter((type) => advancedMode.enabled || type.id !== "collection"));
 
   const ERROR_MESSAGES = {
     "setup-required": m.newmod_error_setup_required,
@@ -123,7 +127,7 @@
     <label class="field">
       <span>{m.newmod_field_type()}</span>
       <select value={form.type} onchange={(e) => form.setType(e.currentTarget.value)} disabled={form.busy}>
-        {#each MOD_TYPES as type (type.id)}
+        {#each typeChoices as type (type.id)}
           <option value={type.id}>
             {typeName(type.id)} &mdash; {typeDesc(type.id)}
           </option>
