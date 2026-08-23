@@ -108,6 +108,7 @@ function createWindow() {
     minWidth: 520,
     minHeight: 500,
     show: false,
+    icon: app.isPackaged ? undefined : join(app.getAppPath(), "build", "ebr-gear.png"),
     autoHideMenuBar: true,
     // Paint the window in the active theme's --color-bg before the renderer
     // loads, so there is no white flash on first paint.
