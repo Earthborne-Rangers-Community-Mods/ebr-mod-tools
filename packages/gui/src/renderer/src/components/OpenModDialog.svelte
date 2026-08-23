@@ -47,8 +47,7 @@
   }
 </script>
 
-<Modal onCancel={cancel} labelledby="openmod-title">
-  <p id="openmod-title" class="title">{m.openmod_dialog_title()}</p>
+<Modal onCancel={cancel} title={m.openmod_dialog_title()} labelledby="openmod-title">
 
   {#if openModFlow.screen === "choice"}
     {#if openModFlow.errorCode === "setup-required"}
@@ -123,12 +122,6 @@
 </Modal>
 
 <style>
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
-  }
-
   .body {
     margin: 0;
     color: var(--color-text-muted);

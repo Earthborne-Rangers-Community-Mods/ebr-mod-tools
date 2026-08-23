@@ -105,8 +105,7 @@
 </section>
 
 {#if flow.showExplainer}
-  <Modal onCancel={() => flow.dismissExplainer()} labelledby="merge-explainer-title">
-    <p id="merge-explainer-title" class="title">{m.conflict_explainer_title()}</p>
+  <Modal onCancel={() => flow.dismissExplainer()} title={m.conflict_explainer_title()} labelledby="merge-explainer-title">
     <p class="body">{m.conflict_explainer_body_1()}</p>
     <p class="body">{m.conflict_explainer_body_2()}</p>
     <div class="explainer-actions">
@@ -136,7 +135,7 @@
     border: none;
     color: var(--color-primary);
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--font-size-sm);
     padding: 0;
   }
 
@@ -169,7 +168,7 @@
 
   .path {
     font-family: ui-monospace, monospace;
-    font-size: 0.85rem;
+    font-size: var(--font-size-sm);
     word-break: break-all;
     margin: 0;
   }
@@ -185,7 +184,7 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-xs);
-    font-size: 0.9rem;
+    font-size: var(--font-size-sm);
   }
 
   .preview {
@@ -194,7 +193,7 @@
     max-height: 20rem;
     resize: vertical;
     font-family: ui-monospace, monospace;
-    font-size: 0.8rem;
+    font-size: var(--font-size-xs);
     line-height: 1.5;
     white-space: pre;
     overflow: auto;
@@ -207,7 +206,7 @@
 
   .preview-note {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -223,12 +222,6 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
-  }
-
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
   }
 
   .body {

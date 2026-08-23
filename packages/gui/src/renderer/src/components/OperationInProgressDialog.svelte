@@ -15,8 +15,7 @@
   let { onDismiss }: Props = $props();
 </script>
 
-<Modal onCancel={onDismiss} labelledby="busy-close-title">
-  <p id="busy-close-title" class="title">{m.busy_close_title()}</p>
+<Modal onCancel={onDismiss} title={m.busy_close_title()} labelledby="busy-close-title">
   <p class="body">{m.busy_close_body()}</p>
   <div class="actions">
     <button type="button" class="primary" onclick={onDismiss}>{m.busy_close_ok()}</button>
@@ -24,12 +23,6 @@
 </Modal>
 
 <style>
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
-  }
-
   .body {
     margin: 0;
     color: var(--color-text-muted);

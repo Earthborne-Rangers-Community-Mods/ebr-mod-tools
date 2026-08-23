@@ -11,20 +11,23 @@
   interface Props {
     /** Handles the native `cancel` event (Escape). */
     onCancel: () => void;
+    /** Visible heading for the dialog. */
+    title: string;
     /** id of the element that labels the dialog (aria-labelledby). */
-    labelledby?: string;
+    labelledby: string;
     /** CSS max-width for the dialog. Defaults to 26rem. */
     maxWidth?: string;
     /** Dialog contents. */
     children: Snippet;
   }
-  let { onCancel, labelledby, maxWidth = "26rem", children }: Props = $props();
+  let { onCancel, title, labelledby, maxWidth = "26rem", children }: Props = $props();
 
   let dialogEl: HTMLDialogElement;
 
   // Open as a true modal on mount; close the native dialog on teardown.
   $effect(() => {
     dialogEl.showModal();
+    dialogEl.scrollTop = 0;
     return () => dialogEl.close();
   });
 
@@ -43,6 +46,7 @@
   aria-labelledby={labelledby}
   oncancel={handleCancel}
 >
+  <h2 class="dialog-title" id={labelledby}>{title}</h2>
   {@render children()}
 </dialog>
 
@@ -57,12 +61,26 @@
     border-radius: var(--radius);
     padding: var(--spacing-lg);
     box-shadow: var(--shadow, 0 8px 24px rgba(0, 0, 0, 0.25));
+    max-height: 80vh;
+    overflow-y: auto;
   }
 
   .dialog[open] {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-sm);
+  }
+
+  .dialog-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    line-height: var(--line-height-tight);
+  }
+
+  .dialog > :global(p) {
+    margin: 0;
   }
 
   .dialog::backdrop {

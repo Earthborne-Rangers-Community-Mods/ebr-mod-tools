@@ -178,7 +178,7 @@
   }
 
   .emoji {
-    font-size: 1.375rem;
+    font-size: var(--font-size-md);
     line-height: 1;
   }
 
@@ -197,7 +197,7 @@
     border-radius: var(--radius-full);
     background: transparent;
     color: var(--color-text-muted);
-    font-size: 1.25rem;
+    font-size: var(--font-size-md);
     line-height: 1;
     cursor: pointer;
   }

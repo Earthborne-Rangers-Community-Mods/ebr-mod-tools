@@ -59,8 +59,7 @@
 </button>
 
 {#if showUnregistered}
-  <Modal onCancel={() => (showUnregistered = false)} labelledby="unregistered-vault-title">
-    <p id="unregistered-vault-title" class="unregistered-title">{m.obsidian_unregistered_title()}</p>
+  <Modal onCancel={() => (showUnregistered = false)} title={m.obsidian_unregistered_title()} labelledby="unregistered-vault-title">
     <p class="unregistered-body">{m.obsidian_unregistered_body({ open_command: m.obsidian_unregistered_choose_vault(), dir })}</p>
     <div class="unregistered-actions">
       <button type="button" class="ghost" onclick={() => (showUnregistered = false)}>
@@ -79,12 +78,6 @@
     width: 1.25rem;
     height: 1.25rem;
     display: block;
-  }
-
-  .unregistered-title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
   }
 
   .unregistered-body {

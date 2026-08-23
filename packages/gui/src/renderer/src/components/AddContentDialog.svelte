@@ -18,8 +18,7 @@
   const kinds = $derived(addContentKinds(flow.modType, advancedMode.enabled));
 </script>
 
-<Modal onCancel={() => flow.cancel()} labelledby="addcontent-title">
-  <p id="addcontent-title" class="title">{m.addcontent_title()}</p>
+<Modal onCancel={() => flow.cancel()} title={m.addcontent_title()} labelledby="addcontent-title">
 
   {#if flow.kind === null}
     {#if flow.statusPending}
@@ -66,12 +65,6 @@
 </Modal>
 
 <style>
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
-  }
-
   .body {
     margin: 0;
     color: var(--color-text-muted);
@@ -103,11 +96,11 @@
   }
 
   .option-name {
-    font-weight: 600;
+    font-weight: var(--font-weight-medium);
   }
 
   .option-desc {
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 

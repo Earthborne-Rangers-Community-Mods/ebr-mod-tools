@@ -18,8 +18,7 @@
   }
 </script>
 
-<Modal onCancel={() => saveFlow.cancel()} labelledby="save-title">
-  <p id="save-title" class="title">{m.save_dialog_title()}</p>
+<Modal onCancel={() => saveFlow.cancel()} title={m.save_dialog_title()} labelledby="save-title">
 
   {#if saveFlow.mode === "commit"}
     <fieldset class="bumps" disabled={saveFlow.busy}>
@@ -115,12 +114,6 @@
 </Modal>
 
 <style>
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
-  }
-
   .body {
     margin: 0;
     color: var(--color-text-muted);
@@ -138,7 +131,7 @@
   .bumps legend {
     padding: 0;
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .bump {
@@ -151,7 +144,7 @@
   .preview {
     margin: 0;
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .field {
@@ -161,18 +154,18 @@
   }
 
   .field span {
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
   .hint {
-    font-size: 0.8125rem;
+    font-size: var(--font-size-xs);
   }
 
   .progress {
     margin: 0;
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .warnings {
@@ -185,7 +178,7 @@
 
   .warnings-title {
     margin: 0 0 var(--spacing-xs);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -195,7 +188,7 @@
 
   .identity-body {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .actions {

@@ -333,7 +333,7 @@
   }
 
   .card h2 {
-    font-size: 1rem;
+    font-size: var(--font-size-base);
   }
 
   .status-row {
@@ -359,7 +359,7 @@
 
   .detail {
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .detail.warn {
@@ -454,15 +454,14 @@
   }
 
   .fork-list dt {
-    font-size: 0.75rem;
+    font-size: var(--font-size-xs);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
     color: var(--color-text-muted);
   }
 
   .fork-list dd {
     font-family: ui-monospace, monospace;
-    font-size: 0.85rem;
+    font-size: var(--font-size-sm);
     word-break: break-all;
   }
 
@@ -482,7 +481,7 @@
   }
 
   .field span {
-    font-size: 0.8rem;
+    font-size: var(--font-size-xs);
     color: var(--color-text-muted);
   }
 

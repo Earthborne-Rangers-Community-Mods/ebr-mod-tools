@@ -282,13 +282,13 @@
   }
 
   .field span {
-    font-size: 0.8rem;
+    font-size: var(--font-size-xs);
     color: var(--color-text-muted);
   }
 
   .hint {
     color: var(--color-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--font-size-xs);
   }
 
   .warn-text {
@@ -312,14 +312,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--color-text-muted);
-    font-size: 0.85rem;
+    font-size: var(--font-size-sm);
   }
 
   .progress {
     grid-column: 1 / -1;
     margin: 0;
     color: var(--color-text-muted);
-    font-size: 0.85rem;
+    font-size: var(--font-size-sm);
   }
 
   .form-actions {

@@ -282,13 +282,13 @@
   }
 
   .mod-icon {
-    font-size: 2.5rem;
+    font-size: var(--font-size-xl);
     line-height: 1;
   }
 
   .save-status {
     margin-left: auto;
-    font-size: 0.85rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -309,13 +309,13 @@
   }
 
   .field span {
-    font-size: 0.8rem;
+    font-size: var(--font-size-xs);
     color: var(--color-text-muted);
   }
 
   .hint {
     color: var(--color-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--font-size-xs);
   }
 
   .error-text {

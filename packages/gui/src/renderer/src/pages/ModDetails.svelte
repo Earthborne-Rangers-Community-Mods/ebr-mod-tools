@@ -214,7 +214,7 @@
     {#if pullFlow.errorCode && pullFlow.dir === entry.dir}
       <p class="banner error" role="alert">{m.moddetails_git_pull_failed()}</p>
     {/if}
-
+    
     <dl class="details">
       <div class="row wide">
         <dt>{m.moddetails_field_description()}</dt>
@@ -332,9 +332,9 @@
         <div class="row wide">
           <dt>{m.midcampaign_legend()}</dt>
           {#if mod.safeToAddMidCampaign}
-            <dd class="safety-safe">&#x1f6e1;&#xfe0f; {m.moddetails_safe_mid_campaign()}</dd>
+            <dd>{m.moddetails_safe_mid_campaign()}</dd>
           {:else}
-            <dd class="safety-unsafe">&#x26a0;&#xfe0f; {mod.midCampaignNotes || m.moddetails_not_safe_mid_campaign()}</dd>
+            <dd>{mod.midCampaignNotes || m.moddetails_not_safe_mid_campaign()}</dd>
           {/if}
         </div>
       {/if}
@@ -367,8 +367,7 @@
 </section>
 
 {#if onboarding.showNewModExplainer}
-  <Modal onCancel={() => onboarding.dismissNewModExplainer()} labelledby="new-mod-explainer-title">
-    <p id="new-mod-explainer-title" class="title">{m.newmod_explainer_title()}</p>
+  <Modal onCancel={() => onboarding.dismissNewModExplainer()} title={m.newmod_explainer_title()} labelledby="new-mod-explainer-title">
     <p class="body">{m.newmod_explainer_body({ dir: entry?.dir ?? m.newmod_unknown_folder() })}</p>
     <div class="explainer-actions">
       <ObsidianDownloadButton />
@@ -383,8 +382,7 @@
 {/if}
 
 {#if showBranchExplainer}
-  <Modal onCancel={() => (showBranchExplainer = false)} labelledby="branch-explainer-title">
-    <p id="branch-explainer-title" class="title">{m.moddetails_branch_explainer_title()}</p>
+  <Modal onCancel={() => (showBranchExplainer = false)} title={m.moddetails_branch_explainer_title()} labelledby="branch-explainer-title">
     <p class="body">{m.moddetails_branch_explainer_body({ branch: status?.branch ?? "" })}</p>
     <div class="explainer-actions">
       <button type="button" class="primary" onclick={() => (showBranchExplainer = false)}>
@@ -400,12 +398,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
-  }
-
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
   }
 
   .body {
@@ -447,13 +439,13 @@
   }
 
   .merge-banner-title {
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
     color: var(--color-error);
   }
 
   .merge-banner-body {
     color: var(--color-text);
-    font-size: 0.9rem;
+    font-size: var(--font-size-sm);
   }
 
   .mod-footer {
@@ -484,6 +476,7 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-md);
+    flex-wrap: wrap;
   }
 
   .branch-line {
@@ -499,7 +492,7 @@
   }
 
   .mod-icon {
-    font-size: 2.5rem;
+    font-size: var(--font-size-xl);
     line-height: 1;
   }
 
@@ -508,6 +501,14 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
+  }
+
+  @media (max-width: 800px) {
+    .header-actions {
+      order: -1;
+      flex-basis: 100%;
+      justify-content: flex-end;
+    }
   }
 
   .details {
@@ -529,7 +530,7 @@
   }
 
   .row dt {
-    font-size: 0.8rem;
+    font-size: var(--font-size-xs);
     color: var(--color-text-muted);
   }
 
@@ -604,19 +605,11 @@
   }
 
   .included-mod-name {
-    font-weight: 600;
+    font-weight: var(--font-weight-medium);
   }
 
   .included-mod-meta {
     font-size: var(--font-size-xs);
     color: var(--color-text-muted);
-  }
-
-  .safety-safe {
-    color: var(--color-success);
-  }
-
-  .safety-unsafe {
-    color: var(--color-error);
   }
 </style>

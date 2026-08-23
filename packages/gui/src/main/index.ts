@@ -105,6 +105,8 @@ function createWindow() {
   const window = new BrowserWindow({
     width: 1024,
     height: 720,
+    minWidth: 520,
+    minHeight: 500,
     show: false,
     autoHideMenuBar: true,
     // Paint the window in the active theme's --color-bg before the renderer

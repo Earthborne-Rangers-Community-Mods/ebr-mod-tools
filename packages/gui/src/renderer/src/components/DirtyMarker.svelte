@@ -38,7 +38,7 @@
     display: inline-block;
     margin-left: 0.1em;
     color: var(--color-primary);
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
     font-size: 2em;
     /* line-height 0 keeps the enlarged glyph from stretching the line; the glyph
        still draws upward from its baseline, so translateY pulls it down to sit

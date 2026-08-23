@@ -34,8 +34,7 @@
   }
 </script>
 
-<Modal onCancel={() => publishFlow.cancel()} labelledby="publish-title">
-  <p id="publish-title" class="title">{m.publish_dialog_title()}</p>
+<Modal onCancel={() => publishFlow.cancel()} title={m.publish_dialog_title()} labelledby="publish-title">
 
   {#if publishFlow.done}
     {#if publishFlow.identityWarning}
@@ -133,12 +132,6 @@
 </Modal>
 
 <style>
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
-  }
-
   .body {
     margin: 0;
     color: var(--color-text);
@@ -148,20 +141,20 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     cursor: pointer;
   }
 
   .note {
     margin: 0;
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .progress {
     margin: 0;
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .warnings {
@@ -174,14 +167,14 @@
 
   .warnings-title {
     margin: 0 0 var(--spacing-xs);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
   .warnings ul {
     margin: 0;
     padding-left: var(--spacing-lg);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .identity-warning {
@@ -190,7 +183,7 @@
 
   .identity-body {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .link {

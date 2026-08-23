@@ -141,7 +141,7 @@
   }
 
   .field span {
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -157,7 +157,7 @@
   .product legend {
     padding: 0;
     margin-bottom: var(--spacing-xs);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -165,7 +165,7 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-xs);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     cursor: pointer;
   }
 
@@ -174,7 +174,7 @@
     padding-left: var(--spacing-lg);
     max-height: 10rem;
     overflow-y: auto;
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -185,13 +185,13 @@
   .progress {
     margin: 0;
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .error-text {
     color: var(--color-error);
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .actions {

@@ -45,8 +45,7 @@
   const current = $derived(flow.current);
 </script>
 
-<Modal onCancel={() => flow.close()} labelledby="update-title">
-  <p id="update-title" class="title">{m.update_title()}</p>
+<Modal onCancel={() => flow.close()} title={m.update_title()} labelledby="update-title">
 
   {#if flow.statusPending}
     <div class="loading"><Spinner label={m.update_checking()} /></div>
@@ -105,21 +104,15 @@
 </Modal>
 
 <style>
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
-  }
-
   .step {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
   .item-name {
     margin: 0;
-    font-weight: 600;
+    font-weight: var(--font-weight-medium);
   }
 
   .body {
@@ -142,7 +135,7 @@
   .error-text {
     color: var(--color-error);
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .actions {

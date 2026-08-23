@@ -53,7 +53,7 @@
   }
 
   .check-group legend {
-    font-size: 0.8rem;
+    font-size: var(--font-size-xs);
     color: var(--color-text-muted);
   }
 
@@ -68,6 +68,6 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-xs);
-    font-size: 0.9rem;
+    font-size: var(--font-size-sm);
   }
 </style>

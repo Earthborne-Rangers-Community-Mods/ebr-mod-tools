@@ -222,9 +222,8 @@
   }
 
   .account-label {
-    font-size: 0.75rem;
+    font-size: var(--font-size-xs);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
     color: var(--color-text-muted);
   }
 
@@ -233,8 +232,8 @@
     align-items: center;
     gap: var(--spacing-xs);
     color: var(--color-github-logo);
-    font-weight: 700;
-    font-size: 1.1rem;
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-md);
   }
 
   .github-logo {
@@ -352,7 +351,7 @@
   }
 
   .mod-icon {
-    font-size: 1.75rem;
+    font-size: var(--font-size-lg);
     line-height: 1;
   }
 
@@ -363,8 +362,8 @@
   }
 
   .mod-name {
-    font-weight: 600;
-    font-size: 1.05rem;
+    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-base);
   }
 
   .mid-merge-flag {
@@ -374,10 +373,9 @@
     border-radius: var(--radius-sm);
     background: var(--color-error);
     color: #fff;
-    font-size: 0.7rem;
-    font-weight: 700;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
     vertical-align: middle;
   }
 
@@ -386,7 +384,7 @@
     align-items: center;
     gap: var(--spacing-sm);
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .mod-meta.error {
@@ -401,7 +399,7 @@
 
   .confirm-label {
     color: var(--color-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .ghost.danger {

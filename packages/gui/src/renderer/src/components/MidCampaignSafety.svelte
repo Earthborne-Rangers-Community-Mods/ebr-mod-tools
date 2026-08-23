@@ -70,7 +70,7 @@
   }
 
   .group legend {
-    font-weight: 600;
+    font-weight: var(--font-weight-medium);
     padding: 0 var(--spacing-xs);
   }
 
@@ -81,7 +81,7 @@
   }
 
   .field span {
-    font-size: 0.8rem;
+    font-size: var(--font-size-xs);
     color: var(--color-text-muted);
   }
 </style>

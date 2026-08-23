@@ -16,8 +16,7 @@
   let { onSave, onDiscard, onCancel }: Props = $props();
 </script>
 
-<Modal {onCancel} labelledby="unsaved-title">
-  <p id="unsaved-title" class="title">{m.unsaved_title()}</p>
+<Modal {onCancel} title={m.unsaved_title()} labelledby="unsaved-title">
   <p class="body">{m.unsaved_body()}</p>
   <div class="actions">
     <button type="button" class="danger" onclick={onDiscard}>{m.unsaved_discard()}</button>
@@ -27,12 +26,6 @@
 </Modal>
 
 <style>
-  .title {
-    margin: 0;
-    font-weight: 700;
-    font-size: var(--font-size-md);
-  }
-
   .body {
     margin: 0;
     color: var(--color-text-muted);

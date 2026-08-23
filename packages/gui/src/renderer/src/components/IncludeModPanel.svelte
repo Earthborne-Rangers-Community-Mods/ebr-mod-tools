@@ -116,7 +116,7 @@
 
   .body.warn {
     color: var(--color-text);
-    font-weight: 600;
+    font-weight: var(--font-weight-medium);
   }
 
   .field {

@@ -130,7 +130,7 @@
 
   .body.warn {
     color: var(--color-text);
-    font-weight: 600;
+    font-weight: var(--font-weight-medium);
   }
 
   .field {
@@ -151,7 +151,7 @@
   .product legend {
     padding: 0;
     margin-bottom: var(--spacing-xs);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -159,12 +159,12 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-xs);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     cursor: pointer;
   }
 
   .field span {
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -173,7 +173,7 @@
     padding-left: var(--spacing-lg);
     max-height: 10rem;
     overflow-y: auto;
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
     color: var(--color-text-muted);
   }
 
@@ -184,7 +184,7 @@
   .error-text {
     color: var(--color-error);
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .actions {
