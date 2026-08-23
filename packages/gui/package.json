@@ -19,7 +19,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "core": "*"
+    "core": "file:../core"
   },
   "devDependencies": {
     "@inlang/paraglide-js": "^2.21.0",
